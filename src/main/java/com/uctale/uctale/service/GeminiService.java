@@ -51,13 +51,22 @@ public class GeminiService {
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
 
-    public GeminiService(ObjectMapper objectMapper) {
+    public GeminiService(ObjectMapper objectMapper, RestClient.Builder builder) {
         this.objectMapper = objectMapper;
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(CONNECT_TIMEOUT);
         factory.setReadTimeout(READ_TIMEOUT);
-        this.restClient = RestClient.builder().requestFactory(factory).build();
+
+        this.restClient = builder.requestFactory(factory).build();
     }
+
+    /*
+    GeminiServiceTest 수행 시에는 다음 코드로 교체
+    public GeminiService(ObjectMapper objectMapper, RestClient.Builder builder) {
+        this.objectMapper = objectMapper;
+        this.restClient = builder.build();
+    }
+     */
 
     public GeminiResponse getOpening(GameInitRequest request) {
         try {
