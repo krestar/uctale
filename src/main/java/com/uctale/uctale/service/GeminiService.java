@@ -7,7 +7,6 @@ import com.uctale.uctale.dto.GeminiResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -18,13 +17,10 @@ import java.util.Map;
 @Service
 public class GeminiService {
 
-    private static final String GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
-    private static final int CONNECT_TIMEOUT = 10000;
-    private static final int READ_TIMEOUT = 40000;
+    private static final String GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
-    // [리팩터링] 긴 프롬프트 텍스트를 상수로 분리하여 메서드 길이 단축
     private static final String SYSTEM_INSTRUCTION = """
-            당신은 텍스트 어드벤처(TRPG) 게임 마스터(GM)입니다.
+            당신은 텍스트 어드벤처 게임 마스터(GM)입니다.
             사용자가 입력한 세계관과 캐릭터를 바탕으로 몰입감 넘치는 오프닝 스토리를 창작하세요.
             
             [작성 규칙]
@@ -53,20 +49,8 @@ public class GeminiService {
 
     public GeminiService(ObjectMapper objectMapper, RestClient.Builder builder) {
         this.objectMapper = objectMapper;
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(CONNECT_TIMEOUT);
-        factory.setReadTimeout(READ_TIMEOUT);
-
-        this.restClient = builder.requestFactory(factory).build();
-    }
-
-    /*
-    GeminiServiceTest 수행 시에는 다음 코드로 교체
-    public GeminiService(ObjectMapper objectMapper, RestClient.Builder builder) {
-        this.objectMapper = objectMapper;
         this.restClient = builder.build();
     }
-     */
 
     public GeminiResponse getOpening(GameInitRequest request) {
         try {
