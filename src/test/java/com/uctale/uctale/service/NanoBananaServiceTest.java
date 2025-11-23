@@ -3,60 +3,61 @@ package com.uctale.uctale.service;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.client.RestClientTest;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.TestPropertySource;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.containsString;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
-import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-@RestClientTest(NanoBananaService.class)
+@SpringBootTest
+@TestPropertySource(properties = "pollinations.token=TEST_TOKEN")
 class NanoBananaServiceTest {
 
     @Autowired
     private NanoBananaService nanoBananaService;
 
-    @Autowired
-    private MockRestServiceServer mockServer;
-
     @Test
-    @DisplayName("이미지 생성 요청 시, Base64 응답을 Data URL 형식으로 변환해야 한다")
+    @DisplayName("이미지 생성 요청 시, Pollinations URL 형식을 반환해야 한다")
     void generateImage_Success() {
         // given
-        String prompt = "Test Prompt";
+        String prompt = "zombie";
         String aspectRatio = "16:9";
 
-        // [수정됨] 최신 Gemini API 응답 구조 (inline_data)
-        String mockApiResponse = """
-            {
-              "candidates": [
-                {
-                  "content": {
-                    "parts": [
-                      {
-                        "inline_data": {
-                          "mime_type": "image/jpeg",
-                          "data": "SGVsbG8="
-                        }
-                      }
-                    ]
-                  }
-                }
-              ]
-            }
-            """;
-
         // when
-        // URL 검증: gemini-2.5-flash-image 모델명 포함 여부 확인
-        mockServer.expect(requestTo(containsString("gemini-2.5-flash-image")))
-                .andRespond(withSuccess(mockApiResponse, MediaType.APPLICATION_JSON));
-
         String resultUrl = nanoBananaService.generateImage(prompt, aspectRatio);
 
         // then
-        // 결과가 jpeg 헤더로 잘 나오는지 확인
-        assertThat(resultUrl).isEqualTo("data:image/jpeg;base64,SGVsbG8=");
+        // 1. Pollinations 도메인 확인
+        assertThat(resultUrl).startsWith("https://image.pollinations.ai/prompt/");
+
+        // 2. 프롬프트가 포함되었는지 확인 (인코딩된 상태)
+        assertThat(resultUrl).contains("zombie");
+
+        // 3. 해상도(16:9) 파라미터 확인 (변경된 768x432)
+        assertThat(resultUrl).contains("width=768");
+        assertThat(resultUrl).contains("height=432");
+
+        // 4. 스타일 접미사(charcoal)가 포함되었는지 확인
+        assertThat(resultUrl).contains("charcoal");
+
+        // 5. 모델(flux) 파라미터 확인
+        assertThat(resultUrl).contains("model=flux");
+
+        // 6. 토큰 파라미터 확인
+        assertThat(resultUrl).contains("token=TEST_TOKEN");
+    }
+
+    @Test
+    @DisplayName("기본 비율(1:1) 요청 시 512x512 해상도를 반환해야 한다")
+    void generateImage_DefaultRatio() {
+        // given
+        String prompt = "test";
+        String aspectRatio = "1:1"; // 또는 다른 값
+
+        // when
+        String resultUrl = nanoBananaService.generateImage(prompt, aspectRatio);
+
+        // then
+        assertThat(resultUrl).contains("width=512");
+        assertThat(resultUrl).contains("height=512");
     }
 }
