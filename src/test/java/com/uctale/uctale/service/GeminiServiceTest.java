@@ -50,7 +50,7 @@ class GeminiServiceTest {
             }
             """;
 
-        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=TEST_API_KEY"))
+        mockServer.expect(requestTo("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=TEST_API_KEY"))
                 .andRespond(withSuccess(mockApiResponse, MediaType.APPLICATION_JSON));
 
         GeminiResponse response = geminiService.getOpening(request);
