@@ -1,39 +1,80 @@
+// src/App.jsx
 import { useState } from 'react'
+import { initGame } from './api/gameApi'
+import GameImage from './components/GameImage'
 import './App.css'
 
 function App() {
-    // 사용자 입력을 저장할 State
     const [world, setWorld] = useState('');
     const [character, setCharacter] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [gameData, setGameData] = useState(null);
 
-    // 게임 시작 버튼 클릭 시 실행될 함수
     const handleStartGame = async () => {
         if (!world || !character) {
             alert("세계관과 캐릭터 설정을 모두 입력해주세요!");
             return;
         }
 
-        setIsLoading(true); // 로딩 시작
+        setIsLoading(true);
         console.log("게임 시작 요청:", { world, character });
 
         try {
-            // TODO: 백엔드 API (/api/game/init) 호출 로직이 들어갈 자리
-            // 지금은 2초 뒤에 알림창만 띄웁니다.
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            alert("API 연동 준비 완료! 백엔드로 데이터를 보낼 준비가 되었습니다.");
+            // 실제 백엔드 API 호출
+            const data = await initGame(world, character);
+            console.log("응답 데이터:", data);
+
+            setGameData(data);
 
         } catch (error) {
             console.error("에러 발생:", error);
-            alert("게임 시작 중 오류가 발생했습니다.");
+            alert("서버와 연결할 수 없거나 오류가 발생했습니다.\n(백엔드 서버가 켜져 있는지 확인해주세요!)");
         } finally {
-            setIsLoading(false); // 로딩 끝
+            setIsLoading(false);
         }
     };
 
+    // 게임 데이터가 있으면 '게임 플레이 화면' 렌더링
+    if (gameData) {
+        return (
+            <div className="container">
+                <h1>📖 {world}의 이야기</h1>
+
+                {/* GameImage 컴포넌트 사용 (로딩 처리 포함) */}
+                <div style={{ margin: '20px 0' }}>
+                    <GameImage src={gameData.mainImageUrl} alt="Game Scene" />
+                </div>
+
+                {/* 스토리 텍스트 */}
+                <div style={{ textAlign: 'left', background: '#1e1e1e', padding: '20px', borderRadius: '8px', marginBottom: '20px', lineHeight: '1.6' }}>
+                    <p>{gameData.storyText}</p>
+                </div>
+
+                {/* 선택지 버튼들 */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {gameData.choices.map((choice) => (
+                        <button key={choice.id} className="start-btn" style={{ marginTop: 0, fontSize: '1rem' }}>
+                            {choice.text}
+                        </button>
+                    ))}
+                </div>
+
+                {/* 처음으로 돌아가기 */}
+                <button
+                    className="start-btn"
+                    style={{ backgroundColor: '#555', marginTop: '30px' }}
+                    onClick={() => setGameData(null)}
+                >
+                    처음으로
+                </button>
+            </div>
+        );
+    }
+
+    // 기본 화면 (입력 폼)
     return (
         <div className="container">
-            <h1>UCTale (당신이 만들어가는 이야기)</h1>
+            <h1>UCTale(당신이 만들어가는 이야기)</h1>
 
             <div className="input-group">
                 <label>🪐 어떤 세계관인가요?</label>
