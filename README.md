@@ -5,36 +5,36 @@ Gemini API와 Spring Boot를 활용한 웹 기반 인터랙티브 텍스트 어�
 
 ## 🚀 프로젝트 개요
 * **주제:** AI 생성형 TRPG
-* **핵심 기술:** Gemini 2.5 Flash (텍스트), Gemini 2.5 Flash Image (이미지), Java Spring Boot
+* **핵심 기술:** Gemini 2.5 Flash (텍스트), Pollinations.ai (이미지), Java Spring Boot
 
 
 ## 🛠 기술 스택
 * **Frontend:** React.js, Vercel (배포)
 * **Backend:** Java 21, Spring Boot, Render (배포)
 * **Database:** H2 Database
-* **AI Model:** Google Gemini API
+* **AI Model:** Text: Google Gemini 2.5 Flash, Image: Pollinations.ai (Flux Model)
 
 ## 📋 기능 목록
 
 ### 1. 환경 설정 및 기본 세팅
-- [ ] **프로젝트 초기화**
+- [x] **프로젝트 초기화**
     - Spring Boot 프로젝트 생성 (Java 21)
     - `.gitignore` 및 `build.gradle` 설정
     - Google AI Studio API Key 환경 변수 설정
-- [ ] **DB 설정**
+- [x] **DB 설정**
     - H2 Console 연동 및 JPA 설정
 
 ### 2. 게임 초기화 (Game Init)
-- [ ] **DTO 및 도메인 설계**
+- [x] **DTO 및 도메인 설계**
     - `GameInitRequest` (세계관, 사용자 정보)
     - `GameResponse` (스토리, 선택지, 이미지 URL)
-- [ ] **Gemini 텍스트 생성 로직**
+- [x] **Gemini 텍스트 생성 로직**
     - Gemini Client 구현 (REST API 호출)
     - System Instruction 설정: 오프닝 스토리 및 선택지 3개 생성
     - `JSON Mode` 적용: 응답 형식을 구조화된 JSON으로 강제
-- [ ] **나노 바나나 이미지 생성 로직**
-    - 주인공 캐릭터 이미지 생성 (Style: Rough Charcoal Sketch 고정)
-    - 오프닝 배경 이미지 생성 (Ratio: 16:9 파라미터 적용)
+- [x] **이미지 생성 로직 (Pollinations.ai)**
+    - Flux 모델 적용하여 흑백 스케치(Charcoal Sketch) 스타일 구현
+    - 오프닝 배경 이미지 생성
     - 비동기 처리 또는 순차 처리 구조 확립
 
 ### 3. 게임 진행 (Game Progress)
