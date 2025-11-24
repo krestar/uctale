@@ -32,7 +32,7 @@ body {
 .container {
     width: 100%;
     max-width: 600px;
-    padding: 2rem 1rem;
+    padding: 2rem 1.5rem;
     text-align: center;
     margin-top: 2rem;
     padding-bottom: 4rem;
@@ -57,27 +57,30 @@ h1 {
 }
 
 .input-group {
-    margin-bottom: 1.5rem;
+    margin-bottom: 2rem;
     text-align: left;
 }
 
 label {
     display: block;
-    margin-bottom: 0.5rem;
-    font-size: 1rem;
+    margin-bottom: 0.8rem;
+    font-size: 1.1rem;
     font-weight: 700;
     color: #bbb;
 }
 
 input, textarea {
     width: 100%;
-    padding: 14px;
+    padding: 16px;
     background-color: var(--input-bg);
     border: 1px solid #333;
     color: white;
-    font-size: 1rem;
-    border-radius: 8px;
+    font-size: 1.1rem;
+    border-radius: 12px;
+    box-sizing: border-box;
     font-family: 'Noto Sans KR', sans-serif;
+    appearance: none;
+    -webkit-appearance: none;
 }
 
 input:focus, textarea:focus {
@@ -86,10 +89,19 @@ input:focus, textarea:focus {
     box-shadow: 0 0 0 2px rgba(187, 134, 252, 0.2);
 }
 
+input {
+    min-height: 56px;
+}
+
+textarea {
+    min-height: 120px;
+    resize: vertical;
+}
+
 button.start-btn {
-    margin-top: 2rem;
-    padding: 16px 40px;
-    font-size: 1.1rem;
+    margin-top: 1.5rem;
+    padding: 18px 40px;
+    font-size: 1.2rem;
     font-weight: bold;
     color: var(--bg-color);
     background-color: var(--accent-color);
@@ -97,6 +109,8 @@ button.start-btn {
     border-radius: 30px;
     cursor: pointer;
     transition: all 0.2s ease;
+    width: 100%;
+    max-width: 300px;
 }
 
 button.start-btn:hover {

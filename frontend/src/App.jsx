@@ -152,7 +152,7 @@ function App() {
                 <label>🪐 어떤 세계관인가요?</label>
                 <input
                     type="text"
-                    placeholder="예: 현대 서울 좀비 아포칼립스"
+                    placeholder="예: 현대 서울 좀비 아포칼립스, 서울에 핵미사일이 발사된 상황, 눈을 떠보니 마법과 드래곤이 있는 이세계"
                     value={world}
                     onChange={(e) => setWorld(e.target.value)}
                 />
@@ -162,7 +162,7 @@ function App() {
                 <label>👤 당신은 누구인가요?</label>
                 <textarea
                     rows="3"
-                    placeholder="예: 30대 평범한 직장인 김대리"
+                    placeholder="예: 지하철로 출근하던 30대 회사원 김대리, 평범한 대학생, 사람 말을 할 수 있는 고양이"
                     value={character}
                     onChange={(e) => setCharacter(e.target.value)}
                 />
