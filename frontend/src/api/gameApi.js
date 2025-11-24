@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // 백엔드 서버 주소
-const BASE_URL = 'http://localhost:8080/api/game';
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/game';
 
 /**
  * 게임 초기화 요청 (POST /api/game/init)
