@@ -1,4 +1,3 @@
-// src/App.jsx
 import { useState, useEffect } from 'react'
 import { initGame, progressGame, verifyPassword } from './api/gameApi'
 import GameImage from './components/GameImage'
