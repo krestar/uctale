@@ -1,6 +1,7 @@
 package com.uctale.uctale.controller;
 
 import com.uctale.uctale.dto.GameInitRequest;
+import com.uctale.uctale.dto.GameProgressRequest;
 import com.uctale.uctale.dto.GameResponse;
 import com.uctale.uctale.service.GameService;
 import lombok.RequiredArgsConstructor;
@@ -17,13 +18,17 @@ public class GameController {
 
     private final GameService gameService;
 
+    // 게임 시작
     @PostMapping("/init")
     public ResponseEntity<GameResponse> initGame(@RequestBody GameInitRequest request) {
-        log.info("게임 초기화 요청: 세계관={}, 사용자={}", request.worldSetting(), request.characterSetting());
+        log.info("게임 초기화: {}", request.worldSetting());
+        return ResponseEntity.ok(gameService.initGame(request));
+    }
 
-        // 서비스 계층으로 로직 위임
-        GameResponse response = gameService.initGame(request);
-
-        return ResponseEntity.ok(response);
+    // 게임 진행 (선택지 클릭 시)
+    @PostMapping("/progress")
+    public ResponseEntity<GameResponse> progressGame(@RequestBody GameProgressRequest request) {
+        log.info("게임 진행: 세션ID={}, 선택지={}", request.sessionId(), request.choiceId());
+        return ResponseEntity.ok(gameService.progressGame(request));
     }
 }
