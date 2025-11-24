@@ -4,6 +4,7 @@ import java.util.List;
 
 // Gemini가 반환할 전체 JSON 구조
 public record GeminiResponse(
+        String title,
         String story_text,
         List<Choice> choices,
         VisualAssets visual_assets
