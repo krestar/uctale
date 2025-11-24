@@ -21,37 +21,38 @@ public class GeminiService {
 
     private static final String GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
-    // [수정] 세계관 일관성 및 장르 제약 조건을 강력하게 추가한 시스템 프롬프트
+    // [수정] 이미지 생성 제어 및 프롬프트 조합을 위한 시스템 프롬프트 강화
     private static final String SYSTEM_INSTRUCTION = """
             당신은 텍스트 어드벤처 게임 마스터(GM)입니다.
             사용자가 입력한 [세계관]과 [캐릭터] 설정을 절대적인 진실로 받아들이고, 이를 바탕으로 일관성 있는 스토리를 진행하세요.
             
-            [핵심 원칙 - 장르 일관성 유지]
-            1. **세계관 분석:** 사용자의 세계관이 '현실 기반(전쟁, 재난, 조난)'인지 '판타지/SF(좀비, 몬스터, 마법)'인지 먼저 파악하세요.
-            2. **현실 기반일 경우:** 좀비, 몬스터, 유령 등 초자연적 존재를 **절대** 등장시키지 마세요. 대신 약탈자, 야생 동물, 군인, 자연재해 등 현실적인 위협을 등장시키세요.
-            3. **판타지일 경우:** 세계관에 어울리는 크리처를 등장시키세요.
-            4. **개연성:** 사건은 인과관계에 맞게 발생해야 합니다. 갑작스러운 장르 변경을 금지합니다.
+            [핵심 원칙]
+            1. **세계관 준수:** 현실/판타지/SF 등 사용자가 설정한 장르를 엄격히 따르십시오.
+            2. **개연성:** 사건은 인과관계에 맞게 발생해야 합니다.
             
-            [작성 규칙]
-            1. **언어:** 'title', 'story_text', 'choices'는 한국어, 'visual_assets'는 영어로 작성하세요.
-            2. **제목:** 상황에 어울리는 제목을 유지하거나 갱신하세요.
-            3. **스토리:** 3~5문장 내외로, 현재 상황과 사용자의 행동에 대한 결과를 생생하게 묘사하세요.
-            4. **시각적 요소:** - 'visual_assets'에는 현재 장면을 묘사하는 키워드를 넣으세요.
-               - 현실적인 상황이라면 몬스터 대신 'angry robber holding a knife', 'ruined city streets' 등을 묘사해야 합니다.
+            [시각적 요소(visual_assets) 작성 규칙 - 매우 중요]
+            1. **이미지 생성 판단:** 직전 턴과 비교하여 **시각적으로 명확한 변화**가 있을 때만 작성하세요.
+               - (O) 장소 이동, 새로운 적/NPC 등장, 중요한 아이템 획득
+               - (X) 단순 대화, 생각, 시각적 변화가 없는 행동
+            2. **변화가 없다면:** `background`, `characters`, `assets` 모든 필드를 비워두세요 (빈 문자열 "" 또는 빈 리스트 []).
+            3. **작성 내용:**
+               - `background`: 현재 장소나 분위기 (예: 'dark abandoned subway station')
+               - `characters`: **주인공을 제외한** 등장인물, 몬스터 (예: 'bloody zombie', 'angry soldier')
+               - `assets`: 현재 상호작용 중인 핵심 사물 (예: 'red fire extinguisher', 'rusty old key')
+               - 모든 묘사는 **영어(English)**로 작성해야 합니다.
             
             [JSON 응답 형식]
             {
-              "title": "string",
-              "story_text": "string",
+              "title": "string (한국어)",
+              "story_text": "string (한국어, 3~5문장)",
               "choices": [
                 { "id": 1, "text": "행동 1" },
-                { "id": 2, "text": "행동 2" },
-                { "id": 3, "text": "행동 3" }
+                { "id": 2, "text": "행동 2" }
               ],
               "visual_assets": {
-                "background": "string (English prompt)",
-                "characters": ["string (English prompt)"],
-                "assets": ["string (English prompt)"]
+                "background": "string (English or empty)",
+                "characters": ["string (English or empty)"],
+                "assets": ["string (English or empty)"]
               }
             }
             """;
@@ -104,8 +105,8 @@ public class GeminiService {
             [세계관 설정]: %s
             [캐릭터 설정]: %s
             
-            위 설정을 철저히 준수하여 오프닝을 생성하세요.
-            세계관에 명시되지 않은 장르(예: 갑작스러운 판타지 요소)를 섞지 마십시오.
+            위 설정을 바탕으로 게임의 오프닝을 생성하세요.
+            첫 장면이므로 visual_assets(배경, 분위기 등)를 반드시 상세하게 채워주세요.
             """, request.worldSetting(), request.characterSetting());
     }
 
@@ -116,8 +117,8 @@ public class GeminiService {
             [직전 상황]: %s
             [사용자 행동]: %s
             
-            1. 사용자의 행동에 대한 결과를 서술하고 다음 상황을 제시하세요.
-            2. [세계관]의 장르적 특성을 위배하지 마십시오. (예: 현실 재난물에 몬스터 등장 금지)
+            1. 행동에 대한 결과를 서술하고 다음 상황을 제시하세요.
+            2. 시각적 변화가 없다면 visual_assets를 비워두어 불필요한 이미지 생성을 막으세요.
             """, world, character, previousStory, userChoice);
     }
 
@@ -160,14 +161,21 @@ public class GeminiService {
         JsonNode visualNode = rootNode.path("visual_assets");
         String background = visualNode.path("background").asText("");
 
+        // [수정] 빈 문자열은 리스트에 추가하지 않도록 필터링하여 정확한 생략 로직 지원
         List<String> characters = new ArrayList<>();
         if (visualNode.has("characters") && visualNode.get("characters").isArray()) {
-            for (JsonNode n : visualNode.get("characters")) characters.add(n.asText());
+            for (JsonNode n : visualNode.get("characters")) {
+                String val = n.asText();
+                if (val != null && !val.isBlank()) characters.add(val);
+            }
         }
 
         List<String> assets = new ArrayList<>();
         if (visualNode.has("assets") && visualNode.get("assets").isArray()) {
-            for (JsonNode n : visualNode.get("assets")) assets.add(n.asText());
+            for (JsonNode n : visualNode.get("assets")) {
+                String val = n.asText();
+                if (val != null && !val.isBlank()) assets.add(val);
+            }
         }
 
         GeminiResponse.VisualAssets visualAssets = new GeminiResponse.VisualAssets(background, characters, assets);
