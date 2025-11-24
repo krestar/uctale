@@ -7,6 +7,7 @@ Gemini API와 Spring Boot를 활용한 웹 기반 인터랙티브 텍스트 어�
 * **주제:** AI 생성형 TRPG
 * **핵심 기술:** Gemini 2.5 Flash (텍스트), Pollinations.ai (이미지), Java Spring Boot
 
+배포 링크: https://uctale.vercel.app/
 
 ## 🛠 기술 스택
 * **Frontend:** React.js, Vercel (배포)
@@ -38,21 +39,21 @@ Gemini API와 Spring Boot를 활용한 웹 기반 인터랙티브 텍스트 어�
     - 비동기 처리 또는 순차 처리 구조 확립
 
 ### 3. 게임 진행 (Game Progress)
-- [ ] **스토리 진행 API**
+- [x] **스토리 진행 API**
     - 사용자 선택(Choice ID) 수신 및 처리
     - 이전 게임 상태(`game_state`)를 포함하여 Gemini에 다음 턴 요청
-- [ ] **동적 이미지 판단 로직 (핵심)**
+- [x] **동적 이미지 판단 로직 (핵심)**
     - Gemini 응답 내 `visual_assets` 리스트 파싱
     - **판단:** 리스트가 비어있으면 이미지 생성 건너뛰기 (자원 절약)
     - **실행:** 리스트가 있으면 해당 프롬프트에 스타일 접미사를 붙여 이미지 생성
 
 ### 4. 게임 상태 관리 (State Management)
-- [ ] **세션 관리**
+- [x] **세션 관리**
     - 사용자별 고유 Session ID 발급
     - H2 DB에 턴별 스토리 및 상태(Inventory 등) 저장
-- [ ] **게임 리셋**
+- [x] **게임 리셋**
     - '처음으로' 요청 시 해당 세션 데이터 삭제
 
 ### 5. 배포 및 마무리
-- [ ] **CORS 설정** (Frontend <-> Backend 통신 허용)
-- [ ] **예외 처리** (API 타임아웃, 생성 실패 시 기본 이미지 제공 등)
+- [x] **CORS 설정** (Frontend <-> Backend 통신 허용)
+- [x] **예외 처리** (API 타임아웃, 생성 실패 시 기본 이미지 제공 등)
