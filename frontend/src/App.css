@@ -39,6 +39,12 @@ body {
     transition: max-width 0.3s ease;
 }
 
+.image-container {
+    margin: 20px 0;
+    position: relative;
+    width: 100%;
+}
+
 h1 {
     font-size: 2rem;
     margin-bottom: 2rem;
@@ -142,6 +148,12 @@ button.start-btn:disabled {
         display: flex;
         flex-direction: column;
         align-items: center;
+    }
+
+    .image-container {
+        width: 80%;
+        max-width: 800px;
+        margin: 30px 0;
     }
 
     .container > .input-group:nth-of-type(1),

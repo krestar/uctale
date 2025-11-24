@@ -100,6 +100,10 @@ function App() {
             <div className="container">
                 <h1>📖 {gameData.title}</h1>
 
+                <div className="image-container">
+                    <GameImage src={gameData.mainImageUrl} alt="Game Scene" />
+                </div>
+
                 {/* 이미지 영역 */}
                 <div style={{ margin: '20px 0', position: 'relative' }}>
                     <GameImage src={gameData.mainImageUrl} alt="Game Scene" />
