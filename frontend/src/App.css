@@ -36,6 +36,7 @@ body {
     text-align: center;
     margin-top: 2rem;
     padding-bottom: 6rem;
+    transition: max-width 0.3s ease;
 }
 
 h1 {
@@ -59,6 +60,7 @@ h1 {
 .input-group {
     margin-bottom: 2.5rem;
     text-align: left;
+    width: 100%;
 }
 
 label {
@@ -126,4 +128,49 @@ button.start-btn:disabled {
     cursor: not-allowed;
     transform: none;
     box-shadow: none;
+}
+
+@media (min-width: 768px) {
+    body {
+        align-items: center;
+    }
+
+    .container {
+        max-width: 1000px;
+        margin-top: 0;
+        padding: 3rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .container > .input-group:nth-of-type(1),
+    .container > .input-group:nth-of-type(2) {
+        width: 100%;
+        margin-bottom: 3rem;
+    }
+
+    h1 {
+        font-size: 3rem;
+        margin-bottom: 3rem;
+    }
+
+    .subtitle {
+        font-size: 1.2rem;
+    }
+
+    input, textarea {
+        font-size: 1.1rem;
+        padding: 24px;
+    }
+
+    textarea {
+        min-height: 250px;
+    }
+
+    button.start-btn {
+        width: auto;
+        min-width: 300px;
+        font-size: 1.4rem;
+    }
 }
