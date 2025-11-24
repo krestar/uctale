@@ -63,6 +63,18 @@ public class GeminiService {
         }
     }
 
+    public GeminiResponse getNextTurn(String world, String character, String previousStory, String userChoice) {
+        try {
+            String prompt = createProgressPrompt(world, character, previousStory, userChoice);
+            String requestBody = createRequestBody(prompt);
+            String response = callGeminiApi(requestBody);
+            return parseGeminiResponse(response);
+        } catch (Exception e) {
+            log.error("Gemini API Progress Error: {}", e.getMessage());
+            throw new RuntimeException("AI 서버 연결 실패 (진행 중): 잠시 후 다시 시도해주세요.", e);
+        }
+    }
+
     private String callGeminiApi(String requestBody) {
         return restClient.post()
                 .uri(GEMINI_API_URL + "?key=" + apiKey)
@@ -78,6 +90,19 @@ public class GeminiService {
             [사용자 캐릭터 설정]: %s
             위 설정을 바탕으로 게임의 오프닝을 생성하세요.
             """, request.worldSetting(), request.characterSetting());
+    }
+
+    private String createProgressPrompt(String world, String character, String previousStory, String userChoice) {
+        return String.format("""
+            [세계관]: %s
+            [캐릭터]: %s
+            [이전 스토리]: %s
+            [사용자의 선택]: %s
+            
+            위 선택에 따른 다음 스토리를 진행하고, 새로운 선택지 3개를 제시하세요.
+            시각적으로 보여줄 만한 새로운 배경이나 등장인물이 있다면 visual_assets에 영어로 묘사하세요.
+            (변화가 없다면 visual_assets는 비워두거나 이전과 동일하게 유지해도 됩니다.)
+            """, world, character, previousStory, userChoice);
     }
 
     private String createRequestBody(String userPrompt) throws JsonProcessingException {
