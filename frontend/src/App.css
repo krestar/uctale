@@ -7,6 +7,14 @@
     --accent-color: #bb86fc;
 }
 
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+html {
+    overflow-x: hidden;
+}
+
 body {
     margin: 0;
     background-color: var(--bg-color);
@@ -17,6 +25,8 @@ body {
     align-items: flex-start;
     min-height: 100dvh;
     overflow-y: auto;
+    overflow-x: hidden;
+    width: 100%;
 }
 
 .container {
@@ -67,7 +77,6 @@ input, textarea {
     color: white;
     font-size: 1rem;
     border-radius: 8px;
-    box-sizing: border-box;
     font-family: 'Noto Sans KR', sans-serif;
 }
 
