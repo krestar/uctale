@@ -35,7 +35,7 @@ body {
     padding: 2rem 1.5rem;
     text-align: center;
     margin-top: 2rem;
-    padding-bottom: 4rem;
+    padding-bottom: 6rem;
 }
 
 h1 {
@@ -57,28 +57,30 @@ h1 {
 }
 
 .input-group {
-    margin-bottom: 2rem;
+    margin-bottom: 2.5rem;
     text-align: left;
 }
 
 label {
     display: block;
-    margin-bottom: 0.8rem;
-    font-size: 1.1rem;
+    margin-bottom: 1rem;
+    font-size: 1.2rem;
     font-weight: 700;
     color: #bbb;
 }
 
 input, textarea {
     width: 100%;
-    padding: 16px;
+    padding: 20px;
     background-color: var(--input-bg);
     border: 1px solid #333;
     color: white;
-    font-size: 1.1rem;
-    border-radius: 12px;
+    font-size: 1.2rem;
+    border-radius: 16px;
     box-sizing: border-box;
     font-family: 'Noto Sans KR', sans-serif;
+    line-height: 1.6;
+
     appearance: none;
     -webkit-appearance: none;
 }
@@ -90,27 +92,27 @@ input:focus, textarea:focus {
 }
 
 input {
-    min-height: 56px;
+    min-height: 70px;
 }
 
 textarea {
-    min-height: 120px;
+    min-height: 200px;
     resize: vertical;
 }
 
 button.start-btn {
-    margin-top: 1.5rem;
-    padding: 18px 40px;
-    font-size: 1.2rem;
+    margin-top: 1rem;
+    padding: 20px 40px;
+    font-size: 1.3rem;
     font-weight: bold;
     color: var(--bg-color);
     background-color: var(--accent-color);
     border: none;
-    border-radius: 30px;
+    border-radius: 35px;
     cursor: pointer;
     transition: all 0.2s ease;
     width: 100%;
-    max-width: 300px;
+    max-width: 350px;
 }
 
 button.start-btn:hover {
