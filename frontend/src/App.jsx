@@ -143,7 +143,10 @@ function App() {
     // 3. 기본 입력 화면
     return (
         <div className="container">
-            <h1>UCTale(당신이 만들어가는 이야기)</h1>
+            <h1>
+                UCTale
+                <span className="subtitle">(당신이 만들어가는 이야기)</span>
+            </h1>
 
             <div className="input-group">
                 <label>🪐 어떤 세계관인가요?</label>

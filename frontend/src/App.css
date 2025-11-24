@@ -14,15 +14,18 @@ body {
     font-family: 'Noto Sans KR', sans-serif;
     display: flex;
     justify-content: center;
-    align-items: center;
-    min-height: 100vh;
+    align-items: flex-start;
+    min-height: 100dvh;
+    overflow-y: auto;
 }
 
 .container {
     width: 100%;
     max-width: 600px;
-    padding: 2rem;
+    padding: 2rem 1rem;
     text-align: center;
+    margin-top: 2rem;
+    padding-bottom: 4rem;
 }
 
 h1 {
@@ -33,6 +36,14 @@ h1 {
     padding-bottom: 0.5rem;
     word-break: keep-all;
     line-height: 1.4;
+}
+
+.subtitle {
+    display: block;
+    font-size: 1rem;
+    margin-top: 5px;
+    font-weight: normal;
+    color: #bbb;
 }
 
 .input-group {
