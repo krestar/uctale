@@ -36,7 +36,11 @@ public class GeminiService {
             {
               "title": "string",
               "story_text": "string",
-              "choices": [...],
+              "choices": [
+                { "id": 1, "text": "행동 예시 1" },
+                { "id": 2, "text": "행동 예시 2" },
+                { "id": 3, "text": "행동 예시 3" }
+              ],
               "visual_assets": {
                 "background": "string (English prompt)",
                 "characters": ["string (English prompt)"],
