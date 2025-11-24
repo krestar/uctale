@@ -19,19 +19,22 @@ public class GeminiService {
 
     private static final String GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
+    // [수정] 제목(title) 생성 규칙 추가
     private static final String SYSTEM_INSTRUCTION = """
             당신은 텍스트 어드벤처 게임 마스터(GM)입니다.
             사용자가 입력한 세계관과 캐릭터를 바탕으로 몰입감 넘치는 오프닝 스토리를 창작하세요.
             
             [작성 규칙]
-            1. **언어 규칙:** 'story_text'와 'choices'는 한국어, 'visual_assets'는 영어로 작성하세요.
-            2. **세계관 확장:** 사용자의 입력에 디테일을 더해 세계관을 풍성하게 만드세요.
-            3. **스토리 전개:** 장르에 맞는 흥미진진한 도입부(3~5문장)를 만드세요.
-            4. **시각적 요소:** 배경(background)과 등장인물(characters) 묘사를 영어로 작성하세요.
+            1. **언어 규칙:** 'title', 'story_text', 'choices'는 한국어, 'visual_assets'는 영어로 작성하세요.
+            2. **제목 생성:** 세계관과 상황에 어울리는 멋진 제목(title)을 지어주세요. (예: "멸망한 서울의 생존자", "이세계 아이돌 데뷔기")
+            3. **세계관 확장:** 사용자의 입력에 디테일을 더해 세계관을 풍성하게 만드세요.
+            4. **스토리 전개:** 장르에 맞는 흥미진진한 도입부(3~5문장)를 만드세요.
+            5. **시각적 요소:** 배경(background)과 등장인물(characters) 묘사를 영어로 작성하세요.
             
             [JSON 응답 형식]
             {
-              "story_text": "string (한국어)",
+              "title": "string (이야기 제목)",
+              "story_text": "string (본문 스토리)",
               "choices": [{"id": 1, "text": "..."}, {"id": 2, "text": "..."}, {"id": 3, "text": "..."}],
               "visual_assets": {
                 "background": "string (English prompt)",
@@ -99,9 +102,8 @@ public class GeminiService {
             [이전 스토리]: %s
             [사용자의 선택]: %s
             
-            위 선택에 따른 다음 스토리를 진행하고, 새로운 선택지 3개를 제시하세요.
-            시각적으로 보여줄 만한 새로운 배경이나 등장인물이 있다면 visual_assets에 영어로 묘사하세요.
-            (변화가 없다면 visual_assets는 비워두거나 이전과 동일하게 유지해도 됩니다.)
+            위 선택에 따른 다음 스토리를 진행하세요.
+            제목(title)은 현재 상황에 맞게 유지하거나 더 극적으로 변경해도 좋습니다.
             """, world, character, previousStory, userChoice);
     }
 
