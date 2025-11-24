@@ -1,16 +1,43 @@
-# React + Vite
+# UCTale Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+UCTale(User Create Tale)의 프론트엔드 프로젝트입니다.
+React와 Vite를 기반으로 구축되었으며, 사용자와 AI 간의 상호작용을 위한 직관적인 채팅형 UI와 동적 이미지 렌더링을 담당합니다.
 
-Currently, two official plugins are available:
+## 🛠 기술 스택
+- **Core:** React 18, Vite
+- **Language:** JavaScript (ES6+)
+- **Styling:** CSS Modules, Responsive Design (Mobile/PC)
+- **HTTP Client:** Axios
+- **Deployment:** Vercel
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 🚀 실행 방법
 
-## React Compiler
+### 1. 사전 요구사항
+- Node.js 18.0.0 이상
+- npm 또는 yarn
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 2. 의존성 설치
+```bash
+npm install
+```
 
-## Expanding the ESLint configuration
+### 3. 개발 서버 실행
+```bash
+npm run dev
+```
+실행 후 터미널에 표시되는 로컬 주소(예: http://localhost:5173)로 접속하여 테스트할 수 있습니다.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### 4. 프로덕션 빌드
+```
+npm run build
+```
+빌드된 파일은 dist 폴더에 생성됩니다.
+
+## 📂 주요 디렉토리 구조
+```bash
+src/
+├── api/            # 백엔드 API 통신 로직
+├── components/     # 재사용 가능한 UI 컴포넌트 (GameImage, TypewriterText 등)
+├── App.jsx         # 메인 게임 로직 및 상태 관리
+└── App.css         # 반응형 스타일링 및 테마 정의
+```
