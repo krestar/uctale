@@ -1,12 +1,10 @@
 // src/App.jsx
 import { useState, useEffect } from 'react'
-import { initGame, progressGame } from './api/gameApi'
+import { initGame, progressGame, verifyPassword } from './api/gameApi'
 import GameImage from './components/GameImage'
-import axios from 'axios'
 import './App.css'
 
 function App() {
-    // [상태 추가] 인증 여부 (로컬 스토리지에 저장하여 새로고침 해도 유지)
     const [isAuthenticated, setIsAuthenticated] = useState(
         localStorage.getItem('uctale_auth') === 'true'
     );
@@ -22,9 +20,7 @@ function App() {
     // 비밀번호 확인 함수
     const handleLogin = async () => {
         try {
-            await axios.post('http://localhost:8080/api/game/verify-password', {
-                password: passwordInput
-            });
+            await verifyPassword(passwordInput);
 
             // 성공 시
             setIsAuthenticated(true);
