@@ -108,6 +108,24 @@ textarea {
     resize: vertical;
 }
 
+.story-box {
+    text-align: left;
+    background-color: #1e1e1e;
+    padding: 20px;
+    border-radius: 16px;
+    margin-bottom: 20px;
+    width: 100%;
+    line-height: 1.8;
+    font-size: 1.1rem;
+}
+
+.choice-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    width: 100%;
+}
+
 button.start-btn {
     margin-top: 1rem;
     padding: 20px 40px;
@@ -120,7 +138,6 @@ button.start-btn {
     cursor: pointer;
     transition: all 0.2s ease;
     width: 100%;
-    max-width: 350px;
 }
 
 button.start-btn:hover {
@@ -156,6 +173,17 @@ button.start-btn:disabled {
         margin: 30px 0;
     }
 
+    .story-box, .choice-wrapper {
+        width: 100%;
+        max-width: 700px;
+    }
+
+    .story-box {
+        padding: 30px;
+        font-size: 1.2rem;
+        margin-bottom: 40px;
+    }
+
     .container > .input-group:nth-of-type(1),
     .container > .input-group:nth-of-type(2) {
         width: 100%;
@@ -181,8 +209,8 @@ button.start-btn:disabled {
     }
 
     button.start-btn {
-        width: auto;
-        min-width: 300px;
+        width: 100%;
+        max-width: 100%;
         font-size: 1.4rem;
     }
 }

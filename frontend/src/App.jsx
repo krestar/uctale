@@ -104,21 +104,14 @@ function App() {
                     <GameImage src={gameData.mainImageUrl} alt="Game Scene" />
                 </div>
 
-                {/* 이미지 영역 */}
-                <div style={{ margin: '20px 0', position: 'relative' }}>
-                    <GameImage src={gameData.mainImageUrl} alt="Game Scene" />
-                </div>
-
-                {/* 스토리 텍스트 (타이핑 효과) */}
-                <div style={{ textAlign: 'left', background: '#1e1e1e', padding: '20px', borderRadius: '8px', marginBottom: '20px' }}>
+                <div className="story-box">
                     <TypewriterText
                         text={gameData.storyText}
                         onComplete={() => setIsTypingComplete(true)}
                     />
                 </div>
 
-                {/* 선택지 버튼 */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div className="choice-wrapper">
                     {gameData.choices.map((choice) => (
                         <button
                             key={choice.id}
@@ -134,7 +127,7 @@ function App() {
 
                 <button
                     className="start-btn"
-                    style={{ backgroundColor: '#555', marginTop: '30px' }}
+                    style={{ backgroundColor: '#555', marginTop: '30px', width: 'auto', minWidth: '200px' }}
                     onClick={() => setGameData(null)}
                     disabled={isLoading}
                 >
