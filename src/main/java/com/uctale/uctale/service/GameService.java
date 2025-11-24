@@ -37,10 +37,9 @@ public class GameService {
         // 1. Gemini에게 오프닝 스토리 요청
         GeminiResponse geminiResponse = geminiService.getOpening(request);
 
-        // 2. 이미지 생성 (배경)
-        // 오프닝은 무조건 이미지가 필요하므로 생성 요청
-        String bgPrompt = geminiResponse.visual_assets().background();
-        String imageUrl = nanoBananaService.generateImage(bgPrompt, "16:9");
+        // 2. 이미지 생성 (배경/캐릭터/아이템 우선순위 적용)
+        String imagePrompt = determineImagePrompt(geminiResponse.visual_assets());
+        String imageUrl = nanoBananaService.generateImage(imagePrompt, "16:9");
 
         // 3. DB 저장 (세션 + 첫 번째 로그)
         GameSession session = new GameSession(request.worldSetting(), request.characterSetting());
@@ -85,19 +84,19 @@ public class GameService {
                 userChoiceText          // 유저의 행동
         );
 
-        // 4. 이미지 생성 판단 (자원 절약 로직)
+        // 4. 이미지 생성 판단 (우선순위 적용)
         String imageUrl = lastLog.getImageUrl(); // 기본값: 이전 이미지 재사용
-        String newBgPrompt = nextTurnResponse.visual_assets().background();
+        String newPrompt = determineImagePrompt(nextTurnResponse.visual_assets());
 
-        // Gemini가 새로운 배경 프롬프트를 줬다면 -> 새로 생성
-        if (newBgPrompt != null && !newBgPrompt.isBlank()) {
-            log.info("새로운 배경 생성 요청: {}", newBgPrompt);
-            String newImage = nanoBananaService.generateImage(newBgPrompt, "16:9");
+        // 새로운 프롬프트가 있으면 생성 (캐릭터 > 아이템 > 배경)
+        if (newPrompt != null && !newPrompt.isBlank()) {
+            log.info("새로운 이미지 생성 요청: {}", newPrompt);
+            String newImage = nanoBananaService.generateImage(newPrompt, "16:9");
             if (newImage != null) {
                 imageUrl = newImage;
             }
         } else {
-            log.info("이전 배경 재사용");
+            log.info("이전 이미지 재사용 (생성할 시각 요소 없음)");
         }
 
         // 5. 새로운 로그 저장
@@ -112,6 +111,27 @@ public class GameService {
                 imageUrl,
                 session.getId().toString()
         );
+    }
+
+    // 프롬프트 결정 헬퍼 메서드
+    // 캐릭터 > 아이템 > 배경 순으로 우선순위를 둠
+    private String determineImagePrompt(GeminiResponse.VisualAssets assets) {
+        if (assets == null) return null;
+
+        // 1. 캐릭터(몬스터/인물)가 있으면 최우선
+        if (assets.characters() != null && !assets.characters().isEmpty()) {
+            return assets.characters().get(0);
+        }
+        // 2. 아이템(assets)이 있으면 그 다음
+        if (assets.assets() != null && !assets.assets().isEmpty()) {
+            return assets.assets().get(0);
+        }
+        // 3. 배경만 있으면 배경 반환
+        if (assets.background() != null && !assets.background().isBlank()) {
+            return assets.background();
+        }
+
+        return null; // 그릴 게 없음
     }
 
     // Helper: 선택지 리스트 -> JSON String 변환
