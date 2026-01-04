@@ -34,7 +34,7 @@ public class NanoBananaService {
                     ? "&token=" + pollinationsToken
                     : "";
 
-            return String.format("https://gen.pollinations.ai/image/%s?%s...", encodedPrompt, sizeParam);
+            return String.format("https://pollinations.ai/p/%s?%s&nologo=true&model=flux%s", encodedPrompt, sizeParam, tokenParam);
         } catch (Exception e) {
             log.error("이미지 URL 생성 실패: {}", e.getMessage());
             return null;
