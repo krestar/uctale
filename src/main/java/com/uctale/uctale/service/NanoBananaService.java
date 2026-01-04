@@ -31,10 +31,16 @@ public class NanoBananaService {
             }
 
             String tokenParam = (pollinationsToken != null && !pollinationsToken.isBlank())
-                    ? "&token=" + pollinationsToken
+                    ? "&key=" + pollinationsToken
                     : "";
 
-            return String.format("https://pollinations.ai/p/%s?%s&nologo=true&model=flux%s", encodedPrompt, sizeParam, tokenParam);
+            String finalUrl = String.format("https://gen.pollinations.ai/image/%s?%s&nologo=true&model=flux%s",
+                    encodedPrompt, sizeParam, tokenParam);
+
+            log.info("생성된 이미지 URL: {}", finalUrl);
+
+            return finalUrl;
+
         } catch (Exception e) {
             log.error("이미지 URL 생성 실패: {}", e.getMessage());
             return null;
