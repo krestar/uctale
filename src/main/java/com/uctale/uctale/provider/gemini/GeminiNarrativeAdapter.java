@@ -3,6 +3,7 @@ package com.uctale.uctale.provider.gemini;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.uctale.uctale.application.narrative.NarrativeContext;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
 import lombok.extern.slf4j.Slf4j;
@@ -21,16 +22,18 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
 
     private static final String GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
     private static final String SYSTEM_INSTRUCTION = """
-            당신은 텍스트 어드벤처 게임 마스터(GM)입니다.
-            사용자가 입력한 [세계관]과 [캐릭터] 설정을 절대적인 진실로 받아들이고, 이를 바탕으로 일관성 있는 스토리를 진행하세요.
+            당신은 UCTale의 Narrative Engine입니다.
+            게임의 결정적 상태와 사실은 서버가 소유하며, 당신은 전달받은 상태를 바탕으로 서사를 표현합니다.
 
             [핵심 원칙]
-            1. **세계관 준수:** 현실/판타지/SF 등 사용자가 설정한 장르를 엄격히 따르십시오.
-            2. **개연성:** 사건은 인과관계에 맞게 발생해야 합니다.
+            1. **캐논 우선:** [캐논 사실]과 [현재 게임 상태]에 반하는 내용을 진실로 확정하지 마십시오.
+            2. **상태 비소유:** 능력치, 아이템, 생사, 위치 등 결정적 게임 상태를 임의로 변경했다고 확정하지 마십시오.
+            3. **개연성:** 사건은 전달받은 과거 문맥과 사용자 행동에 맞는 인과관계를 가져야 합니다.
+            4. **메모리 우선순위:** 캐논 사실 > 누적 요약 > 최근 턴 순으로 충돌을 해결하십시오.
 
             [시각적 요소(visual_assets) 작성 규칙 - 매우 중요]
             1. **이미지 생성 판단:** 직전 턴과 비교하여 **시각적으로 명확한 변화**가 있을 때만 작성하세요.
-               - (O) 장소 이동, 새로운 적/NPC 등장, 중요한 아이템 획득
+               - (O) 장소 이동, 새로운 적/NPC 등장, 중요한 아이템 등장
                - (X) 단순 대화, 생각, 시각적 변화가 없는 행동
             2. **변화가 없다면:** `background`, `characters`, `assets` 모든 필드를 비워두세요 (빈 문자열 "" 또는 빈 리스트 []).
             3. **작성 내용:**
@@ -84,17 +87,36 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
     }
 
     @Override
-    public NarrativeTurn createNextTurn(String worldSetting, String characterSetting, String previousStory, String userChoice) {
+    public NarrativeTurn createNextTurn(NarrativeContext context) {
         try {
             String prompt = String.format("""
-                    [세계관]: %s
-                    [캐릭터]: %s
-                    [직전 상황]: %s
-                    [사용자 행동]: %s
+                    [현재 게임 상태]
+                    세계관: %s
+                    플레이어: %s
 
-                    1. 행동에 대한 결과를 서술하고 다음 상황을 제시하세요.
-                    2. 시각적 변화가 없다면 visual_assets를 비워두어 불필요한 이미지 생성을 막으세요.
-                    """, worldSetting, characterSetting, previousStory, userChoice);
+                    [캐논 사실]
+                    %s
+
+                    [누적 요약]
+                    %s
+
+                    [최근 턴]
+                    %s
+
+                    [이번 사용자 행동]
+                    %s
+
+                    행동의 결과와 다음 상황을 서술하세요.
+                    서버가 전달하지 않은 결정적 상태 변화는 임의로 확정하지 마세요.
+                    시각적 변화가 없다면 visual_assets를 비워두세요.
+                    """,
+                    context.worldPremise(),
+                    context.playerDescription(),
+                    objectMapper.writeValueAsString(context.canonicalFacts()),
+                    context.rollingSummary().isBlank() ? "(없음)" : context.rollingSummary(),
+                    objectMapper.writeValueAsString(context.recentTurns()),
+                    context.playerAction()
+            );
             return generate(prompt, "Gemini API Progress Error");
         } catch (Exception e) {
             log.error("Gemini 다음 턴 생성 실패: {}", e.getClass().getSimpleName());
