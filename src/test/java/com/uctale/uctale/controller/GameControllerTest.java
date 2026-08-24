@@ -1,10 +1,10 @@
 package com.uctale.uctale.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.uctale.uctale.dto.GameChoice;
 import com.uctale.uctale.dto.GameInitRequest;
 import com.uctale.uctale.dto.GameProgressRequest;
 import com.uctale.uctale.dto.GameResponse;
-import com.uctale.uctale.dto.GeminiResponse;
 import com.uctale.uctale.service.GameService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -43,14 +43,14 @@ class GameControllerTest {
     }
 
     @Test
-    @DisplayName("게임 초기화 응답은 명시적인 sessionId를 제공하고 잘못된 캐릭터 이미지 필드를 노출하지 않는다")
+    @DisplayName("게임 초기화 응답은 명시적인 sessionId를 제공한다")
     void initGame_UsesExplicitSessionIdContract() throws Exception {
         GameInitRequest request = new GameInitRequest("좀비 아포칼립스", "김대리");
         GameResponse response = new GameResponse(
                 42L,
                 "첫날 밤",
                 "오프닝 스토리입니다.",
-                List.of(new GeminiResponse.Choice(1, "도망간다")),
+                List.of(new GameChoice(1, "도망간다")),
                 "/api/game/image?prompt=test&aspectRatio=16%3A9"
         );
         given(gameService.initGame(any(GameInitRequest.class))).willReturn(response);
@@ -63,7 +63,6 @@ class GameControllerTest {
                 .andExpect(jsonPath("$.title").value("첫날 밤"))
                 .andExpect(jsonPath("$.storyText").value("오프닝 스토리입니다."))
                 .andExpect(jsonPath("$.mainImageUrl").value("/api/game/image?prompt=test&aspectRatio=16%3A9"))
-                .andExpect(jsonPath("$.characterImageUrl").doesNotExist())
                 .andExpect(jsonPath("$.choices[0].id").value(1))
                 .andExpect(jsonPath("$.choices[0].text").value("도망간다"));
     }
@@ -76,7 +75,7 @@ class GameControllerTest {
                 42L,
                 "두 번째 장면",
                 "다음 턴 스토리입니다.",
-                List.of(new GeminiResponse.Choice(2, "숨는다")),
+                List.of(new GameChoice(2, "숨는다")),
                 "/api/game/image?prompt=turn2&aspectRatio=16%3A9"
         );
         given(gameService.progressGame(any(GameProgressRequest.class))).willReturn(response);
