@@ -11,10 +11,11 @@ export const initGame = async (worldSetting, characterSetting) => {
     return response.data;
 };
 
-export const progressGame = async (sessionId, choiceId) => {
+export const progressGame = async (sessionId, choiceId, expectedTurn) => {
     const response = await axios.post(`${BASE_URL}/progress`, {
         sessionId,
-        choiceId
+        choiceId,
+        expectedTurn
     });
     return response.data;
 };
