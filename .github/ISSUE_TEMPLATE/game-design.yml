@@ -1,0 +1,84 @@
+name: 게임 시스템 설계
+description: 구현 전에 게임 규칙과 AI의 역할을 명확히 설계합니다.
+title: "[Game Design] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        전투, 성장, 인벤토리, 퀘스트처럼 여러 기능에 영향을 주는 규칙은 구현 Issue보다 먼저 여기서 정의합니다.
+        핵심 원칙: 서버가 게임의 사실을 결정하고, LLM은 확정된 사실을 서술합니다.
+
+  - type: input
+    id: system_name
+    attributes:
+      label: 시스템 이름
+      placeholder: 능력치와 스킬 체크
+    validations:
+      required: true
+
+  - type: textarea
+    id: player_value
+    attributes:
+      label: 플레이어에게 주는 가치
+      description: 이 시스템이 왜 게임을 더 재미있게 만드는지 설명해 주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: state
+    attributes:
+      label: 필요한 게임 상태
+      placeholder: |
+        PlayerStats: STR, DEX, INT
+        CheckResult: roll, modifier, target, outcome
+    validations:
+      required: true
+
+  - type: textarea
+    id: deterministic_rules
+    attributes:
+      label: 서버가 결정해야 하는 규칙
+      description: 확률, 피해량, 보상, 상태 전이 등 LLM에 맡기지 않을 값을 명시합니다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: llm_role
+    attributes:
+      label: LLM이 담당하는 역할
+      description: 어떤 입력을 받고 무엇을 서술할 수 있는지, 무엇은 변경할 수 없는지 적어 주세요.
+      placeholder: 판정 결과를 자연어 장면으로 묘사하되 성공/실패와 수치는 변경하지 않는다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: ux
+    attributes:
+      label: 플레이 흐름과 UI
+      description: 플레이어가 어떤 정보를 보고 어떤 행동을 할 수 있는지 적어 주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: edge_cases
+    attributes:
+      label: 실패·경계 상황
+      description: 중복 요청, 동시 행동, AI 실패, 저장 실패, 잘못된 입력 등을 고려해 주세요.
+
+  - type: textarea
+    id: followups
+    attributes:
+      label: 후속 구현 단위
+      description: 구현 Issue를 어떤 크기로 분리할지 적어 주세요.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 설계 원칙 확인
+      options:
+        - label: 중요한 게임 상태는 서버에서 검증·저장됩니다.
+          required: true
+        - label: LLM 출력만으로 게임 상태가 임의 변경되지 않습니다.
+          required: true
+        - label: 저장/불러오기 시 재현 가능한 상태를 정의했습니다.
+          required: true
