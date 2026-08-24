@@ -26,6 +26,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -134,6 +135,6 @@ class GameServiceTest {
                 .isInstanceOf(TurnConflictException.class);
 
         verify(narrativeGenerator, never()).createNextTurn(any(), any(), any(), any());
-        verify(gamePersistenceService, never()).saveNextTurn(any(), any(Integer.class), any(), any(), any(), any());
+        verify(gamePersistenceService, never()).saveNextTurn(any(), anyInt(), any(), any(), any(), any());
     }
 }
