@@ -4,6 +4,7 @@ import com.uctale.uctale.application.game.ChoiceCodec;
 import com.uctale.uctale.application.game.GamePersistenceService;
 import com.uctale.uctale.application.game.ImagePromptComposer;
 import com.uctale.uctale.application.image.ImageGenerator;
+import com.uctale.uctale.application.narrative.NarrativeContext;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
 import com.uctale.uctale.dto.GameChoice;
@@ -55,12 +56,8 @@ public class GameService {
         );
 
         String userChoiceText = choiceCodec.findText(loadedTurn.choicesJson(), request.choiceId());
-        NarrativeTurn nextTurn = narrativeGenerator.createNextTurn(
-                loadedTurn.worldSetting(),
-                loadedTurn.characterSetting(),
-                loadedTurn.storyText(),
-                userChoiceText
-        );
+        NarrativeContext narrativeContext = NarrativeContext.from(loadedTurn.gameState(), userChoiceText);
+        NarrativeTurn nextTurn = narrativeGenerator.createNextTurn(narrativeContext);
         List<GameChoice> choices = toGameChoices(nextTurn.choices());
 
         String imageUrl = loadedTurn.imageUrl();

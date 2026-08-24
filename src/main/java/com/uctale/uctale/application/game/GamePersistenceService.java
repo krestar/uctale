@@ -2,22 +2,36 @@ package com.uctale.uctale.application.game;
 
 import com.uctale.uctale.domain.GameLog;
 import com.uctale.uctale.domain.GameSession;
+import com.uctale.uctale.domain.GameStateSnapshot;
+import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.repository.GameLogRepository;
 import com.uctale.uctale.repository.GameSessionRepository;
+import com.uctale.uctale.repository.GameStateSnapshotRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
 public class GamePersistenceService {
 
     private final GameSessionRepository gameSessionRepository;
     private final GameLogRepository gameLogRepository;
+    private final GameStateSnapshotRepository gameStateSnapshotRepository;
+    private final GameStateCodec gameStateCodec;
 
-    public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository) {
+    public GamePersistenceService(
+            GameSessionRepository gameSessionRepository,
+            GameLogRepository gameLogRepository,
+            GameStateSnapshotRepository gameStateSnapshotRepository,
+            GameStateCodec gameStateCodec
+    ) {
         this.gameSessionRepository = gameSessionRepository;
         this.gameLogRepository = gameLogRepository;
+        this.gameStateSnapshotRepository = gameStateSnapshotRepository;
+        this.gameStateCodec = gameStateCodec;
     }
 
     @Transactional
@@ -29,6 +43,8 @@ public class GamePersistenceService {
             String imageUrl
     ) {
         GameSession session = gameSessionRepository.save(new GameSession(worldSetting, characterSetting));
+        GameState initialState = GameState.initial(worldSetting, characterSetting, storyText);
+        gameStateSnapshotRepository.save(new GameStateSnapshot(session, gameStateCodec.serialize(initialState)));
         gameLogRepository.save(new GameLog(session, 1, storyText, choicesJson, imageUrl));
         return session;
     }
@@ -49,6 +65,11 @@ public class GamePersistenceService {
             throw new IllegalStateException("세션 턴과 저장된 로그가 일치하지 않습니다.");
         }
 
+        GameState gameState = loadOrRecoverState(session);
+        if (gameState.turnNumber() != expectedTurn) {
+            throw new IllegalStateException("세션 턴과 GameState가 일치하지 않습니다.");
+        }
+
         return new LoadedTurn(
                 session.getId(),
                 session.getCurrentTurn(),
@@ -56,7 +77,8 @@ public class GamePersistenceService {
                 session.getCharacterSetting(),
                 lastLog.getStoryText(),
                 lastLog.getChoicesJson(),
-                lastLog.getImageUrl()
+                lastLog.getImageUrl(),
+                gameState
         );
     }
 
@@ -84,6 +106,12 @@ public class GamePersistenceService {
                 throw new IllegalStateException("세션 턴과 저장된 로그가 일치하지 않습니다.");
             }
 
+            GameState currentState = loadOrRecoverState(session);
+            if (currentState.turnNumber() != expectedTurn) {
+                throw new IllegalStateException("세션 턴과 GameState가 일치하지 않습니다.");
+            }
+            GameState nextState = currentState.advance(userChoice, storyText);
+
             previousLog.updateUserChoice(userChoice);
             session.advanceTurn();
 
@@ -97,12 +125,42 @@ public class GamePersistenceService {
                     imageUrl
             ));
 
+            GameStateSnapshot snapshot = gameStateSnapshotRepository.findById(sessionId)
+                    .orElseGet(() -> new GameStateSnapshot(session, gameStateCodec.serialize(currentState)));
+            snapshot.updateStateJson(gameStateCodec.serialize(nextState));
+            gameStateSnapshotRepository.save(snapshot);
+
             gameLogRepository.flush();
+            gameStateSnapshotRepository.flush();
             gameSessionRepository.flush();
             return session.getCurrentTurn();
         } catch (ObjectOptimisticLockingFailureException | DataIntegrityViolationException exception) {
             throw new TurnConflictException("동시에 처리된 턴 요청과 충돌했습니다.", exception);
         }
+    }
+
+    private GameState loadOrRecoverState(GameSession session) {
+        return gameStateSnapshotRepository.findById(session.getId())
+                .map(snapshot -> gameStateCodec.deserialize(snapshot.getStateJson()))
+                .orElseGet(() -> recoverState(session));
+    }
+
+    private GameState recoverState(GameSession session) {
+        List<GameLog> logs = gameLogRepository.findByGameSessionOrderByTurnNumberAsc(session);
+        if (logs.isEmpty()) {
+            throw new IllegalStateException("GameState를 복구할 게임 로그가 없습니다.");
+        }
+
+        GameState state = GameState.initial(
+                session.getWorldSetting(),
+                session.getCharacterSetting(),
+                logs.get(0).getStoryText()
+        );
+        for (int i = 1; i < logs.size(); i++) {
+            String action = logs.get(i - 1).getUserChoice();
+            state = state.advance(action, logs.get(i).getStoryText());
+        }
+        return state;
     }
 
     public record LoadedTurn(
@@ -112,6 +170,7 @@ public class GamePersistenceService {
             String characterSetting,
             String storyText,
             String choicesJson,
-            String imageUrl
+            String imageUrl,
+            GameState gameState
     ) {}
 }
