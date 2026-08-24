@@ -1,0 +1,94 @@
+name: 기능 제안
+description: 플레이어 경험을 개선하는 새 기능을 제안합니다.
+title: "[Feature] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        구현 방식보다 먼저 플레이어가 얻게 될 경험과 게임 규칙을 적어 주세요.
+        아이디어가 아직 발산 단계라면 Discussion에서 먼저 정리하는 것을 권장합니다.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 어떤 플레이 경험이 부족한가요?
+      description: 현재 UCTale에서 무엇이 단순하거나 불편한지 적어 주세요.
+      placeholder: 현재 선택지는 서사 분기만 만들 뿐 캐릭터 성장이나 실패 가능성이 없어 게임성이 약합니다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: 원하는 플레이어 결과
+      description: 기능 완료 후 사용자가 무엇을 할 수 있어야 하나요?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 기능 영역
+      options:
+        - Character / stats
+        - Choice / skill check
+        - Combat
+        - Inventory / item
+        - Quest / progression
+        - NPC / relationship
+        - World / exploration
+        - Save / resume
+        - AI narrative
+        - Image / visual
+        - Frontend / UX
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: rules
+    attributes:
+      label: 핵심 규칙
+      description: LLM이 마음대로 정하면 안 되는 결정적 규칙을 명시해 주세요.
+      placeholder: |
+        - 성공/실패 판정은 서버가 계산한다.
+        - AI는 확정된 판정 결과를 변경하지 않고 서술만 한다.
+        - ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: flow
+    attributes:
+      label: 사용자 흐름
+      placeholder: |
+        1. 플레이어가 ...
+        2. 서버가 ...
+        3. AI가 ...
+        4. UI가 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: 완료 조건
+      description: 테스트 가능한 형태로 적어 주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: 이번 범위 밖
+      description: 이 작업에서 일부러 하지 않을 것을 적어 범위 팽창을 막습니다.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 설계 확인
+      options:
+        - label: 게임 규칙과 AI 서술의 책임 경계를 확인했습니다.
+          required: true
+        - label: 기존 GameState와 저장 데이터에 미치는 영향을 확인했습니다.
+          required: true

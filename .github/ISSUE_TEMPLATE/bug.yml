@@ -1,0 +1,79 @@
+name: 버그 신고
+description: 재현 가능한 UCTale 오류를 기록합니다.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        API Key, 토큰, 비밀번호, 전체 환경변수, 민감한 로그는 첨부하지 마세요.
+        AI 출력 문제라면 원문 전체 대신 재현에 필요한 최소 입력과 결과만 남겨 주세요.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 문제 요약
+      description: 무엇이 잘못됐는지 한두 문장으로 적어 주세요.
+      placeholder: 선택지를 눌러도 다음 턴으로 진행되지 않습니다.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 영향 영역
+      options:
+        - Backend / API
+        - Frontend / UI
+        - Game state / rules
+        - AI narrative / prompt
+        - Image generation
+        - Persistence / database
+        - Build / deploy / CI
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 재현 순서
+      placeholder: |
+        1. 새 게임을 시작합니다.
+        2. ... 선택지를 누릅니다.
+        3. ... 현상이 발생합니다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: 예상 결과 / 실제 결과
+      placeholder: |
+        예상: ...
+        실제: ...
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: 실행 환경
+      placeholder: local / deployed, browser, OS, commit SHA
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 비식별 로그·스크린샷·응답
+      description: 문제와 직접 관련된 최소 정보만 첨부해 주세요.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 제출 전 확인
+      options:
+        - label: 같은 문제가 이미 등록되어 있는지 확인했습니다.
+          required: true
+        - label: Secret, API Key, 토큰, 비밀번호를 제거했습니다.
+          required: true

@@ -1,0 +1,92 @@
+name: 리팩터링 / 기술 부채
+description: 동작을 유지하면서 구조, 테스트 가능성, 안정성을 개선합니다.
+title: "[Refactor] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        이 템플릿은 기능 추가보다 구조 개선이 목적인 작업에 사용합니다.
+        큰 리팩터링은 반드시 기존 동작을 고정할 테스트 또는 검증 계획을 포함해 주세요.
+
+  - type: textarea
+    id: smell
+    attributes:
+      label: 현재 문제
+      description: 어떤 결합도, 책임 혼재, 중복, 취약한 계약이 변경을 어렵게 만드는지 적어 주세요.
+      placeholder: GameService가 세션, AI 호출, 이미지 생성, 선택지 파싱, persistence를 동시에 담당합니다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: risk
+    attributes:
+      label: 그대로 둘 때의 위험
+      description: 앞으로 어떤 기능이 붙을 때 문제가 커지는지 적어 주세요.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 대상 영역
+      options:
+        - Architecture / package
+        - Domain model
+        - Application service
+        - API contract
+        - Persistence / transaction
+        - AI provider integration
+        - Image provider integration
+        - Frontend structure
+        - Test / CI
+        - Build / deployment
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: target
+    attributes:
+      label: 목표 구조
+      description: 완료 후 책임과 경계가 어떻게 달라지는지 적어 주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: migration
+    attributes:
+      label: 단계적 변경 계획
+      placeholder: |
+        1. 현재 동작 characterization test 추가
+        2. 새 interface 도입
+        3. 기존 구현을 adapter로 이동
+        4. 호출부 전환
+        5. 이전 코드 제거
+    validations:
+      required: true
+
+  - type: textarea
+    id: invariants
+    attributes:
+      label: 반드시 유지할 동작
+      description: 리팩터링 전후로 바뀌면 안 되는 API/플레이 경험/데이터를 적어 주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: 완료 조건
+      description: 테스트, 정적 검사, migration, 문서 등을 포함해 주세요.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 안전장치
+      options:
+        - label: 기능 변경이 필요한 부분은 별도 Feature/Issue로 분리했습니다.
+          required: true
+        - label: 기존 동작을 검증할 테스트 또는 명시적 검증 절차가 있습니다.
+          required: true
