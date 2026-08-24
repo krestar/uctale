@@ -82,15 +82,7 @@ class GameServiceTest {
     @DisplayName("게임 진행은 기대 턴을 검증하고 다음 턴을 저장한다")
     void progressGame_UsesExpectedTurn() {
         String choicesJson = choiceCodec.serialize(List.of(new GameChoice(1, "문을 잠근다")));
-        GamePersistenceService.LoadedTurn loadedTurn = new GamePersistenceService.LoadedTurn(
-                42L,
-                1,
-                "좀비 아포칼립스",
-                "김대리",
-                "직전 스토리",
-                choicesJson,
-                "/api/game/image?prompt=old&aspectRatio=16%3A9"
-        );
+        GamePersistenceService.LoadedTurn loadedTurn = loadedTurn(choicesJson);
         NarrativeTurn nextTurn = new NarrativeTurn(
                 "다음 장면",
                 "다음 스토리",
@@ -136,5 +128,33 @@ class GameServiceTest {
 
         verify(narrativeGenerator, never()).createNextTurn(any(), any(), any(), any());
         verify(gamePersistenceService, never()).saveNextTurn(any(), anyInt(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("AI 실패 시 다음 턴을 저장하지 않는다")
+    void progressGame_DoesNotPersistWhenNarrativeFails() {
+        String choicesJson = choiceCodec.serialize(List.of(new GameChoice(1, "문을 잠근다")));
+        given(gamePersistenceService.loadLatestTurn(42L, 1)).willReturn(loadedTurn(choicesJson));
+        given(narrativeGenerator.createNextTurn(
+                "좀비 아포칼립스", "김대리", "직전 스토리", "문을 잠근다"
+        )).willThrow(new RuntimeException("AI 호출 실패"));
+
+        assertThatThrownBy(() -> gameService.progressGame(new GameProgressRequest(42L, 1, 1)))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("AI 호출 실패");
+
+        verify(gamePersistenceService, never()).saveNextTurn(any(), anyInt(), any(), any(), any(), any());
+    }
+
+    private GamePersistenceService.LoadedTurn loadedTurn(String choicesJson) {
+        return new GamePersistenceService.LoadedTurn(
+                42L,
+                1,
+                "좀비 아포칼립스",
+                "김대리",
+                "직전 스토리",
+                choicesJson,
+                "/api/game/image?prompt=old&aspectRatio=16%3A9"
+        );
     }
 }
