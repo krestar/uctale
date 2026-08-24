@@ -1,8 +1,8 @@
 package com.uctale.uctale.application.game;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import com.uctale.uctale.dto.GameChoice;
 import org.springframework.stereotype.Component;
 
@@ -20,7 +20,7 @@ public class ChoiceCodec {
     public String serialize(List<GameChoice> choices) {
         try {
             return objectMapper.writeValueAsString(choices);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException("선택지 JSON 변환에 실패했습니다.", e);
         }
     }
@@ -29,7 +29,7 @@ public class ChoiceCodec {
         final List<GameChoice> choices;
         try {
             choices = objectMapper.readValue(json, new TypeReference<>() {});
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException("저장된 선택지를 읽을 수 없습니다.", e);
         }
 

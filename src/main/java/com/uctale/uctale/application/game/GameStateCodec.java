@@ -1,7 +1,7 @@
 package com.uctale.uctale.application.game;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import com.uctale.uctale.domain.game.GameState;
 import org.springframework.stereotype.Component;
 
@@ -17,7 +17,7 @@ public class GameStateCodec {
     public String serialize(GameState state) {
         try {
             return objectMapper.writeValueAsString(state);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException("GameState 직렬화에 실패했습니다.", e);
         }
     }
@@ -25,7 +25,7 @@ public class GameStateCodec {
     public GameState deserialize(String json) {
         try {
             return objectMapper.readValue(json, GameState.class);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalStateException("GameState 역직렬화에 실패했습니다.", e);
         }
     }
