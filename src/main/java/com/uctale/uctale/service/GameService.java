@@ -31,13 +31,9 @@ public class GameService {
     private final GameLogRepository gameLogRepository;
     private final ObjectMapper objectMapper;
 
-    /**
-     * 게임 초기화 및 오프닝 생성
-     */
     public GameResponse initGame(GameInitRequest request) {
         GeminiResponse geminiResponse = geminiService.getOpening(request);
 
-        // 오프닝은 무조건 이미지를 생성하도록 유도 (없으면 기본값 사용)
         String imagePrompt = determineImagePrompt(geminiResponse.visual_assets());
         if (imagePrompt == null || imagePrompt.isBlank()) {
             imagePrompt = "mysterious atmosphere, " + request.worldSetting();
@@ -53,15 +49,15 @@ public class GameService {
         gameLogRepository.save(log);
 
         return new GameResponse(
+                session.getId(),
                 geminiResponse.title(),
                 geminiResponse.story_text(),
                 geminiResponse.choices(),
                 imageUrl,
-                session.getId().toString()
+                null
         );
     }
 
-    // 게임 진행 (다음 턴)
     public GameResponse progressGame(GameProgressRequest request) {
         GameSession session = gameSessionRepository.findById(request.sessionId())
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 세션입니다."));
@@ -79,13 +75,11 @@ public class GameService {
                 userChoiceText
         );
 
-        // [핵심] 이미지 생성 판단 로직
-        String imageUrl = lastLog.getImageUrl(); // 기본값: 이전 이미지 유지
+        String imageUrl = lastLog.getImageUrl();
         String newPrompt = determineImagePrompt(nextTurnResponse.visual_assets());
 
-        // 새로운 프롬프트가 '존재할 때만' 생성 (null이면 이전 이미지 재사용)
         if (newPrompt != null && !newPrompt.isBlank()) {
-            log.info("새로운 이미지 생성 요청: {}", newPrompt);
+            log.info("새로운 이미지 생성 요청");
             String newImage = nanoBananaService.generateImage(newPrompt, "16:9");
             if (newImage != null) {
                 imageUrl = newImage;
@@ -99,43 +93,36 @@ public class GameService {
         gameLogRepository.save(newLog);
 
         return new GameResponse(
+                session.getId(),
                 nextTurnResponse.title(),
                 nextTurnResponse.story_text(),
                 nextTurnResponse.choices(),
                 imageUrl,
-                session.getId().toString()
+                null
         );
     }
 
-    // [수정] 프롬프트 결정 헬퍼 메서드: '선택'이 아닌 '조합'으로 변경
     private String determineImagePrompt(GeminiResponse.VisualAssets assets) {
         if (assets == null) return null;
 
         List<String> prompts = new ArrayList<>();
 
-        // 1. 캐릭터 (적/NPC)
         if (assets.characters() != null && !assets.characters().isEmpty()) {
             prompts.addAll(assets.characters());
         }
 
-        // 2. 아이템/사물 (상호작용)
         if (assets.assets() != null && !assets.assets().isEmpty()) {
             prompts.addAll(assets.assets());
         }
 
-        // 3. 배경 (장소)
         if (assets.background() != null && !assets.background().isBlank()) {
             prompts.add(assets.background());
         }
 
-        // 모든 요소가 비어있으면 null 반환 (이미지 생성 안 함)
         if (prompts.isEmpty()) {
             return null;
         }
 
-        // 요소들을 콤마로 연결하여 하나의 풍성한 프롬프트 생성
-        // 예: "bloody zombie, red fire extinguisher, dark subway station"
-        // AI 화가(Flux)가 이 조합을 바탕으로 '지하철에서 소화기가 있는 좀비 씬'을 그려줌
         return String.join(", ", prompts);
     }
 
@@ -143,21 +130,22 @@ public class GameService {
         try {
             return objectMapper.writeValueAsString(choices);
         } catch (JsonProcessingException e) {
-            log.error("선택지 JSON 변환 실패", e);
-            return "[]";
+            throw new IllegalStateException("선택지 JSON 변환에 실패했습니다.", e);
         }
     }
 
     private String findChoiceText(String json, int choiceId) {
+        final List<GeminiResponse.Choice> choices;
         try {
-            List<GeminiResponse.Choice> choices = objectMapper.readValue(json, new TypeReference<>() {});
-            return choices.stream()
-                    .filter(c -> c.id() == choiceId)
-                    .findFirst()
-                    .map(GeminiResponse.Choice::text)
-                    .orElse("알 수 없는 행동");
-        } catch (Exception e) {
-            return "선택지 처리 중 오류";
+            choices = objectMapper.readValue(json, new TypeReference<>() {});
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("저장된 선택지를 읽을 수 없습니다.", e);
         }
+
+        return choices.stream()
+                .filter(choice -> choice.id() == choiceId)
+                .findFirst()
+                .map(GeminiResponse.Choice::text)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 선택지입니다."));
     }
 }
