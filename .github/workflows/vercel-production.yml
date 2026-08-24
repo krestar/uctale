@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - 'frontend/**'
-      - '.github/workflows/vercel-production.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
