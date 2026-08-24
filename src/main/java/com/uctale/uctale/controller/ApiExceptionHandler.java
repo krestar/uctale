@@ -1,5 +1,6 @@
 package com.uctale.uctale.controller;
 
+import com.uctale.uctale.application.game.TurnConflictException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -14,6 +15,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, String>> handleIllegalArgument(IllegalArgumentException exception) {
         return ResponseEntity.badRequest().body(Map.of("message", exception.getMessage()));
+    }
+
+    @ExceptionHandler(TurnConflictException.class)
+    public ResponseEntity<Map<String, String>> handleTurnConflict(TurnConflictException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", exception.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
