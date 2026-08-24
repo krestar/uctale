@@ -1,6 +1,13 @@
 package com.uctale.uctale.domain;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.Version;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.CreatedDate;
@@ -27,8 +34,15 @@ public class GameSession {
     @Column(nullable = false)
     private String characterSetting;
 
-    // 게임이 진행 중인지, 끝났는지 (나중에 엔딩 구현 시 사용)
+    @Column(nullable = false)
     private boolean isGameOver = false;
+
+    @Column(nullable = false)
+    private int currentTurn = 1;
+
+    @Version
+    @Column(nullable = false)
+    private long version;
 
     @CreatedDate
     private LocalDateTime createdAt;
@@ -36,12 +50,15 @@ public class GameSession {
     @LastModifiedDate
     private LocalDateTime updatedAt;
 
-    // 1:N 관계 - 하나의 세션에 여러 턴(로그)이 존재
-    @OneToMany(mappedBy = "gameSession", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "gameSession", cascade = jakarta.persistence.CascadeType.ALL, orphanRemoval = true)
     private List<GameLog> logs = new ArrayList<>();
 
     public GameSession(String worldSetting, String characterSetting) {
         this.worldSetting = worldSetting;
         this.characterSetting = characterSetting;
+    }
+
+    public void advanceTurn() {
+        currentTurn += 1;
     }
 }

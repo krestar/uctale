@@ -9,5 +9,8 @@ public record GameProgressRequest(
         Long sessionId,
 
         @Positive(message = "선택지 ID는 양수여야 합니다.")
-        int choiceId
+        int choiceId,
+
+        @Positive(message = "기대 턴은 양수여야 합니다.")
+        int expectedTurn
 ) {}
