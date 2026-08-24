@@ -53,8 +53,7 @@ public class GameService {
                 geminiResponse.title(),
                 geminiResponse.story_text(),
                 geminiResponse.choices(),
-                imageUrl,
-                null
+                imageUrl
         );
     }
 
@@ -97,8 +96,7 @@ public class GameService {
                 nextTurnResponse.title(),
                 nextTurnResponse.story_text(),
                 nextTurnResponse.choices(),
-                imageUrl,
-                null
+                imageUrl
         );
     }
 
