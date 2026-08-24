@@ -12,6 +12,7 @@ function App() {
     const [isTypingComplete, setIsTypingComplete] = useState(false);
 
     const sessionId = gameData?.sessionId;
+    const turnNumber = gameData?.turnNumber;
     const mainImageUrl = resolveGameAssetUrl(gameData?.mainImageUrl);
 
     const handleStartGame = async () => {
@@ -33,16 +34,16 @@ function App() {
     };
 
     const handleChoice = async (choiceId) => {
-        if (!sessionId) return;
+        if (!sessionId || !turnNumber) return;
         setIsLoading(true);
         try {
-            const nextData = await progressGame(sessionId, choiceId);
+            const nextData = await progressGame(sessionId, choiceId, turnNumber);
             setGameData(nextData);
             setIsTypingComplete(false);
             window.scrollTo(0, 0);
         } catch (error) {
             console.error(error);
-            alert("오류가 발생했습니다.");
+            alert(error?.response?.status === 409 ? "이미 처리된 선택입니다." : "오류가 발생했습니다.");
         } finally {
             setIsLoading(false);
         }
