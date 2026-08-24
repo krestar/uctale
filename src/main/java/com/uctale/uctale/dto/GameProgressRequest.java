@@ -1,6 +1,13 @@
 package com.uctale.uctale.dto;
 
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+
 public record GameProgressRequest(
-        Long sessionId, // 어떤 게임 세션인지 식별
-        int choiceId    // 사용자가 고른 선택지 번호 (1, 2, 3)
+        @NotNull(message = "세션 ID는 필수입니다.")
+        @Positive(message = "세션 ID는 양수여야 합니다.")
+        Long sessionId,
+
+        @Positive(message = "선택지 ID는 양수여야 합니다.")
+        int choiceId
 ) {}
