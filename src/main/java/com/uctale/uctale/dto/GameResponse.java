@@ -6,6 +6,6 @@ public record GameResponse(
         Long sessionId,
         String title,
         String storyText,
-        List<GeminiResponse.Choice> choices,
+        List<GameChoice> choices,
         String mainImageUrl
 ) {}

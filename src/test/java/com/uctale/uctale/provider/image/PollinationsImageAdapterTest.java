@@ -1,4 +1,4 @@
-package com.uctale.uctale.service;
+package com.uctale.uctale.provider.image;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -8,20 +8,20 @@ import org.springframework.web.client.RestClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class NanoBananaServiceTest {
+class PollinationsImageAdapterTest {
 
-    private NanoBananaService nanoBananaService;
+    private PollinationsImageAdapter adapter;
 
     @BeforeEach
     void setUp() {
-        nanoBananaService = new NanoBananaService(RestClient.builder());
-        ReflectionTestUtils.setField(nanoBananaService, "pollinationsToken", "TEST_SECRET_TOKEN");
+        adapter = new PollinationsImageAdapter(RestClient.builder());
+        ReflectionTestUtils.setField(adapter, "pollinationsToken", "TEST_SECRET_TOKEN");
     }
 
     @Test
     @DisplayName("게임 응답용 이미지 경로에는 Pollinations 토큰이 포함되지 않는다")
-    void generateImage_DoesNotExposeProviderToken() {
-        String resultUrl = nanoBananaService.generateImage("zombie in dark street", "16:9");
+    void createPublicUrl_DoesNotExposeProviderToken() {
+        String resultUrl = adapter.createPublicUrl("zombie in dark street", "16:9");
 
         assertThat(resultUrl).startsWith("/api/game/image?");
         assertThat(resultUrl).contains("prompt=zombie+in+dark+street");
@@ -33,15 +33,15 @@ class NanoBananaServiceTest {
 
     @Test
     @DisplayName("지원하지 않는 비율은 16대9 프록시 경로로 정규화한다")
-    void generateImage_NormalizesAspectRatio() {
-        String resultUrl = nanoBananaService.generateImage("test", "unknown");
+    void createPublicUrl_NormalizesAspectRatio() {
+        String resultUrl = adapter.createPublicUrl("test", "unknown");
 
         assertThat(resultUrl).contains("aspectRatio=16%3A9");
     }
 
     @Test
     @DisplayName("빈 프롬프트는 이미지 생성을 요청하지 않는다")
-    void generateImage_BlankPrompt() {
-        assertThat(nanoBananaService.generateImage(" ", "16:9")).isNull();
+    void createPublicUrl_BlankPrompt() {
+        assertThat(adapter.createPublicUrl(" ", "16:9")).isNull();
     }
 }

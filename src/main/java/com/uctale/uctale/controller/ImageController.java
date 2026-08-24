@@ -1,6 +1,6 @@
 package com.uctale.uctale.controller;
 
-import com.uctale.uctale.service.NanoBananaService;
+import com.uctale.uctale.application.image.ImageGenerator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit;
 @CrossOrigin(origins = "*")
 public class ImageController {
 
-    private final NanoBananaService nanoBananaService;
+    private final ImageGenerator imageGenerator;
 
     @GetMapping("/image")
     public ResponseEntity<byte[]> image(
@@ -29,7 +29,7 @@ public class ImageController {
             return ResponseEntity.badRequest().build();
         }
 
-        NanoBananaService.GeneratedImage generatedImage = nanoBananaService.fetchImage(prompt, aspectRatio);
+        ImageGenerator.GeneratedImage generatedImage = imageGenerator.fetchImage(prompt, aspectRatio);
         if (generatedImage == null || generatedImage.bytes() == null || generatedImage.bytes().length == 0) {
             return ResponseEntity.status(502).build();
         }

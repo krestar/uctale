@@ -1,18 +1,19 @@
-package com.uctale.uctale.service;
+package com.uctale.uctale.provider.image;
 
+import com.uctale.uctale.application.image.ImageGenerator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
 @Slf4j
-@Service
-public class NanoBananaService {
+@Component
+public class PollinationsImageAdapter implements ImageGenerator {
 
     private static final String STYLE_SUFFIX = ", rough charcoal sketch, high contrast black and white, gritty texture, white background, pencil drawing style, no colors, concept art";
     private static final String PROVIDER_BASE_URL = "https://gen.pollinations.ai/image/";
@@ -22,11 +23,12 @@ public class NanoBananaService {
     @Value("${pollinations.token}")
     private String pollinationsToken;
 
-    public NanoBananaService(RestClient.Builder restClientBuilder) {
+    public PollinationsImageAdapter(RestClient.Builder restClientBuilder) {
         this.restClient = restClientBuilder.build();
     }
 
-    public String generateImage(String prompt, String aspectRatio) {
+    @Override
+    public String createPublicUrl(String prompt, String aspectRatio) {
         if (prompt == null || prompt.isBlank()) {
             return null;
         }
@@ -36,11 +38,11 @@ public class NanoBananaService {
         return "/api/game/image?prompt=" + encodedPrompt + "&aspectRatio=" + encodedAspectRatio;
     }
 
+    @Override
     public GeneratedImage fetchImage(String prompt, String aspectRatio) {
         try {
-            String providerUrl = buildProviderUrl(prompt, aspectRatio);
             ResponseEntity<byte[]> response = restClient.get()
-                    .uri(providerUrl)
+                    .uri(buildProviderUrl(prompt, aspectRatio))
                     .retrieve()
                     .toEntity(byte[].class);
 
@@ -48,7 +50,6 @@ public class NanoBananaService {
             if (contentType == null) {
                 contentType = MediaType.IMAGE_JPEG;
             }
-
             return new GeneratedImage(response.getBody(), contentType);
         } catch (Exception e) {
             log.error("Pollinations 이미지 생성 요청 실패: {}", e.getClass().getSimpleName());
@@ -72,6 +73,4 @@ public class NanoBananaService {
     private String normalizeAspectRatio(String aspectRatio) {
         return "1:1".equals(aspectRatio) ? "1:1" : "16:9";
     }
-
-    public record GeneratedImage(byte[] bytes, MediaType contentType) {}
 }
