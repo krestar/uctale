@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { initGame, progressGame } from './api/gameApi'
+import { initGame, progressGame, resolveGameAssetUrl } from './api/gameApi'
 import GameImage from './components/GameImage'
 import TypewriterText from './components/TypewriterText'
 import './App.css'
@@ -11,7 +11,8 @@ function App() {
     const [gameData, setGameData] = useState(null);
     const [isTypingComplete, setIsTypingComplete] = useState(false);
 
-    const sessionId = gameData?.characterImageUrl;
+    const sessionId = gameData?.sessionId;
+    const mainImageUrl = resolveGameAssetUrl(gameData?.mainImageUrl);
 
     const handleStartGame = async () => {
         if (!world || !character) {
@@ -53,7 +54,7 @@ function App() {
                 <h1>📖 {gameData.title}</h1>
 
                 <div className="image-container">
-                    <GameImage key={gameData.mainImageUrl} src={gameData.mainImageUrl} alt="Game Scene" />
+                    <GameImage key={mainImageUrl} src={mainImageUrl} alt="Game Scene" />
                 </div>
 
                 <div className="story-box">
