@@ -7,6 +7,5 @@ public record GameResponse(
         String title,
         String storyText,
         List<GeminiResponse.Choice> choices,
-        String mainImageUrl,
-        String characterImageUrl
+        String mainImageUrl
 ) {}
