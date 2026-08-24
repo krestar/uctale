@@ -1,6 +1,6 @@
 package com.uctale.uctale.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.uctale.uctale.application.game.TurnConflictException;
 import com.uctale.uctale.dto.GameChoice;
 import com.uctale.uctale.dto.GameInitRequest;

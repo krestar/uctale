@@ -1,6 +1,6 @@
 package com.uctale.uctale.provider.gemini;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

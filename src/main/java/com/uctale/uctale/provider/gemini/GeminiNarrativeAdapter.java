@@ -1,8 +1,8 @@
 package com.uctale.uctale.provider.gemini;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.uctale.uctale.application.narrative.NarrativeContext;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
@@ -124,7 +124,7 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
         }
     }
 
-    private NarrativeTurn generate(String prompt, String errorContext) throws JsonProcessingException {
+    private NarrativeTurn generate(String prompt, String errorContext) throws JacksonException {
         String requestBody = createRequestBody(prompt);
         String response = restClient.post()
                 .uri(GEMINI_API_URL + "?key=" + apiKey)
@@ -138,7 +138,7 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
         return parseResponse(response);
     }
 
-    private String createRequestBody(String userPrompt) throws JsonProcessingException {
+    private String createRequestBody(String userPrompt) throws JacksonException {
         Map<String, Object> requestMap = Map.of(
                 "contents", List.of(Map.of("parts", List.of(Map.of("text", SYSTEM_INSTRUCTION + "\n\n" + userPrompt)))),
                 "generationConfig", Map.of("response_mime_type", "application/json")
@@ -146,7 +146,7 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
         return objectMapper.writeValueAsString(requestMap);
     }
 
-    private NarrativeTurn parseResponse(String rawResponse) throws JsonProcessingException {
+    private NarrativeTurn parseResponse(String rawResponse) throws JacksonException {
         GeminiApiResponse apiResponse = objectMapper.readValue(rawResponse, GeminiApiResponse.class);
         if (apiResponse.candidates() == null || apiResponse.candidates().isEmpty()) {
             throw new IllegalStateException("AI 응답이 비어있습니다.");
@@ -160,11 +160,11 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
         if (choicesNode.isArray()) {
             int index = 1;
             for (JsonNode node : choicesNode) {
-                if (node.isTextual()) {
-                    choices.add(new NarrativeTurn.Choice(index++, node.asText()));
+                if (node.isString()) {
+                    choices.add(new NarrativeTurn.Choice(index++, node.asString()));
                 } else if (node.isObject()) {
                     int id = node.has("id") ? node.get("id").asInt() : index++;
-                    String text = node.has("text") ? node.get("text").asText() : "내용 없음";
+                    String text = node.has("text") ? node.get("text").asString() : "내용 없음";
                     choices.add(new NarrativeTurn.Choice(id, text));
                 }
             }
@@ -172,11 +172,11 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
 
         JsonNode visualNode = rootNode.path("visual_assets");
         return new NarrativeTurn(
-                rootNode.path("title").asText("제목 없음"),
-                rootNode.path("story_text").asText("스토리가 없습니다."),
+                rootNode.path("title").asString("제목 없음"),
+                rootNode.path("story_text").asString("스토리가 없습니다."),
                 choices,
                 new NarrativeTurn.VisualAssets(
-                        visualNode.path("background").asText(""),
+                        visualNode.path("background").asString(""),
                         readNonBlankStrings(visualNode.path("characters")),
                         readNonBlankStrings(visualNode.path("assets"))
                 )
@@ -187,7 +187,7 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
         List<String> values = new ArrayList<>();
         if (node.isArray()) {
             for (JsonNode item : node) {
-                String value = item.asText();
+                String value = item.asString();
                 if (value != null && !value.isBlank()) {
                     values.add(value);
                 }
