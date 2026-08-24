@@ -1,14 +1,18 @@
 package com.uctale.uctale.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.uctale.uctale.application.game.ChoiceCodec;
+import com.uctale.uctale.application.game.GamePersistenceService;
+import com.uctale.uctale.application.game.ImagePromptComposer;
+import com.uctale.uctale.application.image.ImageGenerator;
+import com.uctale.uctale.application.narrative.NarrativeGenerator;
+import com.uctale.uctale.application.narrative.NarrativeTurn;
 import com.uctale.uctale.domain.GameLog;
 import com.uctale.uctale.domain.GameSession;
+import com.uctale.uctale.dto.GameChoice;
 import com.uctale.uctale.dto.GameInitRequest;
 import com.uctale.uctale.dto.GameProgressRequest;
 import com.uctale.uctale.dto.GameResponse;
-import com.uctale.uctale.dto.GeminiResponse;
-import com.uctale.uctale.repository.GameLogRepository;
-import com.uctale.uctale.repository.GameSessionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,7 +22,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -31,111 +34,132 @@ import static org.mockito.Mockito.verify;
 class GameServiceTest {
 
     @Mock
-    private GeminiService geminiService;
+    private NarrativeGenerator narrativeGenerator;
 
     @Mock
-    private NanoBananaService nanoBananaService;
+    private ImageGenerator imageGenerator;
 
     @Mock
-    private GameSessionRepository gameSessionRepository;
+    private GamePersistenceService gamePersistenceService;
 
-    @Mock
-    private GameLogRepository gameLogRepository;
-
+    private ChoiceCodec choiceCodec;
     private GameService gameService;
 
     @BeforeEach
     void setUp() {
+        choiceCodec = new ChoiceCodec(new ObjectMapper());
         gameService = new GameService(
-                geminiService,
-                nanoBananaService,
-                gameSessionRepository,
-                gameLogRepository,
-                new ObjectMapper()
+                narrativeGenerator,
+                imageGenerator,
+                gamePersistenceService,
+                choiceCodec,
+                new ImagePromptComposer()
         );
     }
 
     @Test
-    @DisplayName("게임 초기화는 명시적인 세션 ID와 첫 로그를 반환한다")
-    void initGame_ReturnsExplicitSessionId() {
+    @DisplayName("게임 초기화는 내러티브와 이미지 포트를 사용하고 세션을 저장한다")
+    void initGame_UsesPortsAndPersistsOpening() {
         GameInitRequest request = new GameInitRequest("좀비 아포칼립스", "김대리");
-        GeminiResponse opening = new GeminiResponse(
+        NarrativeTurn opening = new NarrativeTurn(
                 "첫날 밤",
                 "오프닝 스토리",
-                List.of(new GeminiResponse.Choice(1, "도망간다")),
-                new GeminiResponse.VisualAssets("dark street", List.of("zombie"), List.of())
+                List.of(new NarrativeTurn.Choice(1, "도망간다")),
+                new NarrativeTurn.VisualAssets("dark street", List.of("zombie"), List.of())
         );
+        GameSession session = new GameSession(request.worldSetting(), request.characterSetting());
+        ReflectionTestUtils.setField(session, "id", 42L);
 
-        given(geminiService.getOpening(request)).willReturn(opening);
-        given(nanoBananaService.generateImage(any(), any())).willReturn("/api/game/image?prompt=test&aspectRatio=16%3A9");
-        given(gameSessionRepository.save(any(GameSession.class))).willAnswer(invocation -> {
-            GameSession session = invocation.getArgument(0);
-            ReflectionTestUtils.setField(session, "id", 42L);
-            return session;
-        });
+        given(narrativeGenerator.createOpening("좀비 아포칼립스", "김대리")).willReturn(opening);
+        given(imageGenerator.createPublicUrl("zombie, dark street", "16:9"))
+                .willReturn("/api/game/image?prompt=test&aspectRatio=16%3A9");
+        given(gamePersistenceService.saveOpening(any(), any(), any(), any(), any())).willReturn(session);
 
         GameResponse response = gameService.initGame(request);
 
         assertThat(response.sessionId()).isEqualTo(42L);
         assertThat(response.title()).isEqualTo("첫날 밤");
         assertThat(response.storyText()).isEqualTo("오프닝 스토리");
+        assertThat(response.choices()).extracting(GameChoice::text).containsExactly("도망간다");
         assertThat(response.mainImageUrl()).startsWith("/api/game/image?");
-        assertThat(response.choices()).extracting(GeminiResponse.Choice::text).containsExactly("도망간다");
-        verify(gameSessionRepository).save(any(GameSession.class));
-        verify(gameLogRepository).save(any(GameLog.class));
+        verify(gamePersistenceService).saveOpening(
+                "좀비 아포칼립스",
+                "김대리",
+                "오프닝 스토리",
+                "[{\"id\":1,\"text\":\"도망간다\"}]",
+                "/api/game/image?prompt=test&aspectRatio=16%3A9"
+        );
     }
 
     @Test
-    @DisplayName("게임 진행은 저장된 선택지 문구와 직전 스토리를 다음 Gemini 요청에 사용한다")
-    void progressGame_UsesPreviousStoryAndSelectedChoice() throws Exception {
+    @DisplayName("게임 진행은 저장된 선택지를 해석해 다음 내러티브를 생성한다")
+    void progressGame_UsesStoredChoiceAndPreviousStory() {
         GameSession session = new GameSession("좀비 아포칼립스", "김대리");
         ReflectionTestUtils.setField(session, "id", 42L);
-
-        String choicesJson = new ObjectMapper().writeValueAsString(
-                List.of(new GeminiResponse.Choice(1, "문을 잠근다"))
+        String choicesJson = choiceCodec.serialize(List.of(new GameChoice(1, "문을 잠근다")));
+        GameLog lastLog = new GameLog(
+                session,
+                1,
+                "직전 스토리",
+                choicesJson,
+                "/api/game/image?prompt=old&aspectRatio=16%3A9"
         );
-        GameLog lastLog = new GameLog(session, 1, "직전 스토리", choicesJson, "/api/game/image?prompt=old&aspectRatio=16%3A9");
-
-        GeminiResponse nextTurn = new GeminiResponse(
+        NarrativeTurn nextTurn = new NarrativeTurn(
                 "다음 장면",
                 "다음 스토리",
-                List.of(new GeminiResponse.Choice(1, "기다린다")),
-                new GeminiResponse.VisualAssets(null, List.of(), List.of())
+                List.of(new NarrativeTurn.Choice(1, "기다린다")),
+                new NarrativeTurn.VisualAssets("", List.of(), List.of())
         );
 
-        given(gameSessionRepository.findById(42L)).willReturn(Optional.of(session));
-        given(gameLogRepository.findTopByGameSessionOrderByTurnNumberDesc(session)).willReturn(Optional.of(lastLog));
-        given(geminiService.getNextTurn("좀비 아포칼립스", "김대리", "직전 스토리", "문을 잠근다"))
-                .willReturn(nextTurn);
+        given(gamePersistenceService.loadLatestTurn(42L))
+                .willReturn(new GamePersistenceService.LoadedTurn(session, lastLog));
+        given(narrativeGenerator.createNextTurn(
+                "좀비 아포칼립스",
+                "김대리",
+                "직전 스토리",
+                "문을 잠근다"
+        )).willReturn(nextTurn);
 
         GameResponse response = gameService.progressGame(new GameProgressRequest(42L, 1));
 
-        assertThat(lastLog.getUserChoice()).isEqualTo("문을 잠근다");
         assertThat(response.sessionId()).isEqualTo(42L);
         assertThat(response.storyText()).isEqualTo("다음 스토리");
         assertThat(response.mainImageUrl()).isEqualTo("/api/game/image?prompt=old&aspectRatio=16%3A9");
-        verify(geminiService).getNextTurn("좀비 아포칼립스", "김대리", "직전 스토리", "문을 잠근다");
-        verify(gameLogRepository).save(any(GameLog.class));
+        verify(narrativeGenerator).createNextTurn(
+                "좀비 아포칼립스",
+                "김대리",
+                "직전 스토리",
+                "문을 잠근다"
+        );
+        verify(gamePersistenceService).saveNextTurn(
+                lastLog,
+                "문을 잠근다",
+                "다음 스토리",
+                "[{\"id\":1,\"text\":\"기다린다\"}]",
+                "/api/game/image?prompt=old&aspectRatio=16%3A9"
+        );
     }
 
     @Test
-    @DisplayName("존재하지 않는 선택지는 다음 스토리를 생성하지 않고 실패한다")
-    void progressGame_RejectsUnknownChoice() throws Exception {
+    @DisplayName("존재하지 않는 선택지는 내러티브 생성 전에 거부한다")
+    void progressGame_RejectsUnknownChoiceBeforeNarrativeCall() {
         GameSession session = new GameSession("좀비 아포칼립스", "김대리");
         ReflectionTestUtils.setField(session, "id", 42L);
-        String choicesJson = new ObjectMapper().writeValueAsString(
-                List.of(new GeminiResponse.Choice(1, "문을 잠근다"))
+        GameLog lastLog = new GameLog(
+                session,
+                1,
+                "직전 스토리",
+                choiceCodec.serialize(List.of(new GameChoice(1, "문을 잠근다"))),
+                null
         );
-        GameLog lastLog = new GameLog(session, 1, "직전 스토리", choicesJson, null);
-
-        given(gameSessionRepository.findById(42L)).willReturn(Optional.of(session));
-        given(gameLogRepository.findTopByGameSessionOrderByTurnNumberDesc(session)).willReturn(Optional.of(lastLog));
+        given(gamePersistenceService.loadLatestTurn(42L))
+                .willReturn(new GamePersistenceService.LoadedTurn(session, lastLog));
 
         assertThatThrownBy(() -> gameService.progressGame(new GameProgressRequest(42L, 999)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("존재하지 않는 선택지입니다.");
 
-        verify(geminiService, never()).getNextTurn(any(), any(), any(), any());
-        verify(gameLogRepository, never()).save(any(GameLog.class));
+        verify(narrativeGenerator, never()).createNextTurn(any(), any(), any(), any());
+        verify(gamePersistenceService, never()).saveNextTurn(any(), any(), any(), any(), any());
     }
 }
