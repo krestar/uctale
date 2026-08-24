@@ -1,43 +1,47 @@
 package com.uctale.uctale.service;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.client.RestClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest
-@TestPropertySource(properties = {
-        "pollinations.token=TEST_TOKEN",
-        "game.access.password=TEST_PASSWORD"
-})
 class NanoBananaServiceTest {
 
-    @Autowired
     private NanoBananaService nanoBananaService;
 
-    @Test
-    @DisplayName("이미지 생성 요청 시 현재 Pollinations URL 형식을 반환해야 한다")
-    void generateImage_Success() {
-        String resultUrl = nanoBananaService.generateImage("zombie", "16:9");
-
-        assertThat(resultUrl).startsWith("https://gen.pollinations.ai/image/");
-        assertThat(resultUrl).contains("zombie");
-        assertThat(resultUrl).contains("width=768");
-        assertThat(resultUrl).contains("height=432");
-        assertThat(resultUrl).contains("charcoal");
-        assertThat(resultUrl).contains("model=flux");
-        assertThat(resultUrl).contains("key=TEST_TOKEN");
+    @BeforeEach
+    void setUp() {
+        nanoBananaService = new NanoBananaService(RestClient.builder());
+        ReflectionTestUtils.setField(nanoBananaService, "pollinationsToken", "TEST_SECRET_TOKEN");
     }
 
     @Test
-    @DisplayName("기본 비율 요청 시 512x512 해상도를 반환해야 한다")
-    void generateImage_DefaultRatio() {
-        String resultUrl = nanoBananaService.generateImage("test", "1:1");
+    @DisplayName("게임 응답용 이미지 경로에는 Pollinations 토큰이 포함되지 않는다")
+    void generateImage_DoesNotExposeProviderToken() {
+        String resultUrl = nanoBananaService.generateImage("zombie in dark street", "16:9");
 
-        assertThat(resultUrl).contains("width=512");
-        assertThat(resultUrl).contains("height=512");
+        assertThat(resultUrl).startsWith("/api/game/image?");
+        assertThat(resultUrl).contains("prompt=zombie+in+dark+street");
+        assertThat(resultUrl).contains("aspectRatio=16%3A9");
+        assertThat(resultUrl).doesNotContain("TEST_SECRET_TOKEN");
+        assertThat(resultUrl).doesNotContain("key=");
+        assertThat(resultUrl).doesNotContain("pollinations.ai");
+    }
+
+    @Test
+    @DisplayName("지원하지 않는 비율은 16대9 프록시 경로로 정규화한다")
+    void generateImage_NormalizesAspectRatio() {
+        String resultUrl = nanoBananaService.generateImage("test", "unknown");
+
+        assertThat(resultUrl).contains("aspectRatio=16%3A9");
+    }
+
+    @Test
+    @DisplayName("빈 프롬프트는 이미지 생성을 요청하지 않는다")
+    void generateImage_BlankPrompt() {
+        assertThat(nanoBananaService.generateImage(" ", "16:9")).isNull();
     }
 }

@@ -2,7 +2,10 @@ package com.uctale.uctale.service;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClient;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -11,39 +14,64 @@ import java.nio.charset.StandardCharsets;
 @Service
 public class NanoBananaService {
 
+    private static final String STYLE_SUFFIX = ", rough charcoal sketch, high contrast black and white, gritty texture, white background, pencil drawing style, no colors, concept art";
+    private static final String PROVIDER_BASE_URL = "https://gen.pollinations.ai/image/";
+
+    private final RestClient restClient;
+
     @Value("${pollinations.token}")
     private String pollinationsToken;
 
-    private static final String STYLE_SUFFIX = ", rough charcoal sketch, high contrast black and white, gritty texture, white background, pencil drawing style, no colors, concept art";
-
-    public NanoBananaService() {
+    public NanoBananaService(RestClient.Builder restClientBuilder) {
+        this.restClient = restClientBuilder.build();
     }
 
     public String generateImage(String prompt, String aspectRatio) {
+        if (prompt == null || prompt.isBlank()) {
+            return null;
+        }
+
+        String encodedPrompt = URLEncoder.encode(prompt, StandardCharsets.UTF_8);
+        String encodedAspectRatio = URLEncoder.encode(normalizeAspectRatio(aspectRatio), StandardCharsets.UTF_8);
+        return "/api/game/image?prompt=" + encodedPrompt + "&aspectRatio=" + encodedAspectRatio;
+    }
+
+    public GeneratedImage fetchImage(String prompt, String aspectRatio) {
         try {
-            String fullPrompt = prompt + STYLE_SUFFIX;
+            String providerUrl = buildProviderUrl(prompt, aspectRatio);
+            ResponseEntity<byte[]> response = restClient.get()
+                    .uri(providerUrl)
+                    .retrieve()
+                    .toEntity(byte[].class);
 
-            String encodedPrompt = URLEncoder.encode(fullPrompt, StandardCharsets.UTF_8);
-
-            String sizeParam = "width=512&height=512";
-            if ("16:9".equals(aspectRatio)) {
-                sizeParam = "width=768&height=432";
+            MediaType contentType = response.getHeaders().getContentType();
+            if (contentType == null) {
+                contentType = MediaType.IMAGE_JPEG;
             }
 
-            String tokenParam = (pollinationsToken != null && !pollinationsToken.isBlank())
-                    ? "&key=" + pollinationsToken
-                    : "";
-
-            String finalUrl = String.format("https://gen.pollinations.ai/image/%s?%s&nologo=true&model=flux%s",
-                    encodedPrompt, sizeParam, tokenParam);
-
-            log.info("생성된 이미지 URL: {}", finalUrl);
-
-            return finalUrl;
-
+            return new GeneratedImage(response.getBody(), contentType);
         } catch (Exception e) {
-            log.error("이미지 URL 생성 실패: {}", e.getMessage());
+            log.error("Pollinations 이미지 생성 요청 실패: {}", e.getClass().getSimpleName());
             return null;
         }
     }
+
+    private String buildProviderUrl(String prompt, String aspectRatio) {
+        String fullPrompt = prompt + STYLE_SUFFIX;
+        String encodedPrompt = URLEncoder.encode(fullPrompt, StandardCharsets.UTF_8);
+        String sizeParam = "1:1".equals(normalizeAspectRatio(aspectRatio))
+                ? "width=512&height=512"
+                : "width=768&height=432";
+        String tokenParam = pollinationsToken == null || pollinationsToken.isBlank()
+                ? ""
+                : "&key=" + URLEncoder.encode(pollinationsToken, StandardCharsets.UTF_8);
+
+        return PROVIDER_BASE_URL + encodedPrompt + "?" + sizeParam + "&nologo=true&model=flux" + tokenParam;
+    }
+
+    private String normalizeAspectRatio(String aspectRatio) {
+        return "1:1".equals(aspectRatio) ? "1:1" : "16:9";
+    }
+
+    public record GeneratedImage(byte[] bytes, MediaType contentType) {}
 }
