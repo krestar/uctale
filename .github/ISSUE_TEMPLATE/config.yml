@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 설계·아이디어 토론
+    url: https://github.com/krestar/uctale/discussions
+    about: 구현 방법이 아직 정해지지 않은 아이디어는 Discussion에서 먼저 정리해 주세요.
+  - name: 프로젝트 README
+    url: https://github.com/krestar/uctale#readme
+    about: 현재 기능과 기술 스택을 먼저 확인해 주세요.
