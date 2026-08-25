@@ -8,6 +8,7 @@ const ERROR_MESSAGES = {
   ACCESS_SESSION_REQUIRED: '접근 인증이 필요합니다.',
   ACCESS_SESSION_INVALID: '접근 세션이 올바르지 않습니다. 다시 로그인해주세요.',
   ACCESS_SESSION_EXPIRED: '접근 세션이 만료되었습니다. 다시 로그인해주세요.',
+  ACCESS_REQUEST_FORBIDDEN: '요청 출처를 확인할 수 없습니다. 페이지를 새로고침해주세요.',
 }
 
 const AUTH_ERROR_CODES = new Set([
