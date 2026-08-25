@@ -36,13 +36,13 @@ public class GameController {
 
     @PostMapping("/init")
     public ResponseEntity<GameResponse> initGame(@Valid @RequestBody GameInitRequest request) {
-        log.info("게임 초기화 요청: 세계관={}, 사용자={}", request.worldSetting(), request.characterSetting());
+        log.info("게임 초기화 요청 수신");
         return ResponseEntity.ok(gameService.initGame(request));
     }
 
     @PostMapping("/progress")
     public ResponseEntity<GameResponse> progressGame(@Valid @RequestBody GameProgressRequest request) {
-        log.info("게임 진행: 세션ID={}, 선택지={}", request.sessionId(), request.choiceId());
+        log.info("게임 진행 요청: 세션ID={}, 기대턴={}", request.sessionId(), request.expectedTurn());
         return ResponseEntity.ok(gameService.progressGame(request));
     }
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { initGame, progressGame, resolveGameAssetUrl } from './api/gameApi'
+import { getApiErrorMessage } from './api/apiError'
 import GameImage from './components/GameImage'
 import TypewriterText from './components/TypewriterText'
 import './App.css'
@@ -27,7 +28,7 @@ function App() {
             setIsTypingComplete(false);
         } catch (error) {
             console.error(error);
-            alert("오류가 발생했습니다.");
+            alert(getApiErrorMessage(error));
         } finally {
             setIsLoading(false);
         }
@@ -43,7 +44,7 @@ function App() {
             window.scrollTo(0, 0);
         } catch (error) {
             console.error(error);
-            alert(error?.response?.status === 409 ? "이미 처리된 선택입니다." : "오류가 발생했습니다.");
+            alert(getApiErrorMessage(error));
         } finally {
             setIsLoading(false);
         }

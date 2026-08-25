@@ -1,34 +1,69 @@
 package com.uctale.uctale.controller;
 
+import com.uctale.uctale.application.game.GameSessionNotFoundException;
+import com.uctale.uctale.application.game.InvalidChoiceException;
+import com.uctale.uctale.application.game.PersistenceOperationException;
 import com.uctale.uctale.application.game.TurnConflictException;
+import com.uctale.uctale.application.narrative.InvalidNarrativeResponseException;
+import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import java.util.Map;
-
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<Map<String, String>> handleIllegalArgument(IllegalArgumentException exception) {
-        return ResponseEntity.badRequest().body(Map.of("message", exception.getMessage()));
+    public ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException exception) {
+        return error(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", exception.getMessage());
+    }
+
+    @ExceptionHandler(GameSessionNotFoundException.class)
+    public ResponseEntity<ApiError> handleSessionNotFound(GameSessionNotFoundException exception) {
+        return error(HttpStatus.NOT_FOUND, "SESSION_NOT_FOUND", exception.getMessage());
     }
 
     @ExceptionHandler(TurnConflictException.class)
-    public ResponseEntity<Map<String, String>> handleTurnConflict(TurnConflictException exception) {
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", exception.getMessage()));
+    public ResponseEntity<ApiError> handleTurnConflict(TurnConflictException exception) {
+        return error(HttpStatus.CONFLICT, "TURN_CONFLICT", exception.getMessage());
+    }
+
+    @ExceptionHandler(InvalidChoiceException.class)
+    public ResponseEntity<ApiError> handleInvalidChoice(InvalidChoiceException exception) {
+        return error(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_CHOICE", exception.getMessage());
+    }
+
+    @ExceptionHandler(InvalidNarrativeResponseException.class)
+    public ResponseEntity<ApiError> handleInvalidNarrativeResponse(InvalidNarrativeResponseException exception) {
+        return error(HttpStatus.BAD_GATEWAY, "PROVIDER_RESPONSE_INVALID", "Narrative provider 응답이 올바르지 않습니다.");
+    }
+
+    @ExceptionHandler(PersistenceOperationException.class)
+    public ResponseEntity<ApiError> handlePersistenceFailure(PersistenceOperationException exception) {
+        return error(HttpStatus.INTERNAL_SERVER_ERROR, "PERSISTENCE_FAILURE", "게임 상태 저장 중 오류가 발생했습니다.");
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Map<String, String>> handleValidation(MethodArgumentNotValidException exception) {
+    public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException exception) {
         String message = exception.getBindingResult().getFieldErrors().stream()
                 .findFirst()
                 .map(error -> error.getDefaultMessage())
                 .orElse("요청값이 올바르지 않습니다.");
+        return error(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", message);
+    }
 
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("message", message));
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ApiError> handleConstraintViolation(ConstraintViolationException exception) {
+        String message = exception.getConstraintViolations().stream()
+                .findFirst()
+                .map(violation -> violation.getMessage())
+                .orElse("요청값이 올바르지 않습니다.");
+        return error(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", message);
+    }
+
+    private ResponseEntity<ApiError> error(HttpStatus status, String code, String message) {
+        return ResponseEntity.status(status).body(new ApiError(code, message));
     }
 }
