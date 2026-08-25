@@ -58,8 +58,8 @@ class ImageControllerTest {
     }
 
     @Test
-    @DisplayName("이미지 provider 성공 시 이미지 바이트와 콘텐츠 타입을 반환한다")
-    void image_ReturnsGeneratedImage() {
+    @DisplayName("이미지 provider 성공 시 private cache 이미지 응답을 반환한다")
+    void image_ReturnsGeneratedImageWithPrivateCache() {
         ImageController controller = new ImageController(imageGenerator);
         byte[] bytes = new byte[]{1, 2, 3};
         given(imageGenerator.fetchImage("zombie", "16:9"))
@@ -69,6 +69,7 @@ class ImageControllerTest {
 
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(response.getHeaders().getContentType()).isEqualTo(MediaType.IMAGE_PNG);
+        assertThat(response.getHeaders().getCacheControl()).contains("private");
         assertThat(response.getBody()).containsExactly(bytes);
     }
 }
