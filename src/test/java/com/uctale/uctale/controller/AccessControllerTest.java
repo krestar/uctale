@@ -20,9 +20,9 @@ class AccessControllerTest {
     private static final String SECRET = "0123456789abcdef0123456789abcdef";
 
     @Test
-    @DisplayName("올바른 비밀번호는 HttpOnly 접근 쿠키를 발급한다")
-    void verifyPassword_IssuesHttpOnlyCookie() throws Exception {
-        AccessSessionService service = new AccessSessionService("TEST_PASSWORD", SECRET, 3600, false);
+    @DisplayName("올바른 비밀번호는 운영용 HttpOnly Secure 접근 쿠키를 발급한다")
+    void verifyPassword_IssuesSecureHttpOnlyCookie() throws Exception {
+        AccessSessionService service = new AccessSessionService("TEST_PASSWORD", SECRET, 3600, true);
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new AccessController(service))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .build();
@@ -33,7 +33,8 @@ class AccessControllerTest {
                 .andExpect(status().isNoContent())
                 .andExpect(header().string("Set-Cookie", containsString("uctale_access=")))
                 .andExpect(header().string("Set-Cookie", containsString("HttpOnly")))
-                .andExpect(header().string("Set-Cookie", containsString("SameSite=Lax")));
+                .andExpect(header().string("Set-Cookie", containsString("Secure")))
+                .andExpect(header().string("Set-Cookie", containsString("SameSite=None")));
     }
 
     @Test
