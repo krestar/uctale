@@ -10,13 +10,40 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 class ImageControllerTest {
 
     @Mock
     private ImageGenerator imageGenerator;
+
+    @Test
+    @DisplayName("빈 이미지 prompt는 provider 호출 전에 거부한다")
+    void image_RejectsBlankPromptBeforeProviderCall() {
+        ImageController controller = new ImageController(imageGenerator);
+
+        assertThatThrownBy(() -> controller.image(" ", "16:9"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("이미지 prompt는 필수입니다.");
+
+        verify(imageGenerator, never()).fetchImage(" ", "16:9");
+    }
+
+    @Test
+    @DisplayName("지원하지 않는 이미지 비율은 provider 호출 전에 거부한다")
+    void image_RejectsUnsupportedAspectRatioBeforeProviderCall() {
+        ImageController controller = new ImageController(imageGenerator);
+
+        assertThatThrownBy(() -> controller.image("zombie", "4:3"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("지원하지 않는 이미지 비율입니다.");
+
+        verify(imageGenerator, never()).fetchImage("zombie", "4:3");
+    }
 
     @Test
     @DisplayName("이미지 provider 실패 시 502를 반환한다")
