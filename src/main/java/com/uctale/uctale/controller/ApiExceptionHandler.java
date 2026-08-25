@@ -5,6 +5,7 @@ import com.uctale.uctale.application.game.InvalidChoiceException;
 import com.uctale.uctale.application.game.PersistenceOperationException;
 import com.uctale.uctale.application.game.TurnConflictException;
 import com.uctale.uctale.application.narrative.InvalidNarrativeResponseException;
+import com.uctale.uctale.security.AccessRequestForbiddenException;
 import com.uctale.uctale.security.AccessSessionException;
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
@@ -19,6 +20,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(AccessSessionException.class)
     public ResponseEntity<ApiError> handleAccessSession(AccessSessionException exception) {
         return error(HttpStatus.UNAUTHORIZED, exception.code(), exception.getMessage());
+    }
+
+    @ExceptionHandler(AccessRequestForbiddenException.class)
+    public ResponseEntity<ApiError> handleAccessRequestForbidden(AccessRequestForbiddenException exception) {
+        return error(HttpStatus.FORBIDDEN, "ACCESS_REQUEST_FORBIDDEN", exception.getMessage());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
