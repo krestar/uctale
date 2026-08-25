@@ -1,5 +1,6 @@
 package com.uctale.uctale.security;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -26,6 +27,7 @@ public class AccessSessionService {
     private final boolean secureCookie;
     private final Clock clock;
 
+    @Autowired
     public AccessSessionService(
             @Value("${game.access.password}") String accessPassword,
             @Value("${game.access.session-secret}") String sessionSecret,
