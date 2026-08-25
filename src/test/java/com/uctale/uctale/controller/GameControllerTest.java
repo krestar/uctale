@@ -1,6 +1,8 @@
 package com.uctale.uctale.controller;
 
 import tools.jackson.databind.ObjectMapper;
+import com.uctale.uctale.application.game.GameSessionNotFoundException;
+import com.uctale.uctale.application.game.InvalidChoiceException;
 import com.uctale.uctale.application.game.TurnConflictException;
 import com.uctale.uctale.dto.GameChoice;
 import com.uctale.uctale.dto.GameInitRequest;
@@ -21,6 +23,8 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -84,7 +88,7 @@ class GameControllerTest {
     }
 
     @Test
-    @DisplayName("오래된 턴 요청은 409로 반환한다")
+    @DisplayName("오래된 턴 요청은 안정적인 409 오류 코드로 반환한다")
     void progressGame_MapsTurnConflict() throws Exception {
         given(gameService.progressGame(any(GameProgressRequest.class)))
                 .willThrow(new TurnConflictException("이미 처리되었거나 오래된 턴 요청입니다."));
@@ -93,15 +97,57 @@ class GameControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new GameProgressRequest(42L, 1, 1))))
                 .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TURN_CONFLICT"))
                 .andExpect(jsonPath("$.message").value("이미 처리되었거나 오래된 턴 요청입니다."));
     }
 
     @Test
-    @DisplayName("빈 세계관 설정은 400으로 거부한다")
+    @DisplayName("존재하지 않는 세션은 404 오류 코드로 반환한다")
+    void progressGame_MapsSessionNotFound() throws Exception {
+        given(gameService.progressGame(any(GameProgressRequest.class)))
+                .willThrow(new GameSessionNotFoundException("존재하지 않는 세션입니다."));
+
+        mockMvc.perform(post("/api/game/progress")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new GameProgressRequest(42L, 1, 1))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SESSION_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("현재 턴에 없는 선택지는 422 오류 코드로 반환한다")
+    void progressGame_MapsInvalidChoice() throws Exception {
+        given(gameService.progressGame(any(GameProgressRequest.class)))
+                .willThrow(new InvalidChoiceException("현재 턴에서 선택할 수 없는 선택지입니다."));
+
+        mockMvc.perform(post("/api/game/progress")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new GameProgressRequest(42L, 99, 1))))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("INVALID_CHOICE"));
+    }
+
+    @Test
+    @DisplayName("빈 세계관 설정은 provider 호출 전에 400으로 거부한다")
     void initGame_RejectsBlankWorldSetting() throws Exception {
         mockMvc.perform(post("/api/game/init")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new GameInitRequest("", "김대리"))))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verify(gameService, never()).initGame(any(GameInitRequest.class));
+    }
+
+    @Test
+    @DisplayName("DB varchar 한계를 넘는 세계관 설정은 provider 호출 전에 거부한다")
+    void initGame_RejectsWorldSettingLongerThanDatabaseLimit() throws Exception {
+        mockMvc.perform(post("/api/game/init")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new GameInitRequest("가".repeat(256), "김대리"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verify(gameService, never()).initGame(any(GameInitRequest.class));
     }
 }
