@@ -16,16 +16,7 @@ const GameImage = ({ src, alt, onAuthError }) => {
         let cancelled = false;
         let objectUrl = null;
 
-        if (!src) {
-            setImageSrc(null);
-            setIsLoading(false);
-            setHasError(false);
-            return undefined;
-        }
-
-        setIsLoading(true);
-        setHasError(false);
-        setImageSrc(null);
+        if (!src) return undefined;
 
         fetchGameImage(src)
             .then((blob) => {
