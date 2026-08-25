@@ -2,7 +2,10 @@ import axios from 'axios';
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/game';
 const API_ORIGIN = new URL(BASE_URL).origin;
-const apiClient = axios.create({ withCredentials: true });
+const apiClient = axios.create({
+    withCredentials: true,
+    headers: { 'X-UCTale-Client': 'web' }
+});
 
 export const initGame = async (worldSetting, characterSetting) => {
     const response = await apiClient.post(`${BASE_URL}/init`, {
@@ -26,6 +29,13 @@ export const resolveGameAssetUrl = (assetUrl) => {
         return assetUrl;
     }
     return new URL(assetUrl, API_ORIGIN).toString();
+};
+
+export const fetchGameImage = async (assetUrl) => {
+    const response = await apiClient.get(resolveGameAssetUrl(assetUrl), {
+        responseType: 'blob'
+    });
+    return response.data;
 };
 
 export const verifyPassword = async (password) => {
