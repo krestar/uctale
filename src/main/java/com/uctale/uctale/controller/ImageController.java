@@ -44,7 +44,7 @@ public class ImageController {
 
         return ResponseEntity.ok()
                 .contentType(generatedImage.contentType())
-                .cacheControl(CacheControl.maxAge(10, TimeUnit.MINUTES).cachePublic())
+                .cacheControl(CacheControl.maxAge(10, TimeUnit.MINUTES).cachePrivate())
                 .body(generatedImage.bytes());
     }
 
