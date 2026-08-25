@@ -125,7 +125,12 @@ function App() {
                 <h1>📖 {gameData.title}</h1>
 
                 <div className="image-container">
-                    <GameImage key={mainImageUrl} src={mainImageUrl} alt="Game Scene" />
+                    <GameImage
+                        key={mainImageUrl}
+                        src={mainImageUrl}
+                        alt="Game Scene"
+                        onAuthError={requireReauthentication}
+                    />
                 </div>
 
                 <div className="story-box">
