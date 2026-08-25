@@ -45,7 +45,7 @@ public class SecurityWebConfig implements WebMvcConfigurer {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(origins);
         configuration.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Content-Type"));
+        configuration.setAllowedHeaders(List.of("Content-Type", AccessSessionInterceptor.CLIENT_HEADER));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
 
