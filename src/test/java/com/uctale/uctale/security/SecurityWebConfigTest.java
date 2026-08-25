@@ -15,7 +15,7 @@ class SecurityWebConfigTest {
     private static final String SECRET = "0123456789abcdef0123456789abcdef";
 
     @Test
-    @DisplayName("명시된 Vercel origin만 credential CORS 응답을 받는다")
+    @DisplayName("명시된 Vercel origin만 보호 client header credential CORS 응답을 받는다")
     void cors_AllowsConfiguredOriginOnly() throws Exception {
         AccessSessionService service = new AccessSessionService("pw", SECRET, 3600, true);
         SecurityWebConfig config = new SecurityWebConfig(new AccessSessionInterceptor(service));
@@ -26,6 +26,7 @@ class SecurityWebConfigTest {
         filter.doFilter(allowed, allowedResponse, new MockFilterChain());
         assertThat(allowedResponse.getHeader("Access-Control-Allow-Origin")).isEqualTo("https://uctale.vercel.app");
         assertThat(allowedResponse.getHeader("Access-Control-Allow-Credentials")).isEqualTo("true");
+        assertThat(allowedResponse.getHeader("Access-Control-Allow-Headers")).containsIgnoringCase(AccessSessionInterceptor.CLIENT_HEADER);
 
         MockHttpServletRequest denied = preflight("https://evil.example");
         MockHttpServletResponse deniedResponse = new MockHttpServletResponse();
@@ -59,6 +60,7 @@ class SecurityWebConfigTest {
         MockHttpServletRequest request = new MockHttpServletRequest("OPTIONS", "/api/game/init");
         request.addHeader("Origin", origin);
         request.addHeader("Access-Control-Request-Method", "POST");
+        request.addHeader("Access-Control-Request-Headers", "Content-Type, " + AccessSessionInterceptor.CLIENT_HEADER);
         return request;
     }
 }
