@@ -37,6 +37,6 @@ public class ChoiceCodec {
                 .filter(choice -> choice.id() == choiceId)
                 .findFirst()
                 .map(GameChoice::text)
-                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 선택지입니다."));
+                .orElseThrow(() -> new InvalidChoiceException("현재 턴에서 선택할 수 없는 선택지입니다."));
     }
 }
