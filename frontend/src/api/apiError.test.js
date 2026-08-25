@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { getApiErrorMessage } from './apiError.js'
+import { getApiErrorMessage, isAccessAuthError } from './apiError.js'
 
 test('validation 오류는 서버의 안전한 사용자 메시지를 표시한다', () => {
   const error = { response: { data: { code: 'VALIDATION_ERROR', message: '세계관 설정은 255자 이하여야 합니다.' } } }
@@ -14,6 +14,12 @@ test('충돌 오류는 안정적인 사용자 메시지로 변환한다', () => 
     getApiErrorMessage(error),
     '이미 처리되었거나 오래된 선택입니다. 최신 상태에서 다시 시도해주세요.'
   )
+})
+
+test('접근 세션 만료는 재인증 대상으로 판별한다', () => {
+  const error = { response: { data: { code: 'ACCESS_SESSION_EXPIRED' } } }
+  assert.equal(isAccessAuthError(error), true)
+  assert.equal(getApiErrorMessage(error), '접근 세션이 만료되었습니다. 다시 로그인해주세요.')
 })
 
 test('알 수 없는 서버 오류는 내부 메시지를 노출하지 않는다', () => {
