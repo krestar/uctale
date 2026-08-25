@@ -7,32 +7,19 @@ import com.uctale.uctale.service.GameService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.Map;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 @Slf4j
 @RestController
 @RequestMapping("/api/game")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 public class GameController {
 
     private final GameService gameService;
-
-    @Value("${game.access.password}")
-    private String accessPassword;
-
-    @PostMapping("/verify-password")
-    public ResponseEntity<?> verifyPassword(@RequestBody Map<String, String> payload) {
-        String inputPassword = payload.get("password");
-        if (accessPassword.equals(inputPassword)) {
-            return ResponseEntity.ok().build();
-        }
-        return ResponseEntity.status(401).body("비밀번호가 틀렸습니다.");
-    }
 
     @PostMapping("/init")
     public ResponseEntity<GameResponse> initGame(@Valid @RequestBody GameInitRequest request) {

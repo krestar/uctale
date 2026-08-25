@@ -32,17 +32,25 @@ UCTale은 사용자가 직접 입력한 세계관과 주인공 설정을 바탕�
 
 ## 플레이 방식
 
-1. 원하는 세계관과 주인공을 입력합니다.
-2. 서버가 입력 내용을 바탕으로 첫 장면과 선택지를 생성합니다.
-3. 플레이어가 선택지를 고르면 다음 턴이 진행됩니다.
-4. 서버는 현재 턴과 게임 상태를 저장하고, 필요한 문맥만 Narrative Engine에 전달합니다.
-5. 시각적으로 표현할 장면이 있으면 별도의 이미지 생성 경로를 통해 삽화를 제공합니다.
+1. 공유 베타 접근 비밀번호를 확인해 단기 접근 세션을 발급받습니다.
+2. 원하는 세계관과 주인공을 입력합니다.
+3. 서버가 입력 내용을 바탕으로 첫 장면과 선택지를 생성합니다.
+4. 플레이어가 선택지를 고르면 다음 턴이 진행됩니다.
+5. 서버는 현재 턴과 게임 상태를 저장하고, 필요한 문맥만 Narrative Engine에 전달합니다.
+6. 시각적으로 표현할 장면이 있으면 별도의 이미지 생성 경로를 통해 삽화를 제공합니다.
 
 현재 플레이는 AI가 모든 게임 상태를 임의로 결정하는 방식이 아니라, 장기적으로 서버가 게임의 사실과 규칙을 소유하고 LLM은 그 결과를 이야기로 표현하는 구조를 목표로 개발하고 있습니다.
 
 ---
 
 ## 현재 구현된 내용
+
+### 공유 베타 접근 제어
+
+- 비밀번호 검증 성공 시 서버가 서명한 단기 접근 세션을 HttpOnly 쿠키로 발급합니다.
+- 게임 시작, 턴 진행, 이미지 생성 API는 유효한 접근 세션이 있어야 호출할 수 있습니다.
+- 운영 기본 CORS origin은 `https://uctale.vercel.app`만 허용하며, 허용 origin은 환경변수로 명시적으로 관리합니다.
+- 접근 세션이 만료되거나 유효하지 않으면 프론트엔드가 재인증 화면으로 전환합니다.
 
 ### 이야기 생성과 선택지 진행
 
@@ -139,10 +147,15 @@ uctale/
 GOOGLE_AI_API_KEY=...
 POLLINATIONS_TOKEN=...
 GAME_ACCESS_PASSWORD=...
+GAME_ACCESS_SESSION_SECRET=32자 이상의 충분히 긴 임의 문자열
+GAME_ACCESS_COOKIE_SECURE=false
+GAME_CORS_ALLOWED_ORIGINS=http://localhost:5173
 DATABASE_URL=jdbc:postgresql://localhost:5432/uctale
 DATABASE_USERNAME=...
 DATABASE_PASSWORD=...
 ```
+
+`GAME_ACCESS_COOKIE_SECURE=false`는 로컬 HTTP 개발용입니다. 운영에서는 기본값 `true`를 사용해 `Secure; SameSite=None` HttpOnly 쿠키를 발급합니다. 운영 CORS 기본값은 `https://uctale.vercel.app`이며, 다른 origin을 허용해야 할 때만 `GAME_CORS_ALLOWED_ORIGINS`를 쉼표로 구분해 명시합니다.
 
 ### 백엔드 실행
 
@@ -192,6 +205,7 @@ VITE_API_URL=https://example.com/api/game
 ```bash
 cd frontend
 npm ci
+npm test
 npm run lint
 npm run build
 ```
@@ -204,8 +218,7 @@ npm run build
 
 진행 중인 주요 작업은 다음과 같습니다.
 
-- API 입력 검증과 오류 응답 정리
-- 공유 베타용 접근 제어와 세션 소유권
+- 공유 베타 게임 세션 소유권
 - AI 및 이미지 호출에 대한 비용 보호와 관측성
 - 턴 idempotency와 동시 요청 처리 강화
 - GameState snapshot 버전 관리

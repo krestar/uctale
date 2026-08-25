@@ -2,9 +2,13 @@ import axios from 'axios';
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/game';
 const API_ORIGIN = new URL(BASE_URL).origin;
+const apiClient = axios.create({
+    withCredentials: true,
+    headers: { 'X-UCTale-Client': 'web' }
+});
 
 export const initGame = async (worldSetting, characterSetting) => {
-    const response = await axios.post(`${BASE_URL}/init`, {
+    const response = await apiClient.post(`${BASE_URL}/init`, {
         worldSetting,
         characterSetting
     });
@@ -12,7 +16,7 @@ export const initGame = async (worldSetting, characterSetting) => {
 };
 
 export const progressGame = async (sessionId, choiceId, expectedTurn) => {
-    const response = await axios.post(`${BASE_URL}/progress`, {
+    const response = await apiClient.post(`${BASE_URL}/progress`, {
         sessionId,
         choiceId,
         expectedTurn
@@ -27,9 +31,17 @@ export const resolveGameAssetUrl = (assetUrl) => {
     return new URL(assetUrl, API_ORIGIN).toString();
 };
 
-export const verifyPassword = async (password) => {
-    await axios.post(`${BASE_URL}/verify-password`, {
-        password
+export const fetchGameImage = async (assetUrl) => {
+    const response = await apiClient.get(resolveGameAssetUrl(assetUrl), {
+        responseType: 'blob'
     });
-    return true;
+    return response.data;
+};
+
+export const verifyPassword = async (password) => {
+    await apiClient.post(`${BASE_URL}/verify-password`, { password });
+};
+
+export const checkAccessSession = async () => {
+    await apiClient.get(`${BASE_URL}/access-session`);
 };

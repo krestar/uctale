@@ -1,7 +1,46 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { fetchGameImage } from '../api/gameApi';
+import { isAccessAuthError } from '../api/apiError';
 
-const GameImage = ({ src, alt }) => {
-    const [isLoading, setIsLoading] = useState(true);
+const GameImage = ({ src, alt, onAuthError }) => {
+    const [imageSrc, setImageSrc] = useState(null);
+    const [isLoading, setIsLoading] = useState(Boolean(src));
+    const [hasError, setHasError] = useState(false);
+    const onAuthErrorRef = useRef(onAuthError);
+
+    useEffect(() => {
+        onAuthErrorRef.current = onAuthError;
+    }, [onAuthError]);
+
+    useEffect(() => {
+        let cancelled = false;
+        let objectUrl = null;
+
+        if (!src) return undefined;
+
+        fetchGameImage(src)
+            .then((blob) => {
+                if (cancelled) return;
+                objectUrl = URL.createObjectURL(blob);
+                setImageSrc(objectUrl);
+            })
+            .catch((error) => {
+                if (cancelled) return;
+                if (isAccessAuthError(error) && onAuthErrorRef.current) {
+                    onAuthErrorRef.current(error);
+                    return;
+                }
+                setHasError(true);
+            })
+            .finally(() => {
+                if (!cancelled) setIsLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+        };
+    }, [src]);
 
     return (
         <div style={{
@@ -36,17 +75,17 @@ const GameImage = ({ src, alt }) => {
                 </div>
             )}
 
-            <img
-                src={src}
-                alt={alt}
-                onLoad={() => setIsLoading(false)}
-                style={{
-                    width: '100%',
-                    display: 'block',
-                    opacity: isLoading ? 0 : 1,
-                    transition: 'opacity 0.5s ease-in-out'
-                }}
-            />
+            {hasError && !isLoading && (
+                <p style={{ color: '#aaa', textAlign: 'center' }}>이미지를 불러오지 못했습니다.</p>
+            )}
+
+            {imageSrc && (
+                <img
+                    src={imageSrc}
+                    alt={alt}
+                    style={{ width: '100%', display: 'block' }}
+                />
+            )}
 
             <style>{`
         @keyframes spin {
