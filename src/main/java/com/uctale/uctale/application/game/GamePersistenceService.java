@@ -17,6 +17,8 @@ import java.util.List;
 @Service
 public class GamePersistenceService {
 
+    private static final String TURN_UNIQUE_CONSTRAINT = "uk_game_log_session_turn";
+
     private final GameSessionRepository gameSessionRepository;
     private final GameLogRepository gameLogRepository;
     private final GameStateSnapshotRepository gameStateSnapshotRepository;
@@ -42,17 +44,24 @@ public class GamePersistenceService {
             String choicesJson,
             String imageUrl
     ) {
-        GameSession session = gameSessionRepository.save(new GameSession(worldSetting, characterSetting));
-        GameState initialState = GameState.initial(worldSetting, characterSetting, storyText);
-        gameStateSnapshotRepository.save(new GameStateSnapshot(session, gameStateCodec.serialize(initialState)));
-        gameLogRepository.save(new GameLog(session, 1, storyText, choicesJson, imageUrl));
-        return session;
+        try {
+            GameSession session = gameSessionRepository.save(new GameSession(worldSetting, characterSetting));
+            GameState initialState = GameState.initial(worldSetting, characterSetting, storyText);
+            gameStateSnapshotRepository.save(new GameStateSnapshot(session, gameStateCodec.serialize(initialState)));
+            gameLogRepository.save(new GameLog(session, 1, storyText, choicesJson, imageUrl));
+            gameLogRepository.flush();
+            gameStateSnapshotRepository.flush();
+            gameSessionRepository.flush();
+            return session;
+        } catch (DataIntegrityViolationException exception) {
+            throw new PersistenceOperationException("게임 시작 상태를 저장할 수 없습니다.", exception);
+        }
     }
 
     @Transactional(readOnly = true)
     public LoadedTurn loadLatestTurn(Long sessionId, int expectedTurn) {
         GameSession session = gameSessionRepository.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 세션입니다."));
+                .orElseThrow(() -> new GameSessionNotFoundException("존재하지 않는 세션입니다."));
 
         if (session.getCurrentTurn() != expectedTurn) {
             throw new TurnConflictException("이미 처리되었거나 오래된 턴 요청입니다.");
@@ -93,7 +102,7 @@ public class GamePersistenceService {
     ) {
         try {
             GameSession session = gameSessionRepository.findById(sessionId)
-                    .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 세션입니다."));
+                    .orElseThrow(() -> new GameSessionNotFoundException("존재하지 않는 세션입니다."));
 
             if (session.getCurrentTurn() != expectedTurn) {
                 throw new TurnConflictException("이미 처리되었거나 오래된 턴 요청입니다.");
@@ -134,9 +143,20 @@ public class GamePersistenceService {
             gameStateSnapshotRepository.flush();
             gameSessionRepository.flush();
             return session.getCurrentTurn();
-        } catch (ObjectOptimisticLockingFailureException | DataIntegrityViolationException exception) {
+        } catch (ObjectOptimisticLockingFailureException exception) {
             throw new TurnConflictException("동시에 처리된 턴 요청과 충돌했습니다.", exception);
+        } catch (DataIntegrityViolationException exception) {
+            if (isTurnUniqueConstraintViolation(exception)) {
+                throw new TurnConflictException("동시에 처리된 턴 요청과 충돌했습니다.", exception);
+            }
+            throw new PersistenceOperationException("게임 진행 상태를 저장할 수 없습니다.", exception);
         }
+    }
+
+    private boolean isTurnUniqueConstraintViolation(DataIntegrityViolationException exception) {
+        Throwable cause = exception.getMostSpecificCause();
+        String message = cause == null ? exception.getMessage() : cause.getMessage();
+        return message != null && message.toLowerCase().contains(TURN_UNIQUE_CONSTRAINT);
     }
 
     private GameState loadOrRecoverState(GameSession session) {
