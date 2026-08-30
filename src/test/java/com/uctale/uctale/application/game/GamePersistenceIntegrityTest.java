@@ -1,5 +1,6 @@
 package com.uctale.uctale.application.game;
 
+import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.repository.GameLogRepository;
 import com.uctale.uctale.repository.GameSessionRepository;
 import com.uctale.uctale.repository.GameStateSnapshotRepository;
@@ -27,6 +28,7 @@ class GamePersistenceIntegrityTest {
     @Mock private GameStateCodec gameStateCodec;
 
     private GamePersistenceService persistenceService;
+    private GameTurnCommit commit;
 
     @BeforeEach
     void setUp() {
@@ -37,6 +39,17 @@ class GamePersistenceIntegrityTest {
                 imageAssetRepository,
                 gameStateCodec
         );
+        GameState previousState = GameState.initial("세계관", "캐릭터", "첫 이야기");
+        commit = new GameTurnCommit(
+                1,
+                1,
+                "선택",
+                previousState,
+                previousState.advance("선택", "본문"),
+                "본문",
+                "[]",
+                null
+        );
     }
 
     @Test
@@ -45,9 +58,8 @@ class GamePersistenceIntegrityTest {
         given(gameSessionRepository.findByIdAndOwnerKey(42L, OWNER_KEY))
                 .willThrow(new DataIntegrityViolationException("not-null constraint violation"));
 
-        assertThatThrownBy(() -> persistenceService.saveNextTurn(
-                OWNER_KEY, 42L, 1, "선택", "본문", "[]", null
-        )).isInstanceOf(PersistenceOperationException.class)
+        assertThatThrownBy(() -> persistenceService.saveNextTurn(OWNER_KEY, 42L, commit))
+                .isInstanceOf(PersistenceOperationException.class)
                 .isNotInstanceOf(TurnConflictException.class);
     }
 
@@ -57,9 +69,8 @@ class GamePersistenceIntegrityTest {
         given(gameSessionRepository.findByIdAndOwnerKey(42L, OWNER_KEY))
                 .willThrow(new DataIntegrityViolationException("constraint uk_game_log_session_turn violated"));
 
-        assertThatThrownBy(() -> persistenceService.saveNextTurn(
-                OWNER_KEY, 42L, 1, "선택", "본문", "[]", null
-        )).isInstanceOf(TurnConflictException.class);
+        assertThatThrownBy(() -> persistenceService.saveNextTurn(OWNER_KEY, 42L, commit))
+                .isInstanceOf(TurnConflictException.class);
     }
 
     @Test
@@ -68,8 +79,7 @@ class GamePersistenceIntegrityTest {
         given(gameSessionRepository.findByIdAndOwnerKey(42L, OWNER_KEY))
                 .willThrow(new DataIntegrityViolationException("constraint uk_image_asset_session_turn violated"));
 
-        assertThatThrownBy(() -> persistenceService.saveNextTurn(
-                OWNER_KEY, 42L, 1, "선택", "본문", "[]", null
-        )).isInstanceOf(TurnConflictException.class);
+        assertThatThrownBy(() -> persistenceService.saveNextTurn(OWNER_KEY, 42L, commit))
+                .isInstanceOf(TurnConflictException.class);
     }
 }
