@@ -27,7 +27,7 @@ public class SecurityWebConfig implements WebMvcConfigurer {
                 .addPathPatterns(
                         "/api/game/init",
                         "/api/game/progress",
-                        "/api/game/image",
+                        "/api/game/image-assets/**",
                         "/api/game/access-session"
                 );
     }
