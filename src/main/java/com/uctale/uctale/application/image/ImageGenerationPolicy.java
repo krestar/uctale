@@ -1,5 +1,6 @@
 package com.uctale.uctale.application.image;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -19,6 +20,7 @@ public class ImageGenerationPolicy {
     private final String styleVersion;
     private final SecureRandom secureRandom;
 
+    @Autowired
     public ImageGenerationPolicy(
             @Value("${game.image.model:flux}") String model,
             @Value("${game.image.width:768}") int width,
