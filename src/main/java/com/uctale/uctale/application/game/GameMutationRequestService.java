@@ -32,12 +32,12 @@ public class GameMutationRequestService {
         validateKey(idempotencyKey);
 
         GameMutationRequest request = repository
-                .findByOwnerKeyAndOperationAndIdempotencyKey(ownerKey, operation, idempotencyKey)
+                .findByOwnerKeyAndIdempotencyKey(ownerKey, idempotencyKey)
                 .orElseGet(() -> repository.save(new GameMutationRequest(
                         ownerKey, operation, idempotencyKey, sessionId, expectedTurn, fingerprint
                 )));
 
-        if (!request.hasFingerprint(fingerprint)) {
+        if (!request.matches(operation, fingerprint)) {
             throw new IdempotencyConflictException("같은 Idempotency-Key가 다른 요청 payload에 재사용되었습니다.");
         }
 
