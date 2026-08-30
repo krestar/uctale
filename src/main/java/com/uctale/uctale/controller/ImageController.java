@@ -1,5 +1,6 @@
 package com.uctale.uctale.controller;
 
+import com.uctale.uctale.application.cost.ClientIpResolver;
 import com.uctale.uctale.application.cost.CostRequestContext;
 import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.security.AccessSessionInterceptor;
@@ -28,7 +29,7 @@ public class ImageController {
             @PathVariable String assetId,
             HttpServletRequest servletRequest
     ) {
-        CostRequestContext context = CostRequestContext.create(ownerKey, servletRequest.getRemoteAddr(), null, null);
+        CostRequestContext context = CostRequestContext.create(ownerKey, ClientIpResolver.resolve(servletRequest), null, null);
         ImageAssetService.GeneratedAsset asset = imageAssetService.getOrGenerate(context, assetId);
 
         return ResponseEntity.ok()
