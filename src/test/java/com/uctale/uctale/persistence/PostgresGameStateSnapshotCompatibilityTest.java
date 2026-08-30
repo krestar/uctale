@@ -36,6 +36,16 @@ class PostgresGameStateSnapshotCompatibilityTest extends PostgresIntegrationTest
         GameSession session = gamePersistenceService.saveOpening(
                 OWNER_KEY, "세계관", "캐릭터", "첫 이야기", "[]", null
         );
+        String openingSnapshotJson = jdbcTemplate.queryForObject(
+                "select state_json from game_state_snapshot where session_id = ?",
+                String.class,
+                session.getId()
+        );
+        JsonNode openingSnapshot = objectMapper.readTree(openingSnapshotJson);
+        assertThat(openingSnapshot.get("schemaVersion").asInt()).isEqualTo(1);
+        assertThat(openingSnapshot.get("rulesetVersion").asInt()).isEqualTo(1);
+        assertThat(openingSnapshot.get("state").get("turnNumber").asInt()).isEqualTo(1);
+
         GameState initialState = gamePersistenceService.loadLatestTurn(OWNER_KEY, session.getId(), 1).gameState();
         String legacyRawJson = objectMapper.writeValueAsString(initialState);
         jdbcTemplate.update(
