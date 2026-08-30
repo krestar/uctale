@@ -28,17 +28,6 @@ public class PollinationsImageAdapter implements ImageGenerator {
     }
 
     @Override
-    public String createPublicUrl(String prompt, String aspectRatio) {
-        if (prompt == null || prompt.isBlank()) {
-            return null;
-        }
-
-        String encodedPrompt = URLEncoder.encode(prompt, StandardCharsets.UTF_8);
-        String encodedAspectRatio = URLEncoder.encode(normalizeAspectRatio(aspectRatio), StandardCharsets.UTF_8);
-        return "/api/game/image?prompt=" + encodedPrompt + "&aspectRatio=" + encodedAspectRatio;
-    }
-
-    @Override
     public GeneratedImage fetchImage(String prompt, String aspectRatio) {
         try {
             ResponseEntity<byte[]> response = restClient.get()
