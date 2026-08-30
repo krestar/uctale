@@ -177,7 +177,15 @@ public class PollinationsImageAdapter implements ImageGenerator {
     }
 
     private PollinationsProviderException providerException(org.springframework.http.client.ClientHttpResponse response) {
-        int status = response.getStatusCode().value();
+        final int status;
+        try {
+            status = response.getStatusCode().value();
+        } catch (IOException exception) {
+            return new PollinationsProviderException(
+                    "Pollinations provider 상태 코드를 읽지 못했습니다.", exception, true, 0
+            );
+        }
+
         String code = "HTTP_" + status;
         String requestId = null;
         try {
