@@ -65,7 +65,7 @@ class SecurityWebConfigTest {
     void session_RejectsTamperedToken() {
         AccessSessionService service = new AccessSessionService("pw", SECRET, 3600, true);
         String token = service.authenticate("pw");
-        String tampered = token.substring(0, token.length() - 1) + (token.endsWith("A") ? "B" : "A");
+        String tampered = (token.startsWith("A") ? "B" : "A") + token.substring(1);
 
         assertThatThrownBy(() -> service.validate(tampered))
                 .isInstanceOf(AccessSessionException.class)
