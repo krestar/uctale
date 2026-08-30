@@ -20,8 +20,8 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "game_mutation_request", uniqueConstraints = @UniqueConstraint(
-        name = "uk_game_mutation_owner_operation_key",
-        columnNames = {"owner_key", "operation", "idempotency_key"}
+        name = "uk_game_mutation_owner_key",
+        columnNames = {"owner_key", "idempotency_key"}
 ))
 @Getter
 @NoArgsConstructor
@@ -90,8 +90,8 @@ public class GameMutationRequest {
         this.status = Status.PROCESSING;
     }
 
-    public boolean hasFingerprint(String fingerprint) {
-        return requestFingerprint.equals(fingerprint);
+    public boolean matches(String operation, String fingerprint) {
+        return this.operation.equals(operation) && requestFingerprint.equals(fingerprint);
     }
 
     public void restart() {
