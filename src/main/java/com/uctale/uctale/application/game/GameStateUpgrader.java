@@ -29,7 +29,7 @@ public class GameStateUpgrader {
             }
             return new VersionedState(
                     GameStateSnapshotFormat.LEGACY_SCHEMA_VERSION,
-                    GameStateSnapshotFormat.CURRENT_RULESET_VERSION,
+                    GameStateSnapshotFormat.LEGACY_RULESET_VERSION,
                     snapshotJson
             );
         }
