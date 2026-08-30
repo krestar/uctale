@@ -22,6 +22,8 @@ const TypewriterText = ({ text, speed = 30, onComplete }) => {
   }, [text])
 
   useEffect(() => {
+    if (state.text !== text) return undefined
+
     if (state.isComplete) {
       if (!completionNotifiedRef.current) {
         completionNotifiedRef.current = true
@@ -35,7 +37,7 @@ const TypewriterText = ({ text, speed = 30, onComplete }) => {
     }, speed)
 
     return () => window.clearTimeout(timeoutId)
-  }, [state, speed])
+  }, [state, speed, text])
 
   const handleSkip = () => {
     setState((current) => skipTypewriter(current))
@@ -44,8 +46,8 @@ const TypewriterText = ({ text, speed = 30, onComplete }) => {
   return (
     <div className="typewriter">
       <p className="sr-only">{text}</p>
-      <p className="story-copy" aria-hidden="true">{getDisplayedText(state)}</p>
-      {!state.isComplete && (
+      <p className="story-copy" aria-hidden="true">{state.text === text ? getDisplayedText(state) : ''}</p>
+      {state.text === text && !state.isComplete && (
         <button className="button button--secondary typewriter__skip" type="button" onClick={handleSkip}>
           본문 바로 보기
         </button>
