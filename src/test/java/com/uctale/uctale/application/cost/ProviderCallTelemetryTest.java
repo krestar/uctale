@@ -61,6 +61,29 @@ class ProviderCallTelemetryTest {
         });
     }
 
+    @Test
+    @DisplayName("호출 결과에서 실제 retry 횟수를 추출해 event에 기록할 수 있다")
+    void retryCount_CanBeExtractedFromResult() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-08-30T06:00:00Z"));
+        List<ProviderCallEvent> events = new ArrayList<>();
+        ProviderCallTelemetry telemetry = new ProviderCallTelemetry(clock, events::add);
+        CostRequestContext context = CostRequestContext.internal("owner-a", 42L, 2);
+
+        RetryAwareResult result = telemetry.observe(
+                "pollinations",
+                "image_generation",
+                context,
+                () -> new RetryAwareResult("ok", 2),
+                RetryAwareResult::retryCount,
+                ignored -> 0
+        );
+
+        assertThat(result.value()).isEqualTo("ok");
+        assertThat(events).singleElement().satisfies(event -> assertThat(event.retryCount()).isEqualTo(2));
+    }
+
+    private record RetryAwareResult(String value, int retryCount) {}
+
     private static final class MutableClock extends Clock {
         private Instant instant;
 

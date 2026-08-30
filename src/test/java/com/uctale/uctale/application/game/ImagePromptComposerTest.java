@@ -34,7 +34,7 @@ class ImagePromptComposerTest {
                 assets("desert ruins", List.of("explorer"), List.of("ancient key"))
         );
 
-        assertThat(fixtures).hasSizeBetween(15, 20);
+        assertThat(fixtures).hasSize(16);
         for (NarrativeTurn.VisualAssets fixture : fixtures) {
             String first = composer.compose(fixture);
             String second = composer.compose(fixture);
