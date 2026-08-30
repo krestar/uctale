@@ -1,0 +1,90 @@
+package com.uctale.uctale.application.cost;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class ProviderCallTelemetryTest {
+
+    @Test
+    @DisplayName("provider 성공 호출은 민감 본문 없이 식별자와 latency를 기록한다")
+    void success_IsRecorded() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-08-30T06:00:00Z"));
+        List<ProviderCallEvent> events = new ArrayList<>();
+        ProviderCallTelemetry telemetry = new ProviderCallTelemetry(clock, events::add);
+        CostRequestContext context = new CostRequestContext("request-1", "owner-secret", "1.2.3.4", 42L, 3, null);
+
+        String result = telemetry.observe("gemini", "progress", context, 0, () -> {
+            clock.advanceMillis(37);
+            return "ok";
+        });
+
+        assertThat(result).isEqualTo("ok");
+        assertThat(events).singleElement().satisfies(event -> {
+            assertThat(event.provider()).isEqualTo("gemini");
+            assertThat(event.operation()).isEqualTo("progress");
+            assertThat(event.sessionId()).isEqualTo(42L);
+            assertThat(event.turn()).isEqualTo(3);
+            assertThat(event.requestId()).isEqualTo("request-1");
+            assertThat(event.latencyMs()).isEqualTo(37);
+            assertThat(event.outcome()).isEqualTo("SUCCESS");
+            assertThat(event.retryCount()).isZero();
+        });
+    }
+
+    @Test
+    @DisplayName("provider 예외도 실패 event를 남기고 원래 예외를 전달한다")
+    void failure_IsRecorded() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-08-30T06:00:00Z"));
+        List<ProviderCallEvent> events = new ArrayList<>();
+        ProviderCallTelemetry telemetry = new ProviderCallTelemetry(clock, events::add);
+        CostRequestContext context = CostRequestContext.internal("owner-a", 42L, 2);
+
+        assertThatThrownBy(() -> telemetry.observe("pollinations", "image_generation", context, 1, () -> {
+            clock.advanceMillis(12);
+            throw new IllegalStateException("provider down");
+        })).isInstanceOf(IllegalStateException.class);
+
+        assertThat(events).singleElement().satisfies(event -> {
+            assertThat(event.outcome()).isEqualTo("FAILURE");
+            assertThat(event.retryCount()).isEqualTo(1);
+            assertThat(event.latencyMs()).isEqualTo(12);
+        });
+    }
+
+    private static final class MutableClock extends Clock {
+        private Instant instant;
+
+        private MutableClock(Instant instant) {
+            this.instant = instant;
+        }
+
+        private void advanceMillis(long millis) {
+            instant = instant.plusMillis(millis);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return instant;
+        }
+    }
+}
