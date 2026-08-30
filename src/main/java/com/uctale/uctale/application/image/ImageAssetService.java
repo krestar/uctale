@@ -11,6 +11,10 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
+import java.util.HexFormat;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -96,20 +100,22 @@ public class ImageAssetService {
                 );
                 costRateLimiter.check(CostOperation.IMAGE, providerContext);
 
+                long startedAt = System.nanoTime();
                 try {
                     ImageGenerator.GeneratedImage generated = providerCallTelemetry.observe(
-                            "pollinations", "image_generation", providerContext, 0,
-                            () -> fetchValidImage(current)
+                            "pollinations",
+                            "image_generation",
+                            providerContext,
+                            () -> fetchValidImage(current),
+                            result -> result.providerMetadata().retryCount(),
+                            this::retryCountFromFailure
                     );
                     current.storeGeneratedImage(generated.bytes(), generated.contentType().toString());
                     imageAssetRepository.saveAndFlush(current);
+                    logProviderResult(current, generated, startedAt);
                     return toGeneratedAsset(current);
                 } catch (ImageGenerationException exception) {
-                    log.warn(
-                            "image_asset_fallback assetId={} sessionId={} turn={} reason={}",
-                            current.getId(), current.getGameSession().getId(), current.getTurnNumber(),
-                            exception.getClass().getSimpleName()
-                    );
+                    logProviderFailure(current, exception, startedAt);
                     return fallbackAsset();
                 }
             }
@@ -135,6 +141,40 @@ public class ImageAssetService {
         return generated;
     }
 
+    private int retryCountFromFailure(RuntimeException exception) {
+        return exception instanceof ImageProviderFailure failure ? failure.retryCount() : 0;
+    }
+
+    private void logProviderResult(ImageAsset asset, ImageGenerator.GeneratedImage generated, long startedAt) {
+        ImageGenerator.ProviderMetadata metadata = generated.providerMetadata();
+        log.info(
+                "image_provider_result assetId={} sessionId={} turn={} promptHash={} model={} size={}x{} seed={} styleVersion={} latencyMs={} outcome=SUCCESS status={} errorCode=- requestId={} bytes={} mime={} retryCount={}",
+                asset.getId(), asset.getGameSession().getId(), asset.getTurnNumber(), promptHash(asset.getPrompt()),
+                asset.getModel(), asset.getWidth(), asset.getHeight(), asset.getSeed(), asset.getStyleVersion(),
+                elapsedMs(startedAt), metadata.status(), safeLog(metadata.requestId()), generated.bytes().length,
+                generated.contentType(), metadata.retryCount()
+        );
+    }
+
+    private void logProviderFailure(ImageAsset asset, ImageGenerationException exception, long startedAt) {
+        int status = 0;
+        String code = exception.getClass().getSimpleName();
+        String requestId = null;
+        int retryCount = 0;
+        if (exception instanceof ImageProviderFailure failure) {
+            status = failure.status();
+            code = failure.code();
+            requestId = failure.requestId();
+            retryCount = failure.retryCount();
+        }
+        log.warn(
+                "image_provider_result assetId={} sessionId={} turn={} promptHash={} model={} size={}x{} seed={} styleVersion={} latencyMs={} outcome=FAILURE status={} errorCode={} requestId={} bytes=0 mime=- retryCount={}",
+                asset.getId(), asset.getGameSession().getId(), asset.getTurnNumber(), promptHash(asset.getPrompt()),
+                asset.getModel(), asset.getWidth(), asset.getHeight(), asset.getSeed(), asset.getStyleVersion(),
+                elapsedMs(startedAt), status, safeLog(code), safeLog(requestId), retryCount
+        );
+    }
+
     private ImageAsset findOwnedAsset(String ownerKey, String assetId) {
         return imageAssetRepository.findByIdAndGameSessionOwnerKey(assetId, ownerKey)
                 .orElseThrow(() -> new ImageAssetNotFoundException("존재하지 않는 이미지 asset입니다."));
@@ -146,6 +186,27 @@ public class ImageAssetService {
 
     private GeneratedAsset fallbackAsset() {
         return new GeneratedAsset(FALLBACK_IMAGE.clone(), MediaType.parseMediaType("image/svg+xml"));
+    }
+
+    private long elapsedMs(long startedAt) {
+        return Math.max(0, Duration.ofNanos(System.nanoTime() - startedAt).toMillis());
+    }
+
+    private String promptHash(String prompt) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(prompt.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256을 사용할 수 없습니다.", exception);
+        }
+    }
+
+    private String safeLog(String value) {
+        if (value == null || value.isBlank()) {
+            return "-";
+        }
+        String normalized = value.replaceAll("[\\r\\n\\t]", "_");
+        return normalized.length() <= 128 ? normalized : normalized.substring(0, 128);
     }
 
     public record AssetReference(

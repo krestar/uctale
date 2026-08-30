@@ -34,5 +34,17 @@ public interface ImageGenerator {
         }
     }
 
-    record GeneratedImage(byte[] bytes, MediaType contentType) {}
+    record ProviderMetadata(int status, String requestId, int retryCount) {
+        public ProviderMetadata {
+            if (status < 0 || retryCount < 0) {
+                throw new IllegalArgumentException("provider metadata 값이 올바르지 않습니다.");
+            }
+        }
+    }
+
+    record GeneratedImage(byte[] bytes, MediaType contentType, ProviderMetadata providerMetadata) {
+        public GeneratedImage(byte[] bytes, MediaType contentType) {
+            this(bytes, contentType, new ProviderMetadata(200, null, 0));
+        }
+    }
 }

@@ -9,7 +9,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
-import org.springframework.util.DigestUtils;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -18,7 +17,14 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.HexFormat;
 
 @Slf4j
 @Component
@@ -91,11 +97,12 @@ public class PollinationsImageAdapter implements ImageGenerator {
                         })
                         .toEntity(byte[].class);
 
-                GeneratedImage image = validateResponse(response);
+                GeneratedImage image = validateResponse(response, attempt);
                 log.info(
-                        "pollinations_image promptHash={} model={} size={}x{} seed={} safe={} styleVersion={} latencyMs={} outcome=SUCCESS status=200 mime={} bytes={} retryCount={}",
+                        "pollinations_image promptHash={} model={} size={}x{} seed={} safe={} styleVersion={} latencyMs={} outcome=SUCCESS status={} requestId={} mime={} bytes={} retryCount={}",
                         promptHash, request.model(), request.width(), request.height(), request.seed(), request.safe(), request.styleVersion(),
-                        elapsedMs(startedAt), image.contentType(), image.bytes().length, attempt
+                        elapsedMs(startedAt), image.providerMetadata().status(), safeLog(image.providerMetadata().requestId()),
+                        image.contentType(), image.bytes().length, image.providerMetadata().retryCount()
                 );
                 return image;
             } catch (PollinationsProviderException exception) {
@@ -107,18 +114,20 @@ public class PollinationsImageAdapter implements ImageGenerator {
                         exception.retryAfterSeconds(), attempt, willRetry
                 );
                 if (!willRetry) {
-                    throw exception;
+                    throw exception.withRetryCount(attempt);
                 }
                 sleepBeforeRetry(exception.retryAfterSeconds(), attempt);
             } catch (ResourceAccessException exception) {
                 boolean willRetry = attempt < maxRetries;
                 log.warn(
-                        "pollinations_image promptHash={} model={} size={}x{} seed={} styleVersion={} latencyMs={} outcome=FAILURE status=0 code=NETWORK_TIMEOUT retryCount={} willRetry={}",
+                        "pollinations_image promptHash={} model={} size={}x{} seed={} styleVersion={} latencyMs={} outcome=FAILURE status=0 code=NETWORK_ERROR retryCount={} willRetry={}",
                         promptHash, request.model(), request.width(), request.height(), request.seed(), request.styleVersion(),
                         elapsedMs(startedAt), attempt, willRetry
                 );
                 if (!willRetry) {
-                    throw new PollinationsProviderException("Pollinations 네트워크 요청에 실패했습니다.", exception, true);
+                    throw new PollinationsProviderException(
+                            "Pollinations 네트워크 요청에 실패했습니다.", exception, true, attempt
+                    );
                 }
                 sleepBeforeRetry(null, attempt);
             }
@@ -126,7 +135,7 @@ public class PollinationsImageAdapter implements ImageGenerator {
         throw new ImageGenerationException("Pollinations 이미지 생성에 실패했습니다.");
     }
 
-    private GeneratedImage validateResponse(ResponseEntity<byte[]> response) {
+    private GeneratedImage validateResponse(ResponseEntity<byte[]> response, int retryCount) {
         byte[] body = response.getBody();
         if (body == null || body.length == 0) {
             throw new ImageGenerationException("Pollinations가 빈 이미지를 반환했습니다.");
@@ -138,7 +147,15 @@ public class PollinationsImageAdapter implements ImageGenerator {
         if (!isAllowedImageType(contentType)) {
             throw new ImageGenerationException("Pollinations 이미지 MIME type이 허용되지 않습니다.");
         }
-        return new GeneratedImage(body, contentType);
+        return new GeneratedImage(
+                body,
+                contentType,
+                new ProviderMetadata(
+                        response.getStatusCode().value(),
+                        response.getHeaders().getFirst("X-Request-Id"),
+                        retryCount
+                )
+        );
     }
 
     private boolean isAllowedImageType(MediaType contentType) {
@@ -184,7 +201,7 @@ public class PollinationsImageAdapter implements ImageGenerator {
         Long retryAfter = parseRetryAfter(response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER));
         boolean retryable = status == 429 || status == 502 || status == 503;
         return new PollinationsProviderException(
-                "Pollinations provider 오류가 발생했습니다.", status, code, requestId, retryAfter, retryable
+                "Pollinations provider 오류가 발생했습니다.", status, code, requestId, retryAfter, retryable, 0
         );
     }
 
@@ -192,10 +209,16 @@ public class PollinationsImageAdapter implements ImageGenerator {
         if (value == null || value.isBlank()) {
             return null;
         }
+        String normalized = value.trim();
         try {
-            return Math.max(0, Long.parseLong(value.trim()));
+            return Math.max(0, Long.parseLong(normalized));
         } catch (NumberFormatException ignored) {
-            return null;
+            try {
+                Instant retryAt = ZonedDateTime.parse(normalized, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant();
+                return Math.max(0, Duration.between(Instant.now(), retryAt).toSeconds());
+            } catch (DateTimeParseException ignoredDate) {
+                return null;
+            }
         }
     }
 
@@ -219,7 +242,12 @@ public class PollinationsImageAdapter implements ImageGenerator {
     }
 
     private String promptHash(String prompt) {
-        return DigestUtils.md5DigestAsHex(prompt.getBytes(StandardCharsets.UTF_8));
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(prompt.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256을 사용할 수 없습니다.", exception);
+        }
     }
 
     private String safeLog(String value) {

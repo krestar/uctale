@@ -36,7 +36,7 @@
 - public asset URL, query string, 구조화 로그에 secret을 넣지 않는다.
 - `model`, `width`, `height`, `seed`, `safe`를 항상 명시한다.
 - 공식 문서에 없는 `nologo` 옵션은 사용하지 않는다.
-- raw prompt는 구조화 로그에 남기지 않고 hash만 사용한다.
+- raw prompt는 구조화 로그에 남기지 않고 SHA-256 hash만 사용한다.
 
 ## 실패와 재시도
 
@@ -55,22 +55,23 @@
 - 403 권한 실패
 - 422 content policy 또는 처리 불가 요청
 
-`Retry-After`가 초 단위로 제공되면 그 값을 우선하고, 없으면 짧은 bounded backoff를 사용한다. 모든 retry는 asset에 저장된 동일 model/prompt/size/seed/safe를 사용한다.
+`Retry-After`가 delta-seconds 또는 HTTP-date로 제공되면 그 값을 우선하고, 없으면 짧은 bounded backoff를 사용한다. 모든 retry는 asset에 저장된 동일 model/prompt/size/seed/safe를 사용한다.
 
 응답은 non-empty JPEG/PNG이며 설정된 최대 byte 이하인 경우에만 저장한다. 최종 생성 실패는 canonical GameState나 GameLog turn을 롤백하지 않는다. 이미지 조회에는 정적 SVG placeholder를 반환하고 이후 조회에서 다시 생성할 수 있게 asset은 미생성 상태로 유지한다.
 
 ## 관측성과 비용
 
-Pollinations adapter 로그는 다음 진단 항목을 남긴다.
+`provider_call` 공통 telemetry와 `image_provider_result` 이미지 진단 로그를 함께 사용한다. Pollinations 실제 retry 횟수는 성공 결과/최종 실패에서 공통 telemetry로 전달되며, 이미지 진단 로그에는 다음 항목을 한 event에 기록한다.
 
-- prompt hash
-- model / size / seed / safe / style version
+- asset ID / session / turn
+- SHA-256 prompt hash
+- model / size / seed / style version
 - latency
-- provider status / error code / requestId / Retry-After
+- provider status / error code / requestId
 - response MIME / byte size
 - retry count
 
-API key와 raw prompt는 기록하지 않는다. session/turn/requestId는 #27의 provider-call telemetry와 server-issued asset metadata를 통해 함께 추적한다.
+API key와 raw prompt는 기록하지 않는다.
 
 실제 비용은 Pollinations account usage에서 기간과 key를 기준으로 확인하고, `docs/benchmarks/pollinations-image-benchmark.md`의 request 결과와 대조한다.
 

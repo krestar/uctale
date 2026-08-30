@@ -1,6 +1,7 @@
 package com.uctale.uctale.application.game;
 
 import com.uctale.uctale.application.narrative.NarrativeTurn;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -29,6 +30,7 @@ public class ImagePromptComposer {
         this(DEFAULT_STYLE_VERSION);
     }
 
+    @Autowired
     public ImagePromptComposer(@Value("${game.image.style-version:uctale-charcoal-v1}") String styleVersion) {
         String normalized = styleVersion == null ? "" : styleVersion.trim();
         String preset = STYLE_PRESETS.get(normalized);
