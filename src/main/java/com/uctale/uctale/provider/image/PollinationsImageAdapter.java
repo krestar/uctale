@@ -3,6 +3,7 @@ package com.uctale.uctale.provider.image;
 import com.uctale.uctale.application.image.ImageGenerationException;
 import com.uctale.uctale.application.image.ImageGenerator;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
@@ -43,6 +44,7 @@ public class PollinationsImageAdapter implements ImageGenerator {
     private final int maxImageBytes;
     private final Sleeper sleeper;
 
+    @Autowired
     public PollinationsImageAdapter(
             ObjectMapper objectMapper,
             @Qualifier("pollinationsRestClient") RestClient restClient,
