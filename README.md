@@ -2,7 +2,7 @@
 
 > 사용자가 만든 세계와 캐릭터를 바탕으로 이야기를 이어가는 AI 텍스트 어드벤처
 
-<img alt="UCTale 프로젝트 로고" src="./docs/images/project_logo.png" width="300"/>
+<img alt="UCTale 프로젝트 로고" src="./docs/images/project_logo.png" width="600"/>
 
 UCTale은 사용자가 직접 입력한 세계관과 주인공 설정을 바탕으로 이야기를 생성하는 텍스트 어드벤처입니다.
 
