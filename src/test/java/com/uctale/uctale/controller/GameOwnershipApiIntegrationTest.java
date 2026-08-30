@@ -24,9 +24,14 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.ObjectMapper;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -38,17 +43,19 @@ class GameOwnershipApiIntegrationTest {
     @Autowired private WebApplicationContext webApplicationContext;
     @Autowired private AccessSessionService accessSessionService;
     @Autowired private ObjectMapper objectMapper;
+    @Autowired private CountingImageGenerator countingImageGenerator;
 
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext).build();
+        countingImageGenerator.reset();
     }
 
     @Test
-    @DisplayName("다른 접근 주체는 session ID를 알아도 진행할 수 없고 소유자는 정상 진행한다")
-    void progress_RejectsCrossOwnerAndAllowsOwner() throws Exception {
+    @DisplayName("다른 접근 주체는 session과 image asset을 사용할 수 없고 소유자는 asset 결과를 재사용한다")
+    void ownership_IsEnforcedForProgressAndImageAsset() throws Exception {
         AccessSessionService.IssuedSession ownerA = accessSessionService.authenticate("TEST_PASSWORD", null);
         AccessSessionService.IssuedSession ownerB = accessSessionService.authenticate("TEST_PASSWORD", null);
 
@@ -59,12 +66,33 @@ class GameOwnershipApiIntegrationTest {
                         .content("{\"worldSetting\":\"세계관\",\"characterSetting\":\"캐릭터\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.turnNumber").value(1))
+                .andExpect(jsonPath("$.imageUrl").value(org.hamcrest.Matchers.startsWith("/api/game/image-assets/")))
                 .andReturn();
 
-        long sessionId = objectMapper.readTree(initResult.getResponse().getContentAsString())
-                .get("sessionId")
-                .asLong();
+        var responseJson = objectMapper.readTree(initResult.getResponse().getContentAsString());
+        long sessionId = responseJson.get("sessionId").asLong();
+        String imageUrl = responseJson.get("imageUrl").asText();
         String progressBody = "{\"sessionId\":" + sessionId + ",\"choiceId\":1,\"expectedTurn\":1}";
+
+        mockMvc.perform(get(imageUrl)
+                        .cookie(accessCookie(ownerB), ownerCookie(ownerB))
+                        .header(AccessSessionInterceptor.CLIENT_HEADER, AccessSessionInterceptor.CLIENT_HEADER_VALUE))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("IMAGE_ASSET_NOT_FOUND"));
+
+        mockMvc.perform(get(imageUrl)
+                        .cookie(accessCookie(ownerA), ownerCookie(ownerA))
+                        .header(AccessSessionInterceptor.CLIENT_HEADER, AccessSessionInterceptor.CLIENT_HEADER_VALUE))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.IMAGE_JPEG))
+                .andExpect(content().bytes("fake-image".getBytes(StandardCharsets.UTF_8)));
+
+        mockMvc.perform(get(imageUrl)
+                        .cookie(accessCookie(ownerA), ownerCookie(ownerA))
+                        .header(AccessSessionInterceptor.CLIENT_HEADER, AccessSessionInterceptor.CLIENT_HEADER_VALUE))
+                .andExpect(status().isOk());
+
+        assertThat(countingImageGenerator.calls()).isEqualTo(1);
 
         mockMvc.perform(post("/api/game/progress")
                         .cookie(accessCookie(ownerB), ownerCookie(ownerB))
@@ -122,18 +150,26 @@ class GameOwnershipApiIntegrationTest {
 
         @Bean
         @Primary
-        ImageGenerator testImageGenerator() {
-            return new ImageGenerator() {
-                @Override
-                public String createPublicUrl(String prompt, String aspectRatio) {
-                    return "/api/game/image?prompt=test&aspectRatio=16%3A9";
-                }
+        CountingImageGenerator testImageGenerator() {
+            return new CountingImageGenerator();
+        }
+    }
 
-                @Override
-                public GeneratedImage fetchImage(String prompt, String aspectRatio) {
-                    return null;
-                }
-            };
+    static class CountingImageGenerator implements ImageGenerator {
+        private final AtomicInteger calls = new AtomicInteger();
+
+        @Override
+        public GeneratedImage fetchImage(String prompt, String aspectRatio) {
+            calls.incrementAndGet();
+            return new GeneratedImage("fake-image".getBytes(StandardCharsets.UTF_8), MediaType.IMAGE_JPEG);
+        }
+
+        int calls() {
+            return calls.get();
+        }
+
+        void reset() {
+            calls.set(0);
         }
     }
 }
