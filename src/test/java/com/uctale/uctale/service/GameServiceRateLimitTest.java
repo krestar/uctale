@@ -8,6 +8,8 @@ import com.uctale.uctale.application.cost.CostRequestContext;
 import com.uctale.uctale.application.cost.ProviderCallTelemetry;
 import com.uctale.uctale.application.cost.RateLimitExceededException;
 import com.uctale.uctale.application.game.ChoiceCodec;
+import com.uctale.uctale.application.game.GameMutationFingerprint;
+import com.uctale.uctale.application.game.GameMutationRequestService;
 import com.uctale.uctale.application.game.GamePersistenceService;
 import com.uctale.uctale.application.game.ImagePromptComposer;
 import com.uctale.uctale.application.game.InvalidChoiceException;
@@ -28,6 +30,9 @@ import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -36,10 +41,12 @@ import static org.mockito.Mockito.when;
 class GameServiceRateLimitTest {
 
     private static final String OWNER_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    private static final String IDEMPOTENCY_KEY = "rate-limit-test-key";
 
     @Mock private NarrativeGenerator narrativeGenerator;
     @Mock private ImageAssetService imageAssetService;
     @Mock private GamePersistenceService gamePersistenceService;
+    @Mock private GameMutationRequestService mutationRequestService;
 
     @Test
     @DisplayName("Narrative quota 초과는 Gemini 호출 전에 거부한다")
@@ -47,6 +54,8 @@ class GameServiceRateLimitTest {
         Clock clock = Clock.fixed(Instant.parse("2026-08-30T06:00:00Z"), ZoneOffset.UTC);
         CostRateLimiter limiter = new CostRateLimiter(new CostRateLimitPolicy(1, 10, 60), clock);
         ProviderCallTelemetry telemetry = new ProviderCallTelemetry(clock, event -> {});
+        given(mutationRequestService.begin(anyString(), anyString(), anyString(), any(), any(), anyString()))
+                .willReturn(new GameMutationRequestService.BeginResult(100L, false, null, null, null));
         GameService service = new GameService(
                 narrativeGenerator,
                 imageAssetService,
@@ -54,9 +63,13 @@ class GameServiceRateLimitTest {
                 new ChoiceCodec(new ObjectMapper()),
                 new ImagePromptComposer(),
                 limiter,
-                telemetry
+                telemetry,
+                new GameMutationFingerprint(),
+                mutationRequestService
         );
-        CostRequestContext context = new CostRequestContext("request-1", OWNER_KEY, "1.2.3.4", null, 1, null);
+        CostRequestContext context = new CostRequestContext(
+                "request-1", OWNER_KEY, "1.2.3.4", null, 1, IDEMPOTENCY_KEY
+        );
         limiter.check(CostOperation.NARRATIVE, context);
 
         assertThatThrownBy(() -> service.initGame(context, new GameInitRequest("세계관", "캐릭터")))
@@ -64,6 +77,7 @@ class GameServiceRateLimitTest {
 
         verify(narrativeGenerator, never()).createOpening(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
         verify(imageAssetService, never()).issue(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        verify(mutationRequestService).markFailed(100L);
     }
 
     @Test
@@ -73,6 +87,8 @@ class GameServiceRateLimitTest {
         CostRateLimiter limiter = new CostRateLimiter(new CostRateLimitPolicy(1, 10, 60), clock);
         ProviderCallTelemetry telemetry = new ProviderCallTelemetry(clock, event -> {});
         ChoiceCodec choiceCodec = new ChoiceCodec(new ObjectMapper());
+        given(mutationRequestService.begin(anyString(), anyString(), anyString(), any(), any(), anyString()))
+                .willReturn(new GameMutationRequestService.BeginResult(100L, false, null, null, null));
         GameService service = new GameService(
                 narrativeGenerator,
                 imageAssetService,
@@ -80,7 +96,9 @@ class GameServiceRateLimitTest {
                 choiceCodec,
                 new ImagePromptComposer(),
                 limiter,
-                telemetry
+                telemetry,
+                new GameMutationFingerprint(),
+                mutationRequestService
         );
         GameState gameState = GameState.initial("세계관", "캐릭터", "첫 이야기");
         String choicesJson = choiceCodec.serialize(java.util.List.of(new com.uctale.uctale.dto.GameChoice(1, "유효한 선택")));
@@ -89,7 +107,9 @@ class GameServiceRateLimitTest {
                         10L, 1, "세계관", "캐릭터", "첫 이야기", choicesJson, "/image", gameState
                 )
         );
-        CostRequestContext context = new CostRequestContext("request-1", OWNER_KEY, "1.2.3.4", 10L, 2, null);
+        CostRequestContext context = new CostRequestContext(
+                "request-1", OWNER_KEY, "1.2.3.4", 10L, 2, IDEMPOTENCY_KEY
+        );
 
         assertThatThrownBy(() -> service.progressGame(context, new GameProgressRequest(10L, 999, 1)))
                 .isInstanceOf(InvalidChoiceException.class);
