@@ -36,9 +36,11 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -67,8 +69,8 @@ class GameServiceTest {
                 new GameMutationFingerprint(),
                 mutationRequestService
         );
-        given(mutationRequestService.begin(anyString(), anyString(), anyString(), any(), any(), anyString()))
-                .willReturn(new GameMutationRequestService.BeginResult(100L, false, null, null, null));
+        lenient().when(mutationRequestService.begin(anyString(), anyString(), anyString(), any(), any(), anyString()))
+                .thenReturn(new GameMutationRequestService.BeginResult(100L, false, null, null, null));
     }
 
     @Test
@@ -103,6 +105,27 @@ class GameServiceTest {
         assertThat(promptCaptor.getValue())
                 .startsWith("style[uctale-charcoal-v2]")
                 .contains("subjects: zombie", "setting: dark street", "final style lock:");
+    }
+
+    @Test
+    @DisplayName("완료된 init retry는 provider와 새 session 생성 없이 기존 결과를 반환한다")
+    void initGame_ReplaysCompletedMutation() {
+        given(mutationRequestService.begin(anyString(), eq(GameMutationRequestService.INIT), anyString(), any(), any(), anyString()))
+                .willReturn(new GameMutationRequestService.BeginResult(100L, true, 42L, 1, "기존 오프닝"));
+        given(gamePersistenceService.loadCommittedTurn(OWNER_KEY, 42L, 1))
+                .willReturn(new GamePersistenceService.CommittedTurn(
+                        "기존 스토리",
+                        choiceCodec.serialize(List.of(new GameChoice(3, "계속한다"))),
+                        "/api/game/image-assets/replayed"
+                ));
+
+        GameResponse response = gameService.initGame(OWNER_KEY, new GameInitRequest("세계관", "캐릭터"));
+
+        assertThat(response.sessionId()).isEqualTo(42L);
+        assertThat(response.turnNumber()).isEqualTo(1);
+        assertThat(response.title()).isEqualTo("기존 오프닝");
+        verify(narrativeGenerator, never()).createOpening(anyString(), anyString());
+        verify(gamePersistenceService, never()).saveOpening(any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -160,7 +183,7 @@ class GameServiceTest {
         assertThat(response.title()).isEqualTo("기존 장면");
         assertThat(response.storyText()).isEqualTo("기존 스토리");
         verify(narrativeGenerator, never()).createNextTurn(any());
-        verify(gamePersistenceService, never()).loadLatestTurn(anyString(), any(), any(Integer.class));
+        verify(gamePersistenceService, never()).loadLatestTurn(anyString(), any(), anyInt());
         verify(gamePersistenceService, never()).saveNextTurn(anyString(), any(), any(GameTurnCommit.class), any(), any());
     }
 
