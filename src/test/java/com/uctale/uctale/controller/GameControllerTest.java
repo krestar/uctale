@@ -3,6 +3,7 @@ package com.uctale.uctale.controller;
 import tools.jackson.databind.ObjectMapper;
 import com.uctale.uctale.application.cost.CostRequestContext;
 import com.uctale.uctale.application.game.GameSessionNotFoundException;
+import com.uctale.uctale.application.game.IdempotencyConflictException;
 import com.uctale.uctale.application.game.InvalidChoiceException;
 import com.uctale.uctale.application.game.TurnConflictException;
 import com.uctale.uctale.dto.GameChoice;
@@ -37,6 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class GameControllerTest {
 
     private static final String OWNER_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    private static final String IDEMPOTENCY_KEY = "12345678-test-key";
 
     @Mock private GameService gameService;
     private MockMvc mockMvc;
@@ -51,7 +53,7 @@ class GameControllerTest {
     }
 
     @Test
-    @DisplayName("게임 초기화 응답은 첫 번째 턴을 제공하고 비용 요청 context를 서비스에 전달한다")
+    @DisplayName("게임 초기화 응답은 첫 번째 턴과 idempotency key를 비용 context에 전달한다")
     void initGame_ReturnsFirstTurn() throws Exception {
         GameResponse response = new GameResponse(42L, 1, "첫날 밤", "오프닝 스토리입니다.",
                 List.of(new GameChoice(1, "도망간다")), "/api/game/image-assets/asset-1");
@@ -59,6 +61,7 @@ class GameControllerTest {
 
         mockMvc.perform(post("/api/game/init")
                         .requestAttr(AccessSessionInterceptor.OWNER_KEY_ATTRIBUTE, OWNER_KEY)
+                        .header(GameController.IDEMPOTENCY_KEY_HEADER, IDEMPOTENCY_KEY)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new GameInitRequest("좀비 아포칼립스", "김대리"))))
                 .andExpect(status().isOk())
@@ -69,10 +72,11 @@ class GameControllerTest {
         verify(gameService).initGame(contextCaptor.capture(), any(GameInitRequest.class));
         assertThat(contextCaptor.getValue().ownerKey()).isEqualTo(OWNER_KEY);
         assertThat(contextCaptor.getValue().turn()).isEqualTo(1);
+        assertThat(contextCaptor.getValue().idempotencyKey()).isEqualTo(IDEMPOTENCY_KEY);
     }
 
     @Test
-    @DisplayName("게임 진행 요청은 session과 기대 다음 턴을 비용 context에 포함한다")
+    @DisplayName("게임 진행 요청은 session, 다음 턴, idempotency key를 비용 context에 포함한다")
     void progressGame_Success() throws Exception {
         GameProgressRequest request = new GameProgressRequest(42L, 1, 1);
         GameResponse response = new GameResponse(42L, 2, "두 번째 장면", "다음 턴 스토리입니다.",
@@ -81,6 +85,7 @@ class GameControllerTest {
 
         mockMvc.perform(post("/api/game/progress")
                         .requestAttr(AccessSessionInterceptor.OWNER_KEY_ATTRIBUTE, OWNER_KEY)
+                        .header(GameController.IDEMPOTENCY_KEY_HEADER, IDEMPOTENCY_KEY)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
@@ -90,6 +95,7 @@ class GameControllerTest {
         verify(gameService).progressGame(contextCaptor.capture(), any(GameProgressRequest.class));
         assertThat(contextCaptor.getValue().sessionId()).isEqualTo(42L);
         assertThat(contextCaptor.getValue().turn()).isEqualTo(2);
+        assertThat(contextCaptor.getValue().idempotencyKey()).isEqualTo(IDEMPOTENCY_KEY);
     }
 
     @Test
@@ -98,6 +104,7 @@ class GameControllerTest {
                 .willThrow(new GameSessionNotFoundException("존재하지 않는 세션입니다."));
         mockMvc.perform(post("/api/game/progress")
                         .requestAttr(AccessSessionInterceptor.OWNER_KEY_ATTRIBUTE, OWNER_KEY)
+                        .header(GameController.IDEMPOTENCY_KEY_HEADER, IDEMPOTENCY_KEY)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new GameProgressRequest(42L, 1, 1))))
                 .andExpect(status().isNotFound())
@@ -110,10 +117,24 @@ class GameControllerTest {
                 .willThrow(new TurnConflictException("이미 처리되었거나 오래된 턴 요청입니다."));
         mockMvc.perform(post("/api/game/progress")
                         .requestAttr(AccessSessionInterceptor.OWNER_KEY_ATTRIBUTE, OWNER_KEY)
+                        .header(GameController.IDEMPOTENCY_KEY_HEADER, IDEMPOTENCY_KEY)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new GameProgressRequest(42L, 1, 1))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("TURN_CONFLICT"));
+    }
+
+    @Test
+    void progressGame_MapsIdempotencyConflict() throws Exception {
+        given(gameService.progressGame(any(CostRequestContext.class), any(GameProgressRequest.class)))
+                .willThrow(new IdempotencyConflictException("key conflict"));
+        mockMvc.perform(post("/api/game/progress")
+                        .requestAttr(AccessSessionInterceptor.OWNER_KEY_ATTRIBUTE, OWNER_KEY)
+                        .header(GameController.IDEMPOTENCY_KEY_HEADER, IDEMPOTENCY_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new GameProgressRequest(42L, 1, 1))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_CONFLICT"));
     }
 
     @Test
@@ -122,6 +143,7 @@ class GameControllerTest {
                 .willThrow(new InvalidChoiceException("현재 턴에서 선택할 수 없는 선택지입니다."));
         mockMvc.perform(post("/api/game/progress")
                         .requestAttr(AccessSessionInterceptor.OWNER_KEY_ATTRIBUTE, OWNER_KEY)
+                        .header(GameController.IDEMPOTENCY_KEY_HEADER, IDEMPOTENCY_KEY)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new GameProgressRequest(42L, 99, 1))))
                 .andExpect(status().isUnprocessableEntity())
@@ -132,6 +154,7 @@ class GameControllerTest {
     void initGame_RejectsBlankWorldSetting() throws Exception {
         mockMvc.perform(post("/api/game/init")
                         .requestAttr(AccessSessionInterceptor.OWNER_KEY_ATTRIBUTE, OWNER_KEY)
+                        .header(GameController.IDEMPOTENCY_KEY_HEADER, IDEMPOTENCY_KEY)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new GameInitRequest("", "김대리"))))
                 .andExpect(status().isBadRequest())
@@ -143,6 +166,7 @@ class GameControllerTest {
     void initGame_RejectsWorldSettingLongerThanDatabaseLimit() throws Exception {
         mockMvc.perform(post("/api/game/init")
                         .requestAttr(AccessSessionInterceptor.OWNER_KEY_ATTRIBUTE, OWNER_KEY)
+                        .header(GameController.IDEMPOTENCY_KEY_HEADER, IDEMPOTENCY_KEY)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new GameInitRequest("가".repeat(256), "김대리"))))
                 .andExpect(status().isBadRequest())
