@@ -8,6 +8,7 @@ import com.uctale.uctale.application.game.TurnConflictException;
 import com.uctale.uctale.application.image.ImageAssetNotFoundException;
 import com.uctale.uctale.application.image.ImageGenerationException;
 import com.uctale.uctale.application.narrative.InvalidNarrativeResponseException;
+import com.uctale.uctale.security.AccessAuthenticationRateLimitExceededException;
 import com.uctale.uctale.security.AccessRequestForbiddenException;
 import com.uctale.uctale.security.AccessSessionException;
 import jakarta.validation.ConstraintViolationException;
@@ -29,6 +30,15 @@ public class ApiExceptionHandler {
     @ExceptionHandler(AccessRequestForbiddenException.class)
     public ResponseEntity<ApiError> handleAccessRequestForbidden(AccessRequestForbiddenException exception) {
         return error(HttpStatus.FORBIDDEN, "ACCESS_REQUEST_FORBIDDEN", exception.getMessage());
+    }
+
+    @ExceptionHandler(AccessAuthenticationRateLimitExceededException.class)
+    public ResponseEntity<ApiError> handleAccessAuthenticationRateLimit(
+            AccessAuthenticationRateLimitExceededException exception
+    ) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(exception.retryAfterSeconds()))
+                .body(new ApiError("ACCESS_RATE_LIMIT_EXCEEDED", exception.getMessage()));
     }
 
     @ExceptionHandler(RateLimitExceededException.class)
