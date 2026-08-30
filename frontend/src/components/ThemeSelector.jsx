@@ -14,13 +14,21 @@ const OPTIONS = [
   { value: 'dark', label: '다크' },
 ]
 
+function getBrowserStorage() {
+  try {
+    return window.localStorage
+  } catch {
+    return null
+  }
+}
+
 function getInitialMode() {
   if (typeof window === 'undefined') return 'system'
 
   const bootstrappedMode = normalizeThemeMode(window.__UCTALE_INITIAL_THEME_MODE__)
   if (window.__UCTALE_INITIAL_THEME_MODE__) return bootstrappedMode
 
-  return readThemeMode(window.localStorage)
+  return readThemeMode(getBrowserStorage())
 }
 
 function ThemeSelector() {
@@ -41,7 +49,7 @@ function ThemeSelector() {
   }, [mode])
 
   const handleChange = (event) => {
-    const nextMode = writeThemeMode(window.localStorage, event.target.value)
+    const nextMode = writeThemeMode(getBrowserStorage(), event.target.value)
     setMode(nextMode)
   }
 
