@@ -16,10 +16,6 @@ const GameImage = ({ src, alt, onAuthError }) => {
     let cancelled = false
     let objectUrl = null
 
-    setImageSrc(null)
-    setHasError(false)
-    setIsLoading(Boolean(src))
-
     if (!src) return undefined
 
     fetchGameImage(src)
