@@ -15,8 +15,6 @@ import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-
 @Service
 public class GamePersistenceService {
 
@@ -28,19 +26,22 @@ public class GamePersistenceService {
     private final GameStateSnapshotRepository gameStateSnapshotRepository;
     private final ImageAssetRepository imageAssetRepository;
     private final GameStateCodec gameStateCodec;
+    private final GameStateRecovery gameStateRecovery;
 
     public GamePersistenceService(
             GameSessionRepository gameSessionRepository,
             GameLogRepository gameLogRepository,
             GameStateSnapshotRepository gameStateSnapshotRepository,
             ImageAssetRepository imageAssetRepository,
-            GameStateCodec gameStateCodec
+            GameStateCodec gameStateCodec,
+            GameStateRecovery gameStateRecovery
     ) {
         this.gameSessionRepository = gameSessionRepository;
         this.gameLogRepository = gameLogRepository;
         this.gameStateSnapshotRepository = gameStateSnapshotRepository;
         this.imageAssetRepository = imageAssetRepository;
         this.gameStateCodec = gameStateCodec;
+        this.gameStateRecovery = gameStateRecovery;
     }
 
     @Transactional
@@ -109,6 +110,11 @@ public class GamePersistenceService {
             if (previousLog.getTurnNumber() != commit.expectedTurn()
                     || previousLog.getStateVersion() != commit.previousStateVersion()) {
                 throw new IllegalStateException("세션 턴과 저장된 로그의 state version이 일치하지 않습니다.");
+            }
+
+            GameState canonicalPreviousState = loadOrRecoverState(session);
+            if (!canonicalPreviousState.equals(commit.previousState())) {
+                throw new TurnConflictException("commit의 이전 상태가 현재 canonical state와 일치하지 않습니다.");
             }
 
             session.advanceTurn();
@@ -203,36 +209,10 @@ public class GamePersistenceService {
     private GameState loadOrRecoverState(GameSession session) {
         return gameStateSnapshotRepository.findById(session.getId())
                 .map(snapshot -> gameStateCodec.deserialize(snapshot.getStateJson()))
-                .orElseGet(() -> recoverState(session));
-    }
-
-    private GameState recoverState(GameSession session) {
-        List<GameLog> logs = gameLogRepository.findByGameSessionOrderByTurnNumberAsc(session);
-        if (logs.isEmpty()) {
-            throw new IllegalStateException("GameState를 복구할 게임 로그가 없습니다.");
-        }
-
-        GameLog opening = logs.getFirst();
-        if (opening.getStateVersion() != 1) {
-            throw new IllegalStateException("Opening GameLog의 state version이 올바르지 않습니다.");
-        }
-
-        GameState state = GameState.initial(
-                session.getWorldSetting(),
-                session.getCharacterSetting(),
-                opening.getStoryText()
-        );
-        for (int i = 1; i < logs.size(); i++) {
-            GameLog log = logs.get(i);
-            if (log.getPreviousStateVersion() != state.turnNumber()
-                    || log.getStateVersion() != state.turnNumber() + 1
-                    || log.getInputChoiceText() == null
-                    || log.getInputChoiceText().isBlank()) {
-                throw new IllegalStateException("GameLog state transition을 복구할 수 없습니다.");
-            }
-            state = state.advance(log.getInputChoiceText(), log.getStoryText());
-        }
-        return state;
+                .orElseGet(() -> gameStateRecovery.recover(
+                        session,
+                        gameLogRepository.findByGameSessionOrderByTurnNumberAsc(session)
+                ));
     }
 
     private void flushAll() {
