@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { checkAccessSession, initGame, progressGame, resolveGameAssetUrl, verifyPassword } from './api/gameApi'
+import { useEffect, useRef, useState } from 'react'
+import { checkAccessSession, createIdempotencyKey, initGame, progressGame, resolveGameAssetUrl, verifyPassword } from './api/gameApi'
 import { getApiErrorCode, getApiErrorMessage, isAccessAuthError } from './api/apiError'
 import AccessScreen from './screens/AccessScreen'
 import GamePlayScreen from './screens/GamePlayScreen'
@@ -24,6 +24,7 @@ function App() {
   const [character, setCharacter] = useState('')
   const [gameData, setGameData] = useState(null)
   const [isTypingComplete, setIsTypingComplete] = useState(false)
+  const initIdempotencyKeyRef = useRef(null)
 
   const [authState, setAuthState] = useState('checking')
   const [password, setPassword] = useState('')
@@ -94,11 +95,13 @@ function App() {
 
   const handleWorldChange = (value) => {
     setWorld(value)
+    initIdempotencyKeyRef.current = null
     clearSetupFieldError('world')
   }
 
   const handleCharacterChange = (value) => {
     setCharacter(value)
+    initIdempotencyKeyRef.current = null
     clearSetupFieldError('character')
   }
 
@@ -115,11 +118,14 @@ function App() {
   const handleStartGame = async () => {
     if (isStarting || !validateSetup()) return
 
+    const idempotencyKey = initIdempotencyKeyRef.current || createIdempotencyKey()
+    initIdempotencyKeyRef.current = idempotencyKey
     setIsStarting(true)
     setSetupError('')
 
     try {
-      const data = await initGame(world, character)
+      const data = await initGame(world, character, idempotencyKey)
+      initIdempotencyKeyRef.current = null
       setGameData(data)
       setIsTypingComplete(false)
       setProgressError(null)
@@ -137,18 +143,19 @@ function App() {
     }
   }
 
-  const handleChoice = async (choiceId) => {
+  const handleChoice = async (choiceId, retryIdempotencyKey = null) => {
     if (!sessionId || turnNumber == null || isProgressing || !isTypingComplete) return
 
     const choice = gameData?.choices?.find((candidate) => candidate.id === choiceId)
     if (!choice) return
 
+    const idempotencyKey = retryIdempotencyKey || createIdempotencyKey()
     setIsProgressing(true)
     setPendingChoiceId(choiceId)
     setProgressError(null)
 
     try {
-      const nextData = await progressGame(sessionId, choiceId, turnNumber)
+      const nextData = await progressGame(sessionId, choiceId, turnNumber, idempotencyKey)
       setGameData(nextData)
       setIsTypingComplete(false)
       setProgressError(null)
@@ -158,6 +165,7 @@ function App() {
         setProgressError({
           choiceId,
           choiceText: choice.text,
+          idempotencyKey,
           message: getApiErrorMessage(
             error,
             '선택을 진행하지 못했습니다. 연결 상태를 확인하고 다시 시도해주세요.',
@@ -173,11 +181,12 @@ function App() {
 
   const handleRetryChoice = () => {
     if (!progressError?.canRetry) return
-    handleChoice(progressError.choiceId)
+    handleChoice(progressError.choiceId, progressError.idempotencyKey)
   }
 
   const handleReturnToStart = () => {
     if (isProgressing) return
+    initIdempotencyKeyRef.current = null
     setGameData(null)
     setIsTypingComplete(false)
     setProgressError(null)
