@@ -20,7 +20,8 @@ import java.util.List;
 @Service
 public class GamePersistenceService {
 
-    private static final String TURN_UNIQUE_CONSTRAINT = "uk_game_log_session_turn";
+    private static final String GAME_LOG_TURN_UNIQUE_CONSTRAINT = "uk_game_log_session_turn";
+    private static final String IMAGE_ASSET_TURN_UNIQUE_CONSTRAINT = "uk_image_asset_session_turn";
 
     private final GameSessionRepository gameSessionRepository;
     private final GameLogRepository gameLogRepository;
@@ -193,7 +194,12 @@ public class GamePersistenceService {
     private boolean isTurnUniqueConstraintViolation(DataIntegrityViolationException exception) {
         Throwable cause = exception.getMostSpecificCause();
         String message = cause == null ? exception.getMessage() : cause.getMessage();
-        return message != null && message.toLowerCase().contains(TURN_UNIQUE_CONSTRAINT);
+        if (message == null) {
+            return false;
+        }
+        String normalized = message.toLowerCase();
+        return normalized.contains(GAME_LOG_TURN_UNIQUE_CONSTRAINT)
+                || normalized.contains(IMAGE_ASSET_TURN_UNIQUE_CONSTRAINT);
     }
 
     private GameState loadOrRecoverState(GameSession session) {
