@@ -1,5 +1,9 @@
 package com.uctale.uctale.service;
 
+import com.uctale.uctale.application.cost.CostOperation;
+import com.uctale.uctale.application.cost.CostRateLimiter;
+import com.uctale.uctale.application.cost.CostRequestContext;
+import com.uctale.uctale.application.cost.ProviderCallTelemetry;
 import com.uctale.uctale.application.game.ChoiceCodec;
 import com.uctale.uctale.application.game.GamePersistenceService;
 import com.uctale.uctale.application.game.ImagePromptComposer;
@@ -36,9 +40,19 @@ public class GameService {
     private final GamePersistenceService gamePersistenceService;
     private final ChoiceCodec choiceCodec;
     private final ImagePromptComposer imagePromptComposer;
+    private final CostRateLimiter costRateLimiter;
+    private final ProviderCallTelemetry providerCallTelemetry;
 
     public GameResponse initGame(String ownerKey, GameInitRequest request) {
-        NarrativeTurn opening = narrativeGenerator.createOpening(request.worldSetting(), request.characterSetting());
+        return initGame(CostRequestContext.internal(ownerKey, null, 1), request);
+    }
+
+    public GameResponse initGame(CostRequestContext costContext, GameInitRequest request) {
+        costRateLimiter.check(CostOperation.NARRATIVE, costContext);
+        NarrativeTurn opening = providerCallTelemetry.observe(
+                "gemini", "opening", costContext, 0,
+                () -> narrativeGenerator.createOpening(request.worldSetting(), request.characterSetting())
+        );
         validateNarrativeTurn(opening);
         List<GameChoice> choices = toGameChoices(opening.choices());
 
@@ -50,7 +64,7 @@ public class GameService {
         ImageAssetService.AssetReference imageAsset = imageAssetService.issue(imagePrompt, "16:9");
 
         var session = gamePersistenceService.saveOpening(
-                ownerKey,
+                costContext.ownerKey(),
                 request.worldSetting(),
                 request.characterSetting(),
                 opening.storyText(),
@@ -58,25 +72,30 @@ public class GameService {
                 imageAsset
         );
 
-        return toResponse(
-                session.getId(),
-                session.getCurrentTurn(),
-                opening,
-                choices,
-                imageAsset.publicUrl()
-        );
+        return toResponse(session.getId(), session.getCurrentTurn(), opening, choices, imageAsset.publicUrl());
     }
 
     public GameResponse progressGame(String ownerKey, GameProgressRequest request) {
+        return progressGame(CostRequestContext.internal(ownerKey, request.sessionId(), request.expectedTurn() + 1), request);
+    }
+
+    public GameResponse progressGame(CostRequestContext costContext, GameProgressRequest request) {
         GamePersistenceService.LoadedTurn loadedTurn = gamePersistenceService.loadLatestTurn(
-                ownerKey,
-                request.sessionId(),
-                request.expectedTurn()
+                costContext.ownerKey(), request.sessionId(), request.expectedTurn()
+        );
+
+        CostRequestContext providerContext = new CostRequestContext(
+                costContext.requestId(), costContext.ownerKey(), costContext.clientIp(),
+                loadedTurn.sessionId(), request.expectedTurn() + 1, costContext.idempotencyKey()
         );
 
         String userChoiceText = choiceCodec.findText(loadedTurn.choicesJson(), request.choiceId());
         NarrativeContext narrativeContext = NarrativeContext.from(loadedTurn.gameState(), userChoiceText);
-        NarrativeTurn nextTurn = narrativeGenerator.createNextTurn(narrativeContext);
+        costRateLimiter.check(CostOperation.NARRATIVE, providerContext);
+        NarrativeTurn nextTurn = providerCallTelemetry.observe(
+                "gemini", "progress", providerContext, 0,
+                () -> narrativeGenerator.createNextTurn(narrativeContext)
+        );
         validateNarrativeTurn(nextTurn);
         List<GameChoice> choices = toGameChoices(nextTurn.choices());
 
@@ -93,22 +112,15 @@ public class GameService {
         }
 
         int savedTurn = gamePersistenceService.saveNextTurn(
-                ownerKey,
-                loadedTurn.sessionId(),
-                request.expectedTurn(),
-                userChoiceText,
-                nextTurn.storyText(),
-                choiceCodec.serialize(choices),
-                imageAsset
+                costContext.ownerKey(), loadedTurn.sessionId(), request.expectedTurn(), userChoiceText,
+                nextTurn.storyText(), choiceCodec.serialize(choices), imageAsset
         );
 
         return toResponse(loadedTurn.sessionId(), savedTurn, nextTurn, choices, imageUrl);
     }
 
     private void validateNarrativeTurn(NarrativeTurn turn) {
-        if (turn == null) {
-            throw new InvalidNarrativeResponseException("Narrative 응답이 없습니다.");
-        }
+        if (turn == null) throw new InvalidNarrativeResponseException("Narrative 응답이 없습니다.");
         if (turn.title() == null || turn.title().isBlank() || turn.title().length() > MAX_TITLE_LENGTH) {
             throw new InvalidNarrativeResponseException("Narrative 제목이 올바르지 않습니다.");
         }
@@ -118,7 +130,6 @@ public class GameService {
         if (turn.choices() == null || turn.choices().isEmpty() || turn.choices().size() > MAX_CHOICES) {
             throw new InvalidNarrativeResponseException("Narrative 선택지 수가 올바르지 않습니다.");
         }
-
         Set<Integer> choiceIds = new HashSet<>();
         for (NarrativeTurn.Choice choice : turn.choices()) {
             if (choice == null || choice.id() <= 0 || !choiceIds.add(choice.id())) {
@@ -136,19 +147,11 @@ public class GameService {
         }
     }
 
-    private GameResponse toResponse(
-            Long sessionId,
-            int turnNumber,
-            NarrativeTurn turn,
-            List<GameChoice> choices,
-            String imageUrl
-    ) {
+    private GameResponse toResponse(Long sessionId, int turnNumber, NarrativeTurn turn, List<GameChoice> choices, String imageUrl) {
         return new GameResponse(sessionId, turnNumber, turn.title(), turn.storyText(), choices, imageUrl);
     }
 
     private List<GameChoice> toGameChoices(List<NarrativeTurn.Choice> choices) {
-        return choices.stream()
-                .map(choice -> new GameChoice(choice.id(), choice.text()))
-                .toList();
+        return choices.stream().map(choice -> new GameChoice(choice.id(), choice.text())).toList();
     }
 }

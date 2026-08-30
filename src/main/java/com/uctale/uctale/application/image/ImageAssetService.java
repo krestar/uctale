@@ -1,5 +1,9 @@
 package com.uctale.uctale.application.image;
 
+import com.uctale.uctale.application.cost.CostOperation;
+import com.uctale.uctale.application.cost.CostRateLimiter;
+import com.uctale.uctale.application.cost.CostRequestContext;
+import com.uctale.uctale.application.cost.ProviderCallTelemetry;
 import com.uctale.uctale.domain.ImageAsset;
 import com.uctale.uctale.repository.ImageAssetRepository;
 import org.springframework.http.MediaType;
@@ -13,11 +17,20 @@ public class ImageAssetService {
 
     private final ImageAssetRepository imageAssetRepository;
     private final ImageGenerator imageGenerator;
+    private final CostRateLimiter costRateLimiter;
+    private final ProviderCallTelemetry providerCallTelemetry;
     private final ConcurrentHashMap<String, Object> generationLocks = new ConcurrentHashMap<>();
 
-    public ImageAssetService(ImageAssetRepository imageAssetRepository, ImageGenerator imageGenerator) {
+    public ImageAssetService(
+            ImageAssetRepository imageAssetRepository,
+            ImageGenerator imageGenerator,
+            CostRateLimiter costRateLimiter,
+            ProviderCallTelemetry providerCallTelemetry
+    ) {
         this.imageAssetRepository = imageAssetRepository;
         this.imageGenerator = imageGenerator;
+        this.costRateLimiter = costRateLimiter;
+        this.providerCallTelemetry = providerCallTelemetry;
     }
 
     public AssetReference issue(String prompt, String aspectRatio) {
@@ -30,7 +43,11 @@ public class ImageAssetService {
     }
 
     public GeneratedAsset getOrGenerate(String ownerKey, String assetId) {
-        ImageAsset asset = findOwnedAsset(ownerKey, assetId);
+        return getOrGenerate(CostRequestContext.internal(ownerKey, null, null), assetId);
+    }
+
+    public GeneratedAsset getOrGenerate(CostRequestContext requestContext, String assetId) {
+        ImageAsset asset = findOwnedAsset(requestContext.ownerKey(), assetId);
         if (asset.generated()) {
             return toGeneratedAsset(asset);
         }
@@ -38,22 +55,27 @@ public class ImageAssetService {
         Object lock = generationLocks.computeIfAbsent(assetId, ignored -> new Object());
         try {
             synchronized (lock) {
-                ImageAsset current = findOwnedAsset(ownerKey, assetId);
+                ImageAsset current = findOwnedAsset(requestContext.ownerKey(), assetId);
                 if (current.generated()) {
                     return toGeneratedAsset(current);
                 }
 
-                ImageGenerator.GeneratedImage generated = imageGenerator.fetchImage(
-                        current.getPrompt(),
-                        current.getAspectRatio()
+                CostRequestContext providerContext = new CostRequestContext(
+                        requestContext.requestId(),
+                        requestContext.ownerKey(),
+                        requestContext.clientIp(),
+                        current.getGameSession().getId(),
+                        current.getTurnNumber(),
+                        requestContext.idempotencyKey()
                 );
-                if (generated == null || generated.bytes() == null || generated.bytes().length == 0) {
-                    throw new ImageGenerationException("이미지 provider가 유효한 이미지를 반환하지 않았습니다.");
-                }
+                costRateLimiter.check(CostOperation.IMAGE, providerContext);
 
-                MediaType contentType = generated.contentType() == null
-                        ? MediaType.IMAGE_JPEG
-                        : generated.contentType();
+                ImageGenerator.GeneratedImage generated = providerCallTelemetry.observe(
+                        "pollinations", "image_generation", providerContext, 0,
+                        () -> fetchValidImage(current)
+                );
+
+                MediaType contentType = generated.contentType() == null ? MediaType.IMAGE_JPEG : generated.contentType();
                 current.storeGeneratedImage(generated.bytes(), contentType.toString());
                 imageAssetRepository.saveAndFlush(current);
                 return toGeneratedAsset(current);
@@ -63,16 +85,21 @@ public class ImageAssetService {
         }
     }
 
+    private ImageGenerator.GeneratedImage fetchValidImage(ImageAsset asset) {
+        ImageGenerator.GeneratedImage generated = imageGenerator.fetchImage(asset.getPrompt(), asset.getAspectRatio());
+        if (generated == null || generated.bytes() == null || generated.bytes().length == 0) {
+            throw new ImageGenerationException("이미지 provider가 유효한 이미지를 반환하지 않았습니다.");
+        }
+        return generated;
+    }
+
     private ImageAsset findOwnedAsset(String ownerKey, String assetId) {
         return imageAssetRepository.findByIdAndGameSessionOwnerKey(assetId, ownerKey)
                 .orElseThrow(() -> new ImageAssetNotFoundException("존재하지 않는 이미지 asset입니다."));
     }
 
     private GeneratedAsset toGeneratedAsset(ImageAsset asset) {
-        return new GeneratedAsset(
-                asset.getImageBytes().clone(),
-                MediaType.parseMediaType(asset.getContentType())
-        );
+        return new GeneratedAsset(asset.getImageBytes().clone(), MediaType.parseMediaType(asset.getContentType()));
     }
 
     public record AssetReference(String id, String publicUrl, String prompt, String aspectRatio) {}

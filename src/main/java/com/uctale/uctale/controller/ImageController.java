@@ -1,7 +1,10 @@
 package com.uctale.uctale.controller;
 
+import com.uctale.uctale.application.cost.ClientIpResolver;
+import com.uctale.uctale.application.cost.CostRequestContext;
 import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.security.AccessSessionInterceptor;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
@@ -23,9 +26,11 @@ public class ImageController {
     @GetMapping("/image-assets/{assetId}")
     public ResponseEntity<byte[]> image(
             @RequestAttribute(AccessSessionInterceptor.OWNER_KEY_ATTRIBUTE) String ownerKey,
-            @PathVariable String assetId
+            @PathVariable String assetId,
+            HttpServletRequest servletRequest
     ) {
-        ImageAssetService.GeneratedAsset asset = imageAssetService.getOrGenerate(ownerKey, assetId);
+        CostRequestContext context = CostRequestContext.create(ownerKey, ClientIpResolver.resolve(servletRequest), null, null);
+        ImageAssetService.GeneratedAsset asset = imageAssetService.getOrGenerate(context, assetId);
 
         return ResponseEntity.ok()
                 .contentType(asset.contentType())

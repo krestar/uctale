@@ -1,5 +1,6 @@
 package com.uctale.uctale.controller;
 
+import com.uctale.uctale.application.cost.RateLimitExceededException;
 import com.uctale.uctale.application.game.GameSessionNotFoundException;
 import com.uctale.uctale.application.game.InvalidChoiceException;
 import com.uctale.uctale.application.game.PersistenceOperationException;
@@ -10,6 +11,7 @@ import com.uctale.uctale.application.narrative.InvalidNarrativeResponseException
 import com.uctale.uctale.security.AccessRequestForbiddenException;
 import com.uctale.uctale.security.AccessSessionException;
 import jakarta.validation.ConstraintViolationException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -27,6 +29,13 @@ public class ApiExceptionHandler {
     @ExceptionHandler(AccessRequestForbiddenException.class)
     public ResponseEntity<ApiError> handleAccessRequestForbidden(AccessRequestForbiddenException exception) {
         return error(HttpStatus.FORBIDDEN, "ACCESS_REQUEST_FORBIDDEN", exception.getMessage());
+    }
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ApiError> handleRateLimit(RateLimitExceededException exception) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(exception.retryAfterSeconds()))
+                .body(new ApiError("RATE_LIMIT_EXCEEDED", exception.getMessage()));
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
