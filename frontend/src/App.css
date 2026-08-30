@@ -215,7 +215,7 @@
 .field-group input::placeholder,
 .field-group textarea::placeholder {
   color: var(--color-text-muted);
-  opacity: 0.78;
+  opacity: 0.9;
 }
 
 .button {
@@ -403,10 +403,6 @@
 .choice-button:hover:not(:disabled) {
   border-color: var(--color-action);
   background: var(--color-surface-raised);
-}
-
-.choice-button--pending {
-  opacity: 0.62;
 }
 
 .choice-button__marker {
