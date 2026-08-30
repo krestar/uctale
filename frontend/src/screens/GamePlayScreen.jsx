@@ -6,7 +6,6 @@ function GamePlayScreen({
   gameData,
   mainImageUrl,
   isLoading,
-  isTypingComplete,
   onTypingComplete,
   onChoice,
   onReturnToStart,
@@ -48,7 +47,7 @@ function GamePlayScreen({
             {gameData.choices.map((choice) => (
               <button
                 key={choice.id}
-                className={`choice-button${isTypingComplete ? '' : ' choice-button--pending'}`}
+                className="choice-button"
                 type="button"
                 onClick={() => onChoice(choice.id)}
                 disabled={isLoading}
