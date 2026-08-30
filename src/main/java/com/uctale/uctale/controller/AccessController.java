@@ -1,6 +1,9 @@
 package com.uctale.uctale.controller;
 
+import com.uctale.uctale.application.cost.ClientIpResolver;
 import com.uctale.uctale.dto.AccessPasswordRequest;
+import com.uctale.uctale.security.AccessAuthenticationRateLimiter;
+import com.uctale.uctale.security.AccessSessionException;
 import com.uctale.uctale.security.AccessSessionService;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -21,9 +24,14 @@ import java.util.Arrays;
 public class AccessController {
 
     private final AccessSessionService accessSessionService;
+    private final AccessAuthenticationRateLimiter authenticationRateLimiter;
 
-    public AccessController(AccessSessionService accessSessionService) {
+    public AccessController(
+            AccessSessionService accessSessionService,
+            AccessAuthenticationRateLimiter authenticationRateLimiter
+    ) {
         this.accessSessionService = accessSessionService;
+        this.authenticationRateLimiter = authenticationRateLimiter;
     }
 
     @PostMapping("/verify-password")
@@ -31,11 +39,20 @@ public class AccessController {
             @Valid @RequestBody AccessPasswordRequest request,
             HttpServletRequest servletRequest
     ) {
+        String clientIp = ClientIpResolver.resolve(servletRequest);
+        authenticationRateLimiter.check(clientIp);
+
         String existingOwnerToken = findCookie(servletRequest, AccessSessionService.OWNER_COOKIE_NAME);
-        AccessSessionService.IssuedSession session = accessSessionService.authenticate(
-                request.password(),
-                existingOwnerToken
-        );
+        AccessSessionService.IssuedSession session;
+        try {
+            session = accessSessionService.authenticate(request.password(), existingOwnerToken);
+        } catch (AccessSessionException exception) {
+            if ("INVALID_CREDENTIALS".equals(exception.code())) {
+                authenticationRateLimiter.recordFailure(clientIp);
+            }
+            throw exception;
+        }
+        authenticationRateLimiter.recordSuccess(clientIp);
 
         ResponseCookie accessCookie = ResponseCookie.from(AccessSessionService.COOKIE_NAME, session.accessToken())
                 .httpOnly(true)
