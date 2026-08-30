@@ -12,7 +12,7 @@ CREATE TABLE game_mutation_request (
     result_title VARCHAR(200),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uk_game_mutation_owner_operation_key UNIQUE (owner_key, operation, idempotency_key),
+    CONSTRAINT uk_game_mutation_owner_key UNIQUE (owner_key, idempotency_key),
     CONSTRAINT ck_game_mutation_status CHECK (status IN ('PROCESSING', 'COMPLETED', 'FAILED'))
 );
 
