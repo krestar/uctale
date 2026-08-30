@@ -72,11 +72,8 @@ public class ImageAssetService {
 
                 ImageGenerator.GeneratedImage generated = providerCallTelemetry.observe(
                         "pollinations", "image_generation", providerContext, 0,
-                        () -> imageGenerator.fetchImage(current.getPrompt(), current.getAspectRatio())
+                        () -> fetchValidImage(current)
                 );
-                if (generated == null || generated.bytes() == null || generated.bytes().length == 0) {
-                    throw new ImageGenerationException("이미지 provider가 유효한 이미지를 반환하지 않았습니다.");
-                }
 
                 MediaType contentType = generated.contentType() == null ? MediaType.IMAGE_JPEG : generated.contentType();
                 current.storeGeneratedImage(generated.bytes(), contentType.toString());
@@ -86,6 +83,14 @@ public class ImageAssetService {
         } finally {
             generationLocks.remove(assetId, lock);
         }
+    }
+
+    private ImageGenerator.GeneratedImage fetchValidImage(ImageAsset asset) {
+        ImageGenerator.GeneratedImage generated = imageGenerator.fetchImage(asset.getPrompt(), asset.getAspectRatio());
+        if (generated == null || generated.bytes() == null || generated.bytes().length == 0) {
+            throw new ImageGenerationException("이미지 provider가 유효한 이미지를 반환하지 않았습니다.");
+        }
+        return generated;
     }
 
     private ImageAsset findOwnedAsset(String ownerKey, String assetId) {
