@@ -16,6 +16,10 @@ const GameImage = ({ src, alt, onAuthError }) => {
     let cancelled = false
     let objectUrl = null
 
+    setImageSrc(null)
+    setHasError(false)
+    setIsLoading(Boolean(src))
+
     if (!src) return undefined
 
     fetchGameImage(src)
@@ -43,17 +47,17 @@ const GameImage = ({ src, alt, onAuthError }) => {
   }, [src])
 
   return (
-    <div className="game-image">
+    <div className="game-image" aria-busy={isLoading}>
       {isLoading && (
-        <div className="game-image__status">
+        <div className="game-image__status" role="status">
           <span className="spinner" aria-hidden="true" />
-          <p>AI 화가가 장면을 스케치하고 있습니다.</p>
+          <p>장면 이미지를 불러오고 있습니다.</p>
         </div>
       )}
 
       {hasError && !isLoading && (
-        <p className="game-image__status game-image__status--error">
-          이미지를 불러오지 못했습니다.
+        <p className="game-image__status game-image__status--error" role="status">
+          장면 이미지를 불러오지 못했습니다. 이야기는 계속 진행할 수 있습니다.
         </p>
       )}
 
