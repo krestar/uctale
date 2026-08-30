@@ -1,5 +1,6 @@
 package com.uctale.uctale.security;
 
+import com.uctale.uctale.controller.GameController;
 import jakarta.servlet.DispatcherType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,7 +17,7 @@ class SecurityWebConfigTest {
     private static final String SECRET = "0123456789abcdef0123456789abcdef";
 
     @Test
-    @DisplayName("명시된 Vercel origin만 보호 client header credential CORS 응답을 받는다")
+    @DisplayName("명시된 Vercel origin만 보호 client/idempotency header credential CORS 응답을 받는다")
     void cors_AllowsConfiguredOriginOnly() throws Exception {
         SecurityWebConfig config = config();
         CorsFilter filter = config.corsFilterRegistration("https://uctale.vercel.app").getFilter();
@@ -27,7 +28,8 @@ class SecurityWebConfigTest {
         assertThat(allowedResponse.getHeader("Access-Control-Allow-Origin")).isEqualTo("https://uctale.vercel.app");
         assertThat(allowedResponse.getHeader("Access-Control-Allow-Credentials")).isEqualTo("true");
         assertThat(allowedResponse.getHeader("Access-Control-Allow-Headers"))
-                .containsIgnoringCase(AccessSessionInterceptor.CLIENT_HEADER);
+                .containsIgnoringCase(AccessSessionInterceptor.CLIENT_HEADER)
+                .containsIgnoringCase(GameController.IDEMPOTENCY_KEY_HEADER);
 
         MockHttpServletRequest denied = preflight("https://evil.example");
         MockHttpServletResponse deniedResponse = new MockHttpServletResponse();
@@ -82,7 +84,10 @@ class SecurityWebConfigTest {
         MockHttpServletRequest request = new MockHttpServletRequest("OPTIONS", "/api/game/init");
         request.addHeader("Origin", origin);
         request.addHeader("Access-Control-Request-Method", "POST");
-        request.addHeader("Access-Control-Request-Headers", "Content-Type, " + AccessSessionInterceptor.CLIENT_HEADER);
+        request.addHeader(
+                "Access-Control-Request-Headers",
+                "Content-Type, " + AccessSessionInterceptor.CLIENT_HEADER + ", " + GameController.IDEMPOTENCY_KEY_HEADER
+        );
         return request;
     }
 }
