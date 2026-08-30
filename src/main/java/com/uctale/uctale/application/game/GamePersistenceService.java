@@ -2,11 +2,13 @@ package com.uctale.uctale.application.game;
 
 import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.domain.GameLog;
+import com.uctale.uctale.domain.GameMutationRequest;
 import com.uctale.uctale.domain.GameSession;
 import com.uctale.uctale.domain.GameStateSnapshot;
 import com.uctale.uctale.domain.ImageAsset;
 import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.repository.GameLogRepository;
+import com.uctale.uctale.repository.GameMutationRequestRepository;
 import com.uctale.uctale.repository.GameSessionRepository;
 import com.uctale.uctale.repository.GameStateSnapshotRepository;
 import com.uctale.uctale.repository.ImageAssetRepository;
@@ -25,6 +27,7 @@ public class GamePersistenceService {
     private final GameLogRepository gameLogRepository;
     private final GameStateSnapshotRepository gameStateSnapshotRepository;
     private final ImageAssetRepository imageAssetRepository;
+    private final GameMutationRequestRepository gameMutationRequestRepository;
     private final GameStateCodec gameStateCodec;
     private final GameStateRecovery gameStateRecovery;
 
@@ -33,6 +36,7 @@ public class GamePersistenceService {
             GameLogRepository gameLogRepository,
             GameStateSnapshotRepository gameStateSnapshotRepository,
             ImageAssetRepository imageAssetRepository,
+            GameMutationRequestRepository gameMutationRequestRepository,
             GameStateCodec gameStateCodec,
             GameStateRecovery gameStateRecovery
     ) {
@@ -40,6 +44,7 @@ public class GamePersistenceService {
         this.gameLogRepository = gameLogRepository;
         this.gameStateSnapshotRepository = gameStateSnapshotRepository;
         this.imageAssetRepository = imageAssetRepository;
+        this.gameMutationRequestRepository = gameMutationRequestRepository;
         this.gameStateCodec = gameStateCodec;
         this.gameStateRecovery = gameStateRecovery;
     }
@@ -53,12 +58,27 @@ public class GamePersistenceService {
             String choicesJson,
             ImageAssetService.AssetReference imageAsset
     ) {
+        return saveOpening(ownerKey, worldSetting, characterSetting, storyText, choicesJson, imageAsset, null, null);
+    }
+
+    @Transactional
+    public GameSession saveOpening(
+            String ownerKey,
+            String worldSetting,
+            String characterSetting,
+            String storyText,
+            String choicesJson,
+            ImageAssetService.AssetReference imageAsset,
+            Long mutationRequestId,
+            String resultTitle
+    ) {
         try {
             GameSession session = gameSessionRepository.save(new GameSession(ownerKey, worldSetting, characterSetting));
             String imageUrl = persistImageAsset(session, 1, imageAsset);
             GameState initialState = GameState.initial(worldSetting, characterSetting, storyText);
             gameStateSnapshotRepository.save(new GameStateSnapshot(session, gameStateCodec.serialize(initialState)));
             gameLogRepository.save(GameLog.opening(session, storyText, choicesJson, imageUrl));
+            completeMutationRequest(mutationRequestId, session.getId(), 1, resultTitle);
             flushAll();
             return session;
         } catch (DataIntegrityViolationException exception) {
@@ -98,8 +118,27 @@ public class GamePersistenceService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public CommittedTurn loadCommittedTurn(String ownerKey, Long sessionId, int turnNumber) {
+        GameSession session = findOwnedSession(ownerKey, sessionId);
+        GameLog log = gameLogRepository.findByGameSessionAndTurnNumber(session, turnNumber)
+                .orElseThrow(() -> new IllegalStateException("완료된 게임 로그를 찾을 수 없습니다."));
+        return new CommittedTurn(log.getStoryText(), log.getChoicesJson(), log.getImageUrl());
+    }
+
     @Transactional
     public int saveNextTurn(String ownerKey, Long sessionId, GameTurnCommit commit) {
+        return saveNextTurn(ownerKey, sessionId, commit, null, null);
+    }
+
+    @Transactional
+    public int saveNextTurn(
+            String ownerKey,
+            Long sessionId,
+            GameTurnCommit commit,
+            Long mutationRequestId,
+            String resultTitle
+    ) {
         try {
             GameSession session = findOwnedSession(ownerKey, sessionId);
             validateCommitAgainstSession(session, commit);
@@ -140,6 +179,7 @@ public class GamePersistenceService {
                     .orElseGet(() -> new GameStateSnapshot(session, gameStateCodec.serialize(commit.previousState())));
             snapshot.updateStateJson(gameStateCodec.serialize(commit.nextState()));
             gameStateSnapshotRepository.save(snapshot);
+            completeMutationRequest(mutationRequestId, session.getId(), session.getCurrentTurn(), resultTitle);
 
             flushAll();
             return session.getCurrentTurn();
@@ -151,6 +191,16 @@ public class GamePersistenceService {
             }
             throw new PersistenceOperationException("게임 진행 상태를 저장할 수 없습니다.", exception);
         }
+    }
+
+    private void completeMutationRequest(Long mutationRequestId, Long sessionId, int turn, String resultTitle) {
+        if (mutationRequestId == null) {
+            return;
+        }
+        GameMutationRequest request = gameMutationRequestRepository.findById(mutationRequestId)
+                .orElseThrow(() -> new IllegalStateException("mutation request를 찾을 수 없습니다."));
+        request.complete(sessionId, turn, resultTitle);
+        gameMutationRequestRepository.save(request);
     }
 
     private void validateCommitAgainstSession(GameSession session, GameTurnCommit commit) {
@@ -220,6 +270,7 @@ public class GamePersistenceService {
         gameLogRepository.flush();
         gameStateSnapshotRepository.flush();
         gameSessionRepository.flush();
+        gameMutationRequestRepository.flush();
     }
 
     public record LoadedTurn(
@@ -232,4 +283,6 @@ public class GamePersistenceService {
             String imageUrl,
             GameState gameState
     ) {}
+
+    public record CommittedTurn(String storyText, String choicesJson, String imageUrl) {}
 }
