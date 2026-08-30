@@ -5,6 +5,7 @@ import com.uctale.uctale.repository.ImageAssetRepository;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
@@ -17,6 +18,15 @@ public class ImageAssetService {
     public ImageAssetService(ImageAssetRepository imageAssetRepository, ImageGenerator imageGenerator) {
         this.imageAssetRepository = imageAssetRepository;
         this.imageGenerator = imageGenerator;
+    }
+
+    public AssetReference issue(String prompt, String aspectRatio) {
+        if (prompt == null || prompt.isBlank()) {
+            throw new IllegalArgumentException("이미지 prompt는 필수입니다.");
+        }
+        String normalizedAspectRatio = "1:1".equals(aspectRatio) ? "1:1" : "16:9";
+        String id = UUID.randomUUID().toString();
+        return new AssetReference(id, "/api/game/image-assets/" + id, prompt, normalizedAspectRatio);
     }
 
     public GeneratedAsset getOrGenerate(String ownerKey, String assetId) {
@@ -64,6 +74,8 @@ public class ImageAssetService {
                 MediaType.parseMediaType(asset.getContentType())
         );
     }
+
+    public record AssetReference(String id, String publicUrl, String prompt, String aspectRatio) {}
 
     public record GeneratedAsset(byte[] bytes, MediaType contentType) {}
 }
