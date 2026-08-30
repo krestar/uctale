@@ -88,10 +88,10 @@ public class GameService {
                 costContext.requestId(), costContext.ownerKey(), costContext.clientIp(),
                 loadedTurn.sessionId(), request.expectedTurn() + 1, costContext.idempotencyKey()
         );
-        costRateLimiter.check(CostOperation.NARRATIVE, providerContext);
 
         String userChoiceText = choiceCodec.findText(loadedTurn.choicesJson(), request.choiceId());
         NarrativeContext narrativeContext = NarrativeContext.from(loadedTurn.gameState(), userChoiceText);
+        costRateLimiter.check(CostOperation.NARRATIVE, providerContext);
         NarrativeTurn nextTurn = providerCallTelemetry.observe(
                 "gemini", "progress", providerContext, 0,
                 () -> narrativeGenerator.createNextTurn(narrativeContext)
