@@ -1,12 +1,15 @@
 package com.uctale.uctale.application.game;
 
+import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.domain.GameLog;
 import com.uctale.uctale.domain.GameSession;
 import com.uctale.uctale.domain.GameStateSnapshot;
+import com.uctale.uctale.domain.ImageAsset;
 import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.repository.GameLogRepository;
 import com.uctale.uctale.repository.GameSessionRepository;
 import com.uctale.uctale.repository.GameStateSnapshotRepository;
+import com.uctale.uctale.repository.ImageAssetRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -22,17 +25,20 @@ public class GamePersistenceService {
     private final GameSessionRepository gameSessionRepository;
     private final GameLogRepository gameLogRepository;
     private final GameStateSnapshotRepository gameStateSnapshotRepository;
+    private final ImageAssetRepository imageAssetRepository;
     private final GameStateCodec gameStateCodec;
 
     public GamePersistenceService(
             GameSessionRepository gameSessionRepository,
             GameLogRepository gameLogRepository,
             GameStateSnapshotRepository gameStateSnapshotRepository,
+            ImageAssetRepository imageAssetRepository,
             GameStateCodec gameStateCodec
     ) {
         this.gameSessionRepository = gameSessionRepository;
         this.gameLogRepository = gameLogRepository;
         this.gameStateSnapshotRepository = gameStateSnapshotRepository;
+        this.imageAssetRepository = imageAssetRepository;
         this.gameStateCodec = gameStateCodec;
     }
 
@@ -43,13 +49,15 @@ public class GamePersistenceService {
             String characterSetting,
             String storyText,
             String choicesJson,
-            String imageUrl
+            ImageAssetService.AssetReference imageAsset
     ) {
         try {
             GameSession session = gameSessionRepository.save(new GameSession(ownerKey, worldSetting, characterSetting));
+            String imageUrl = persistImageAsset(session, 1, imageAsset);
             GameState initialState = GameState.initial(worldSetting, characterSetting, storyText);
             gameStateSnapshotRepository.save(new GameStateSnapshot(session, gameStateCodec.serialize(initialState)));
             gameLogRepository.save(new GameLog(session, 1, storyText, choicesJson, imageUrl));
+            imageAssetRepository.flush();
             gameLogRepository.flush();
             gameStateSnapshotRepository.flush();
             gameSessionRepository.flush();
@@ -99,7 +107,7 @@ public class GamePersistenceService {
             String userChoice,
             String storyText,
             String choicesJson,
-            String imageUrl
+            ImageAssetService.AssetReference imageAsset
     ) {
         try {
             GameSession session = findOwnedSession(ownerKey, sessionId);
@@ -124,6 +132,10 @@ public class GamePersistenceService {
             previousLog.updateUserChoice(userChoice);
             session.advanceTurn();
 
+            String imageUrl = imageAsset == null
+                    ? previousLog.getImageUrl()
+                    : persistImageAsset(session, expectedTurn + 1, imageAsset);
+
             gameLogRepository.save(previousLog);
             gameSessionRepository.save(session);
             gameLogRepository.save(new GameLog(
@@ -139,6 +151,7 @@ public class GamePersistenceService {
             snapshot.updateStateJson(gameStateCodec.serialize(nextState));
             gameStateSnapshotRepository.save(snapshot);
 
+            imageAssetRepository.flush();
             gameLogRepository.flush();
             gameStateSnapshotRepository.flush();
             gameSessionRepository.flush();
@@ -151,6 +164,25 @@ public class GamePersistenceService {
             }
             throw new PersistenceOperationException("게임 진행 상태를 저장할 수 없습니다.", exception);
         }
+    }
+
+    private String persistImageAsset(
+            GameSession session,
+            int turnNumber,
+            ImageAssetService.AssetReference assetReference
+    ) {
+        if (assetReference == null) {
+            return null;
+        }
+        ImageAsset asset = new ImageAsset(
+                assetReference.id(),
+                session,
+                turnNumber,
+                assetReference.prompt(),
+                assetReference.aspectRatio()
+        );
+        imageAssetRepository.save(asset);
+        return asset.publicUrl();
     }
 
     private GameSession findOwnedSession(String ownerKey, Long sessionId) {
