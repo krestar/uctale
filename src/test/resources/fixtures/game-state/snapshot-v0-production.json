@@ -1,0 +1,31 @@
+{
+  "turnNumber": 1,
+  "playerCharacter": {
+    "description": "캐릭터",
+    "stats": {}
+  },
+  "worldState": {
+    "premise": "세계관",
+    "flags": {}
+  },
+  "storyMemory": {
+    "canonicalFacts": [
+      {
+        "key": "world.premise",
+        "value": "세계관"
+      },
+      {
+        "key": "player.description",
+        "value": "캐릭터"
+      }
+    ],
+    "rollingSummary": "",
+    "recentTurns": [
+      {
+        "turnNumber": 1,
+        "playerAction": "",
+        "storyText": "첫 이야기"
+      }
+    ]
+  }
+}
