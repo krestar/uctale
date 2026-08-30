@@ -5,11 +5,14 @@ import com.uctale.uctale.repository.GameMutationRequestRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.regex.Pattern;
+
 @Service
 public class GameMutationRequestService {
 
     public static final String INIT = "INIT";
     public static final String PROGRESS = "PROGRESS";
+    private static final Pattern IDEMPOTENCY_KEY_PATTERN = Pattern.compile("[A-Za-z0-9._:-]{8,128}");
 
     private final GameMutationRequestRepository repository;
 
@@ -26,6 +29,8 @@ public class GameMutationRequestService {
             Integer expectedTurn,
             String fingerprint
     ) {
+        validateKey(idempotencyKey);
+
         GameMutationRequest request = repository
                 .findByOwnerKeyAndOperationAndIdempotencyKey(ownerKey, operation, idempotencyKey)
                 .orElseGet(() -> repository.save(new GameMutationRequest(
@@ -45,11 +50,6 @@ public class GameMutationRequestService {
             );
         }
 
-        if (request.getStatus() == GameMutationRequest.Status.PROCESSING && request.getId() != null
-                && repository.findById(request.getId()).isPresent()) {
-            // #30에서 active reservation/lease를 추가한다. 여기서는 완료된 retry 재사용과 payload 충돌만 보장한다.
-        }
-
         request.restart();
         repository.save(request);
         return BeginResult.process(request.getId());
@@ -61,6 +61,14 @@ public class GameMutationRequestService {
             request.fail();
             repository.save(request);
         });
+    }
+
+    private void validateKey(String idempotencyKey) {
+        if (idempotencyKey == null || !IDEMPOTENCY_KEY_PATTERN.matcher(idempotencyKey).matches()) {
+            throw new IllegalArgumentException(
+                    "Idempotency-Key는 8~128자의 영문, 숫자, '.', '_', ':', '-'만 사용할 수 있습니다."
+            );
+        }
     }
 
     public record BeginResult(
