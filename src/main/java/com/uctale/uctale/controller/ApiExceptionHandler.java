@@ -2,6 +2,7 @@ package com.uctale.uctale.controller;
 
 import com.uctale.uctale.application.cost.RateLimitExceededException;
 import com.uctale.uctale.application.game.GameSessionNotFoundException;
+import com.uctale.uctale.application.game.IdempotencyConflictException;
 import com.uctale.uctale.application.game.InvalidChoiceException;
 import com.uctale.uctale.application.game.PersistenceOperationException;
 import com.uctale.uctale.application.game.TurnConflictException;
@@ -66,6 +67,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(ImageGenerationException.class)
     public ResponseEntity<ApiError> handleImageGeneration(ImageGenerationException exception) {
         return error(HttpStatus.BAD_GATEWAY, "IMAGE_PROVIDER_FAILURE", "이미지를 생성하지 못했습니다.");
+    }
+
+    @ExceptionHandler(IdempotencyConflictException.class)
+    public ResponseEntity<ApiError> handleIdempotencyConflict(IdempotencyConflictException exception) {
+        return error(HttpStatus.CONFLICT, "IDEMPOTENCY_CONFLICT", exception.getMessage());
     }
 
     @ExceptionHandler(TurnConflictException.class)

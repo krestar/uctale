@@ -2,6 +2,7 @@ package com.uctale.uctale.application.game;
 
 import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.repository.GameLogRepository;
+import com.uctale.uctale.repository.GameMutationRequestRepository;
 import com.uctale.uctale.repository.GameSessionRepository;
 import com.uctale.uctale.repository.GameStateSnapshotRepository;
 import com.uctale.uctale.repository.ImageAssetRepository;
@@ -25,6 +26,7 @@ class GamePersistenceIntegrityTest {
     @Mock private GameLogRepository gameLogRepository;
     @Mock private GameStateSnapshotRepository gameStateSnapshotRepository;
     @Mock private ImageAssetRepository imageAssetRepository;
+    @Mock private GameMutationRequestRepository gameMutationRequestRepository;
     @Mock private GameStateCodec gameStateCodec;
     @Mock private GameStateRecovery gameStateRecovery;
 
@@ -38,6 +40,7 @@ class GamePersistenceIntegrityTest {
                 gameLogRepository,
                 gameStateSnapshotRepository,
                 imageAssetRepository,
+                gameMutationRequestRepository,
                 gameStateCodec,
                 gameStateRecovery
         );

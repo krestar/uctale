@@ -5,6 +5,8 @@ import com.uctale.uctale.application.cost.CostRateLimiter;
 import com.uctale.uctale.application.cost.CostRequestContext;
 import com.uctale.uctale.application.cost.ProviderCallTelemetry;
 import com.uctale.uctale.application.game.ChoiceCodec;
+import com.uctale.uctale.application.game.GameMutationFingerprint;
+import com.uctale.uctale.application.game.GameMutationRequestService;
 import com.uctale.uctale.application.game.GamePersistenceService;
 import com.uctale.uctale.application.game.GameTurnCommit;
 import com.uctale.uctale.application.game.ImagePromptComposer;
@@ -44,37 +46,58 @@ public class GameService {
     private final ImagePromptComposer imagePromptComposer;
     private final CostRateLimiter costRateLimiter;
     private final ProviderCallTelemetry providerCallTelemetry;
+    private final GameMutationFingerprint mutationFingerprint;
+    private final GameMutationRequestService mutationRequestService;
 
     public GameResponse initGame(String ownerKey, GameInitRequest request) {
         return initGame(CostRequestContext.internal(ownerKey, null, 1), request);
     }
 
     public GameResponse initGame(CostRequestContext costContext, GameInitRequest request) {
-        costRateLimiter.check(CostOperation.NARRATIVE, costContext);
-        NarrativeTurn opening = providerCallTelemetry.observe(
-                "gemini", "opening", costContext, 0,
-                () -> narrativeGenerator.createOpening(request.worldSetting(), request.characterSetting())
-        );
-        validateNarrativeTurn(opening);
-        List<GameChoice> choices = toGameChoices(opening.choices());
-
-        String imagePrompt = imagePromptComposer.compose(opening.visualAssets());
-        if (imagePrompt == null || imagePrompt.isBlank()) {
-            imagePrompt = imagePromptComposer.composeFallback(request.worldSetting());
-        }
-        validateImagePrompt(imagePrompt);
-        ImageAssetService.AssetReference imageAsset = imageAssetService.issue(imagePrompt, "16:9");
-
-        var session = gamePersistenceService.saveOpening(
+        GameMutationRequestService.BeginResult mutation = mutationRequestService.begin(
                 costContext.ownerKey(),
-                request.worldSetting(),
-                request.characterSetting(),
-                opening.storyText(),
-                choiceCodec.serialize(choices),
-                imageAsset
+                GameMutationRequestService.INIT,
+                costContext.idempotencyKey(),
+                null,
+                null,
+                mutationFingerprint.init(request)
         );
+        if (mutation.replay()) {
+            return replay(costContext.ownerKey(), mutation);
+        }
 
-        return toResponse(session.getId(), session.getCurrentTurn(), opening, choices, imageAsset.publicUrl());
+        try {
+            costRateLimiter.check(CostOperation.NARRATIVE, costContext);
+            NarrativeTurn opening = providerCallTelemetry.observe(
+                    "gemini", "opening", costContext, 0,
+                    () -> narrativeGenerator.createOpening(request.worldSetting(), request.characterSetting())
+            );
+            validateNarrativeTurn(opening);
+            List<GameChoice> choices = toGameChoices(opening.choices());
+
+            String imagePrompt = imagePromptComposer.compose(opening.visualAssets());
+            if (imagePrompt == null || imagePrompt.isBlank()) {
+                imagePrompt = imagePromptComposer.composeFallback(request.worldSetting());
+            }
+            validateImagePrompt(imagePrompt);
+            ImageAssetService.AssetReference imageAsset = imageAssetService.issue(imagePrompt, "16:9");
+
+            var session = gamePersistenceService.saveOpening(
+                    costContext.ownerKey(),
+                    request.worldSetting(),
+                    request.characterSetting(),
+                    opening.storyText(),
+                    choiceCodec.serialize(choices),
+                    imageAsset,
+                    mutation.requestId(),
+                    opening.title()
+            );
+
+            return toResponse(session.getId(), session.getCurrentTurn(), opening, choices, imageAsset.publicUrl());
+        } catch (RuntimeException exception) {
+            mutationRequestService.markFailed(mutation.requestId());
+            throw exception;
+        }
     }
 
     public GameResponse progressGame(String ownerKey, GameProgressRequest request) {
@@ -82,56 +105,92 @@ public class GameService {
     }
 
     public GameResponse progressGame(CostRequestContext costContext, GameProgressRequest request) {
-        GamePersistenceService.LoadedTurn loadedTurn = gamePersistenceService.loadLatestTurn(
-                costContext.ownerKey(), request.sessionId(), request.expectedTurn()
+        GameMutationRequestService.BeginResult mutation = mutationRequestService.begin(
+                costContext.ownerKey(),
+                GameMutationRequestService.PROGRESS,
+                costContext.idempotencyKey(),
+                request.sessionId(),
+                request.expectedTurn(),
+                mutationFingerprint.progress(request)
         );
-
-        CostRequestContext providerContext = new CostRequestContext(
-                costContext.requestId(), costContext.ownerKey(), costContext.clientIp(),
-                loadedTurn.sessionId(), request.expectedTurn() + 1, costContext.idempotencyKey()
-        );
-
-        String userChoiceText = choiceCodec.findText(loadedTurn.choicesJson(), request.choiceId());
-        NarrativeContext narrativeContext = NarrativeContext.from(loadedTurn.gameState(), userChoiceText);
-        costRateLimiter.check(CostOperation.NARRATIVE, providerContext);
-        NarrativeTurn nextTurn = providerCallTelemetry.observe(
-                "gemini", "progress", providerContext, 0,
-                () -> narrativeGenerator.createNextTurn(narrativeContext)
-        );
-        validateNarrativeTurn(nextTurn);
-        List<GameChoice> choices = toGameChoices(nextTurn.choices());
-
-        ImageAssetService.AssetReference imageAsset = null;
-        String imageUrl = loadedTurn.imageUrl();
-        String imagePrompt = imagePromptComposer.compose(nextTurn.visualAssets());
-        if (imagePrompt != null && !imagePrompt.isBlank()) {
-            validateImagePrompt(imagePrompt);
-            log.info("새로운 이미지 asset 발급");
-            imageAsset = imageAssetService.issue(imagePrompt, "16:9");
-            imageUrl = imageAsset.publicUrl();
-        } else {
-            log.info("시각적 변화 없음 -> 이전 이미지 asset 재사용");
+        if (mutation.replay()) {
+            return replay(costContext.ownerKey(), mutation);
         }
 
-        GameState nextState = loadedTurn.gameState().advance(userChoiceText, nextTurn.storyText());
-        GameTurnCommit commit = new GameTurnCommit(
-                request.expectedTurn(),
-                request.choiceId(),
-                userChoiceText,
-                loadedTurn.gameState(),
-                nextState,
-                nextTurn.storyText(),
-                choiceCodec.serialize(choices),
-                imageAsset
-        );
+        try {
+            GamePersistenceService.LoadedTurn loadedTurn = gamePersistenceService.loadLatestTurn(
+                    costContext.ownerKey(), request.sessionId(), request.expectedTurn()
+            );
 
-        int savedTurn = gamePersistenceService.saveNextTurn(
-                costContext.ownerKey(),
-                loadedTurn.sessionId(),
-                commit
-        );
+            CostRequestContext providerContext = new CostRequestContext(
+                    costContext.requestId(), costContext.ownerKey(), costContext.clientIp(),
+                    loadedTurn.sessionId(), request.expectedTurn() + 1, costContext.idempotencyKey()
+            );
 
-        return toResponse(loadedTurn.sessionId(), savedTurn, nextTurn, choices, imageUrl);
+            String userChoiceText = choiceCodec.findText(loadedTurn.choicesJson(), request.choiceId());
+            NarrativeContext narrativeContext = NarrativeContext.from(loadedTurn.gameState(), userChoiceText);
+            costRateLimiter.check(CostOperation.NARRATIVE, providerContext);
+            NarrativeTurn nextTurn = providerCallTelemetry.observe(
+                    "gemini", "progress", providerContext, 0,
+                    () -> narrativeGenerator.createNextTurn(narrativeContext)
+            );
+            validateNarrativeTurn(nextTurn);
+            List<GameChoice> choices = toGameChoices(nextTurn.choices());
+
+            ImageAssetService.AssetReference imageAsset = null;
+            String imageUrl = loadedTurn.imageUrl();
+            String imagePrompt = imagePromptComposer.compose(nextTurn.visualAssets());
+            if (imagePrompt != null && !imagePrompt.isBlank()) {
+                validateImagePrompt(imagePrompt);
+                log.info("새로운 이미지 asset 발급");
+                imageAsset = imageAssetService.issue(imagePrompt, "16:9");
+                imageUrl = imageAsset.publicUrl();
+            } else {
+                log.info("시각적 변화 없음 -> 이전 이미지 asset 재사용");
+            }
+
+            GameState nextState = loadedTurn.gameState().advance(userChoiceText, nextTurn.storyText());
+            GameTurnCommit commit = new GameTurnCommit(
+                    request.expectedTurn(),
+                    request.choiceId(),
+                    userChoiceText,
+                    loadedTurn.gameState(),
+                    nextState,
+                    nextTurn.storyText(),
+                    choiceCodec.serialize(choices),
+                    imageAsset
+            );
+
+            int savedTurn = gamePersistenceService.saveNextTurn(
+                    costContext.ownerKey(),
+                    loadedTurn.sessionId(),
+                    commit,
+                    mutation.requestId(),
+                    nextTurn.title()
+            );
+
+            return toResponse(loadedTurn.sessionId(), savedTurn, nextTurn, choices, imageUrl);
+        } catch (RuntimeException exception) {
+            mutationRequestService.markFailed(mutation.requestId());
+            throw exception;
+        }
+    }
+
+    private GameResponse replay(String ownerKey, GameMutationRequestService.BeginResult mutation) {
+        if (mutation.resultSessionId() == null || mutation.resultTurn() == null || mutation.resultTitle() == null) {
+            throw new IllegalStateException("완료된 mutation request의 결과 참조가 올바르지 않습니다.");
+        }
+        GamePersistenceService.CommittedTurn turn = gamePersistenceService.loadCommittedTurn(
+                ownerKey, mutation.resultSessionId(), mutation.resultTurn()
+        );
+        return new GameResponse(
+                mutation.resultSessionId(),
+                mutation.resultTurn(),
+                mutation.resultTitle(),
+                turn.storyText(),
+                choiceCodec.deserialize(turn.choicesJson()),
+                turn.imageUrl()
+        );
     }
 
     private void validateNarrativeTurn(NarrativeTurn turn) {

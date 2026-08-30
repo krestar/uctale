@@ -28,7 +28,7 @@ class PostgresPersistenceBaselineTest extends PostgresIntegrationTestSupport {
 
     @BeforeEach
     void cleanDatabase() {
-        jdbcTemplate.execute("truncate table image_asset, game_state_snapshot, game_log, game_session restart identity cascade");
+        jdbcTemplate.execute("truncate table game_mutation_request, image_asset, game_state_snapshot, game_log, game_session restart identity cascade");
     }
 
     @Test
@@ -37,12 +37,13 @@ class PostgresPersistenceBaselineTest extends PostgresIntegrationTestSupport {
         assertThat(flyway.info().pending()).isEmpty();
         assertThat(flyway.info().applied())
                 .extracting(info -> info.getVersion().getVersion())
-                .contains("1", "2", "3", "4", "5", "6");
+                .contains("1", "2", "3", "4", "5", "6", "7");
 
         assertThat(tableExists("game_session")).isTrue();
         assertThat(tableExists("game_log")).isTrue();
         assertThat(tableExists("game_state_snapshot")).isTrue();
         assertThat(tableExists("image_asset")).isTrue();
+        assertThat(tableExists("game_mutation_request")).isTrue();
     }
 
     @Test

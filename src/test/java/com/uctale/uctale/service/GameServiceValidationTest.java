@@ -5,6 +5,8 @@ import com.uctale.uctale.application.cost.CostRateLimitPolicy;
 import com.uctale.uctale.application.cost.CostRateLimiter;
 import com.uctale.uctale.application.cost.ProviderCallTelemetry;
 import com.uctale.uctale.application.game.ChoiceCodec;
+import com.uctale.uctale.application.game.GameMutationFingerprint;
+import com.uctale.uctale.application.game.GameMutationRequestService;
 import com.uctale.uctale.application.game.GamePersistenceService;
 import com.uctale.uctale.application.game.ImagePromptComposer;
 import com.uctale.uctale.application.image.ImageAssetService;
@@ -24,6 +26,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -36,12 +39,15 @@ class GameServiceValidationTest {
     @Mock private NarrativeGenerator narrativeGenerator;
     @Mock private ImageAssetService imageAssetService;
     @Mock private GamePersistenceService gamePersistenceService;
+    @Mock private GameMutationRequestService mutationRequestService;
 
     private GameService gameService;
 
     @BeforeEach
     void setUp() {
         Clock clock = Clock.systemUTC();
+        given(mutationRequestService.begin(anyString(), anyString(), anyString(), any(), any(), anyString()))
+                .willReturn(new GameMutationRequestService.BeginResult(100L, false, null, null, null));
         gameService = new GameService(
                 narrativeGenerator,
                 imageAssetService,
@@ -49,7 +55,9 @@ class GameServiceValidationTest {
                 new ChoiceCodec(new ObjectMapper()),
                 new ImagePromptComposer(),
                 new CostRateLimiter(new CostRateLimitPolicy(1_000, 1_000, 60), clock),
-                new ProviderCallTelemetry(clock, event -> {})
+                new ProviderCallTelemetry(clock, event -> {}),
+                new GameMutationFingerprint(),
+                mutationRequestService
         );
     }
 
@@ -67,7 +75,8 @@ class GameServiceValidationTest {
                 .isInstanceOf(InvalidNarrativeResponseException.class);
 
         verify(imageAssetService, never()).issue(any(), any());
-        verify(gamePersistenceService, never()).saveOpening(any(), any(), any(), any(), any(), any());
+        verify(gamePersistenceService, never()).saveOpening(any(), any(), any(), any(), any(), any(), any(), any());
+        verify(mutationRequestService).markFailed(100L);
     }
 
     @Test
@@ -85,6 +94,7 @@ class GameServiceValidationTest {
                 .isInstanceOf(InvalidNarrativeResponseException.class);
 
         verify(imageAssetService, never()).issue(any(), any());
-        verify(gamePersistenceService, never()).saveOpening(any(), any(), any(), any(), any(), any());
+        verify(gamePersistenceService, never()).saveOpening(any(), any(), any(), any(), any(), any(), any(), any());
+        verify(mutationRequestService).markFailed(100L);
     }
 }

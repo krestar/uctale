@@ -15,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -24,28 +25,38 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class GameController {
 
+    public static final String IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
+
     private final GameService gameService;
 
     @PostMapping("/init")
     public ResponseEntity<GameResponse> initGame(
             @RequestAttribute(AccessSessionInterceptor.OWNER_KEY_ATTRIBUTE) String ownerKey,
+            @RequestHeader(IDEMPOTENCY_KEY_HEADER) String idempotencyKey,
             @Valid @RequestBody GameInitRequest request,
             HttpServletRequest servletRequest
     ) {
         log.info("게임 초기화 요청 수신");
-        CostRequestContext context = CostRequestContext.create(ownerKey, ClientIpResolver.resolve(servletRequest), null, 1);
+        CostRequestContext context = CostRequestContext.create(
+                ownerKey, ClientIpResolver.resolve(servletRequest), null, 1, idempotencyKey
+        );
         return ResponseEntity.ok(gameService.initGame(context, request));
     }
 
     @PostMapping("/progress")
     public ResponseEntity<GameResponse> progressGame(
             @RequestAttribute(AccessSessionInterceptor.OWNER_KEY_ATTRIBUTE) String ownerKey,
+            @RequestHeader(IDEMPOTENCY_KEY_HEADER) String idempotencyKey,
             @Valid @RequestBody GameProgressRequest request,
             HttpServletRequest servletRequest
     ) {
         log.info("게임 진행 요청: 세션ID={}, 기대턴={}", request.sessionId(), request.expectedTurn());
         CostRequestContext context = CostRequestContext.create(
-                ownerKey, ClientIpResolver.resolve(servletRequest), request.sessionId(), request.expectedTurn() + 1
+                ownerKey,
+                ClientIpResolver.resolve(servletRequest),
+                request.sessionId(),
+                request.expectedTurn() + 1,
+                idempotencyKey
         );
         return ResponseEntity.ok(gameService.progressGame(context, request));
     }
