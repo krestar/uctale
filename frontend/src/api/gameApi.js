@@ -7,19 +7,25 @@ const apiClient = axios.create({
     headers: { 'X-UCTale-Client': 'web' }
 });
 
-export const initGame = async (worldSetting, characterSetting) => {
+export const createIdempotencyKey = () => crypto.randomUUID();
+
+export const initGame = async (worldSetting, characterSetting, idempotencyKey) => {
     const response = await apiClient.post(`${BASE_URL}/init`, {
         worldSetting,
         characterSetting
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey }
     });
     return response.data;
 };
 
-export const progressGame = async (sessionId, choiceId, expectedTurn) => {
+export const progressGame = async (sessionId, choiceId, expectedTurn, idempotencyKey) => {
     const response = await apiClient.post(`${BASE_URL}/progress`, {
         sessionId,
         choiceId,
         expectedTurn
+    }, {
+        headers: { 'Idempotency-Key': idempotencyKey }
     });
     return response.data;
 };
