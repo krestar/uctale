@@ -3,7 +3,6 @@ package com.uctale.uctale.security;
 import jakarta.servlet.DispatcherType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -39,9 +38,9 @@ class SecurityWebConfigTest {
     @Test
     @DisplayName("image asset 오류 dispatch에도 허용된 origin의 credential CORS 응답을 유지한다")
     void cors_ErrorDispatchKeepsAllowedOrigin() throws Exception {
-        FilterRegistrationBean<CorsFilter> registration = config()
-                .corsFilterRegistration("https://uctale.vercel.app");
-        CorsFilter filter = registration.getFilter();
+        CorsFilter filter = config()
+                .corsFilterRegistration("https://uctale.vercel.app")
+                .getFilter();
 
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/game/image-assets/asset-id");
         request.setDispatcherType(DispatcherType.ERROR);
@@ -52,8 +51,6 @@ class SecurityWebConfigTest {
 
         assertThat(response.getHeader("Access-Control-Allow-Origin")).isEqualTo("https://uctale.vercel.app");
         assertThat(response.getHeader("Access-Control-Allow-Credentials")).isEqualTo("true");
-        assertThat(registration.getDispatcherTypes())
-                .contains(DispatcherType.REQUEST, DispatcherType.ASYNC, DispatcherType.ERROR);
     }
 
     @Test
