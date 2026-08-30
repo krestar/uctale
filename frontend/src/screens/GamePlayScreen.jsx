@@ -35,6 +35,7 @@ function GamePlayScreen({
 
         <div className="scene-frame">
           <GameImage
+            key={mainImageUrl}
             src={mainImageUrl}
             alt={`${gameData.title} 장면 이미지`}
             onAuthError={onAuthError}
@@ -44,6 +45,7 @@ function GamePlayScreen({
         <article className="story-section" aria-labelledby="story-heading">
           <h2 id="story-heading" className="sr-only">현재 이야기</h2>
           <TypewriterText
+            key={`${gameData.turnNumber}:${gameData.storyText}`}
             text={gameData.storyText}
             onComplete={onTypingComplete}
           />
