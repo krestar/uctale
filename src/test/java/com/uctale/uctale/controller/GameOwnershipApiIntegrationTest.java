@@ -159,7 +159,7 @@ class GameOwnershipApiIntegrationTest {
         private final AtomicInteger calls = new AtomicInteger();
 
         @Override
-        public GeneratedImage fetchImage(String prompt, String aspectRatio) {
+        public GeneratedImage fetchImage(GenerationRequest request) {
             calls.incrementAndGet();
             return new GeneratedImage("fake-image".getBytes(StandardCharsets.UTF_8), MediaType.IMAGE_JPEG);
         }

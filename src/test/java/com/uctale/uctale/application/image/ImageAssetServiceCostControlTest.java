@@ -17,6 +17,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Clock;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,7 +28,6 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class ImageAssetServiceCostControlTest {
@@ -37,13 +37,14 @@ class ImageAssetServiceCostControlTest {
     @Mock private ImageAssetRepository repository;
     @Mock private ImageGenerator imageGenerator;
     @Mock private CostRateLimiter rateLimiter;
-    @Mock private ProviderCallTelemetry telemetry;
+    @Mock private ImageGenerationPolicy generationPolicy;
 
     private ImageAssetService service;
 
     @BeforeEach
     void setUp() {
-        service = new ImageAssetService(repository, imageGenerator, rateLimiter, telemetry);
+        ProviderCallTelemetry telemetry = new ProviderCallTelemetry(Clock.systemUTC(), event -> {});
+        service = new ImageAssetService(repository, imageGenerator, rateLimiter, telemetry, generationPolicy);
     }
 
     @Test
@@ -59,8 +60,7 @@ class ImageAssetServiceCostControlTest {
 
         assertThat(result.bytes()).containsExactly(1, 2, 3);
         verify(rateLimiter, never()).check(any(), any());
-        verify(imageGenerator, never()).fetchImage(any(), any());
-        verifyNoInteractions(telemetry);
+        verify(imageGenerator, never()).fetchImage(any(ImageGenerator.GenerationRequest.class));
     }
 
     @Test
@@ -75,13 +75,31 @@ class ImageAssetServiceCostControlTest {
                 new CostRequestContext("r2", OWNER_KEY, "1.2.3.4", null, null, null), "asset-2"
         )).isInstanceOf(RateLimitExceededException.class);
 
-        verify(imageGenerator, never()).fetchImage(any(), any());
-        verifyNoInteractions(telemetry);
+        verify(imageGenerator, never()).fetchImage(any(ImageGenerator.GenerationRequest.class));
+    }
+
+    @Test
+    @DisplayName("provider 최종 실패는 canonical turn과 분리된 정적 placeholder로 degrade한다")
+    void providerFailure_ReturnsPlaceholder() {
+        ImageAsset asset = asset("asset-3");
+        given(repository.findByIdAndGameSessionOwnerKey("asset-3", OWNER_KEY)).willReturn(Optional.of(asset));
+        given(imageGenerator.fetchImage(any(ImageGenerator.GenerationRequest.class)))
+                .willThrow(new ImageGenerationException("provider failed"));
+
+        ImageAssetService.GeneratedAsset result = service.getOrGenerate(
+                new CostRequestContext("r3", OWNER_KEY, "1.2.3.4", null, null, null), "asset-3"
+        );
+
+        assertThat(result.contentType().toString()).isEqualTo("image/svg+xml");
+        assertThat(new String(result.bytes())).contains("UCTale scene unavailable");
+        verify(repository, never()).saveAndFlush(any());
     }
 
     private ImageAsset asset(String id) {
         GameSession session = new GameSession(OWNER_KEY, "world", "character");
         ReflectionTestUtils.setField(session, "id", 42L);
-        return new ImageAsset(id, session, 1, "prompt", "16:9");
+        return new ImageAsset(
+                id, session, 1, "prompt", "16:9", "flux", 1024, 576, 123, true, "uctale-charcoal-v1"
+        );
     }
 }

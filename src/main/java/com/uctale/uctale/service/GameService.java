@@ -58,7 +58,7 @@ public class GameService {
 
         String imagePrompt = imagePromptComposer.compose(opening.visualAssets());
         if (imagePrompt == null || imagePrompt.isBlank()) {
-            imagePrompt = "mysterious atmosphere, " + request.worldSetting();
+            imagePrompt = imagePromptComposer.composeFallback(request.worldSetting());
         }
         validateImagePrompt(imagePrompt);
         ImageAssetService.AssetReference imageAsset = imageAssetService.issue(imagePrompt, "16:9");

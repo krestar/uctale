@@ -46,7 +46,7 @@ provider 호출마다 다음 항목을 구조화된 key/value 로그로 기록�
 
 사용자 world/character/action, provider prompt/응답 전문, access/owner token, API key는 로그에 기록하지 않는다.
 
-현재 retryCount는 provider retry 정책이 아직 없으므로 0이다. 후속 #35/#50에서 bounded retry를 도입할 때 같은 event 계약에 실제 retry 횟수를 연결한다.
+Narrative는 현재 provider 내부 retry가 없어 `retryCount=0`이다. Image는 #50부터 Pollinations bounded retry의 실제 횟수를 성공 결과 또는 최종 실패에서 추출해 같은 `provider_call` event에 기록한다. 이미지별 model/size/seed/status 등 상세 진단은 `image_provider_result` event를 함께 사용한다.
 
 ## 책임 경계
 

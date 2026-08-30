@@ -180,7 +180,13 @@ public class GamePersistenceService {
                 session,
                 turnNumber,
                 assetReference.prompt(),
-                assetReference.aspectRatio()
+                assetReference.aspectRatio(),
+                assetReference.model(),
+                assetReference.width(),
+                assetReference.height(),
+                assetReference.seed(),
+                assetReference.safe(),
+                assetReference.styleVersion()
         );
         imageAssetRepository.save(asset);
         return asset.publicUrl();

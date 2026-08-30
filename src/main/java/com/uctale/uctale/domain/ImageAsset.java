@@ -39,6 +39,24 @@ public class ImageAsset {
     @Column(nullable = false, length = 8)
     private String aspectRatio;
 
+    @Column(nullable = false, length = 64)
+    private String model;
+
+    @Column(nullable = false)
+    private int width;
+
+    @Column(nullable = false)
+    private int height;
+
+    @Column(nullable = false)
+    private int seed;
+
+    @Column(nullable = false)
+    private boolean safe;
+
+    @Column(nullable = false, length = 64)
+    private String styleVersion;
+
     @Column(length = 100)
     private String contentType;
 
@@ -49,12 +67,30 @@ public class ImageAsset {
 
     private LocalDateTime generatedAt;
 
-    public ImageAsset(String id, GameSession gameSession, int turnNumber, String prompt, String aspectRatio) {
+    public ImageAsset(
+            String id,
+            GameSession gameSession,
+            int turnNumber,
+            String prompt,
+            String aspectRatio,
+            String model,
+            int width,
+            int height,
+            int seed,
+            boolean safe,
+            String styleVersion
+    ) {
         this.id = id;
         this.gameSession = gameSession;
         this.turnNumber = turnNumber;
         this.prompt = prompt;
         this.aspectRatio = aspectRatio;
+        this.model = model;
+        this.width = width;
+        this.height = height;
+        this.seed = seed;
+        this.safe = safe;
+        this.styleVersion = styleVersion;
         this.createdAt = LocalDateTime.now();
     }
 

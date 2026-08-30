@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Clock;
 import java.util.function.Supplier;
+import java.util.function.ToIntFunction;
 
 @Component
 public class ProviderCallTelemetry {
@@ -23,13 +24,31 @@ public class ProviderCallTelemetry {
             int retryCount,
             Supplier<T> invocation
     ) {
+        return observe(
+                provider,
+                operation,
+                context,
+                invocation,
+                ignored -> retryCount,
+                ignored -> retryCount
+        );
+    }
+
+    public <T> T observe(
+            String provider,
+            String operation,
+            CostRequestContext context,
+            Supplier<T> invocation,
+            ToIntFunction<T> successRetryCount,
+            ToIntFunction<RuntimeException> failureRetryCount
+    ) {
         long startedAt = clock.millis();
         try {
             T result = invocation.get();
-            record(provider, operation, context, retryCount, startedAt, "SUCCESS");
+            record(provider, operation, context, Math.max(0, successRetryCount.applyAsInt(result)), startedAt, "SUCCESS");
             return result;
         } catch (RuntimeException exception) {
-            record(provider, operation, context, retryCount, startedAt, "FAILURE");
+            record(provider, operation, context, Math.max(0, failureRetryCount.applyAsInt(exception)), startedAt, "FAILURE");
             throw exception;
         }
     }
