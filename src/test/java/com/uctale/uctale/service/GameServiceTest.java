@@ -5,6 +5,8 @@ import com.uctale.uctale.application.cost.CostRateLimitPolicy;
 import com.uctale.uctale.application.cost.CostRateLimiter;
 import com.uctale.uctale.application.cost.ProviderCallTelemetry;
 import com.uctale.uctale.application.game.ChoiceCodec;
+import com.uctale.uctale.application.game.GameMutationFingerprint;
+import com.uctale.uctale.application.game.GameMutationRequestService;
 import com.uctale.uctale.application.game.GamePersistenceService;
 import com.uctale.uctale.application.game.GameTurnCommit;
 import com.uctale.uctale.application.game.ImagePromptComposer;
@@ -34,6 +36,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
@@ -47,6 +50,7 @@ class GameServiceTest {
     @Mock private NarrativeGenerator narrativeGenerator;
     @Mock private ImageAssetService imageAssetService;
     @Mock private GamePersistenceService gamePersistenceService;
+    @Mock private GameMutationRequestService mutationRequestService;
 
     private ChoiceCodec choiceCodec;
     private GameService gameService;
@@ -59,8 +63,12 @@ class GameServiceTest {
                 narrativeGenerator, imageAssetService, gamePersistenceService, choiceCodec,
                 new ImagePromptComposer(),
                 new CostRateLimiter(new CostRateLimitPolicy(1_000, 1_000, 60), clock),
-                new ProviderCallTelemetry(clock, event -> {})
+                new ProviderCallTelemetry(clock, event -> {}),
+                new GameMutationFingerprint(),
+                mutationRequestService
         );
+        given(mutationRequestService.begin(anyString(), anyString(), anyString(), any(), any(), anyString()))
+                .willReturn(new GameMutationRequestService.BeginResult(100L, false, null, null, null));
     }
 
     @Test
@@ -81,7 +89,9 @@ class GameServiceTest {
 
         given(narrativeGenerator.createOpening("좀비 아포칼립스", "김대리")).willReturn(opening);
         given(imageAssetService.issue(any(String.class), eq("16:9"))).willReturn(asset);
-        given(gamePersistenceService.saveOpening(eq(OWNER_KEY), any(), any(), any(), any(), eq(asset))).willReturn(session);
+        given(gamePersistenceService.saveOpening(
+                eq(OWNER_KEY), any(), any(), any(), any(), eq(asset), eq(100L), eq("첫날 밤")
+        )).willReturn(session);
 
         GameResponse response = gameService.initGame(OWNER_KEY, request);
 
@@ -108,7 +118,8 @@ class GameServiceTest {
 
         given(gamePersistenceService.loadLatestTurn(OWNER_KEY, 42L, 1)).willReturn(loadedTurn);
         given(narrativeGenerator.createNextTurn(any(NarrativeContext.class))).willReturn(nextTurn);
-        given(gamePersistenceService.saveNextTurn(eq(OWNER_KEY), eq(42L), any(GameTurnCommit.class))).willReturn(2);
+        given(gamePersistenceService.saveNextTurn(eq(OWNER_KEY), eq(42L), any(GameTurnCommit.class), eq(100L), eq("다음 장면")))
+                .willReturn(2);
 
         GameResponse response = gameService.progressGame(OWNER_KEY, new GameProgressRequest(42L, 7, 1));
 
@@ -120,7 +131,7 @@ class GameServiceTest {
         assertThat(contextCaptor.getValue().playerAction()).isEqualTo("문을 잠근다");
 
         ArgumentCaptor<GameTurnCommit> commitCaptor = ArgumentCaptor.forClass(GameTurnCommit.class);
-        verify(gamePersistenceService).saveNextTurn(eq(OWNER_KEY), eq(42L), commitCaptor.capture());
+        verify(gamePersistenceService).saveNextTurn(eq(OWNER_KEY), eq(42L), commitCaptor.capture(), eq(100L), eq("다음 장면"));
         GameTurnCommit commit = commitCaptor.getValue();
         assertThat(commit.inputChoiceId()).isEqualTo(7);
         assertThat(commit.inputChoiceText()).isEqualTo("문을 잠근다");
@@ -129,6 +140,28 @@ class GameServiceTest {
         assertThat(commit.nextState().storyMemory().recentTurns()).hasSize(2);
         assertThat(commit.storyText()).isEqualTo("다음 스토리");
         verify(imageAssetService, never()).issue(any(), any());
+    }
+
+    @Test
+    @DisplayName("완료된 progress retry는 provider와 state mutation 없이 기존 결과를 반환한다")
+    void progressGame_ReplaysCompletedMutation() {
+        given(mutationRequestService.begin(anyString(), eq(GameMutationRequestService.PROGRESS), anyString(), eq(42L), eq(1), anyString()))
+                .willReturn(new GameMutationRequestService.BeginResult(100L, true, 42L, 2, "기존 장면"));
+        given(gamePersistenceService.loadCommittedTurn(OWNER_KEY, 42L, 2))
+                .willReturn(new GamePersistenceService.CommittedTurn(
+                        "기존 스토리",
+                        choiceCodec.serialize(List.of(new GameChoice(3, "계속한다"))),
+                        "/api/game/image-assets/replayed"
+                ));
+
+        GameResponse response = gameService.progressGame(OWNER_KEY, new GameProgressRequest(42L, 7, 1));
+
+        assertThat(response.turnNumber()).isEqualTo(2);
+        assertThat(response.title()).isEqualTo("기존 장면");
+        assertThat(response.storyText()).isEqualTo("기존 스토리");
+        verify(narrativeGenerator, never()).createNextTurn(any());
+        verify(gamePersistenceService, never()).loadLatestTurn(anyString(), any(), any(Integer.class));
+        verify(gamePersistenceService, never()).saveNextTurn(anyString(), any(), any(GameTurnCommit.class), any(), any());
     }
 
     @Test
@@ -142,7 +175,8 @@ class GameServiceTest {
 
         verify(narrativeGenerator, never()).createNextTurn(any(NarrativeContext.class));
         verify(imageAssetService, never()).issue(any(), any());
-        verify(gamePersistenceService, never()).saveNextTurn(any(), any(), any(GameTurnCommit.class));
+        verify(gamePersistenceService, never()).saveNextTurn(any(), any(), any(GameTurnCommit.class), any(), any());
+        verify(mutationRequestService).markFailed(100L);
     }
 
     private GamePersistenceService.LoadedTurn loadedTurn(String choicesJson) {
