@@ -1,9 +1,12 @@
 package com.uctale.uctale.application.game;
 
+import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.domain.GameSession;
+import com.uctale.uctale.domain.ImageAsset;
 import com.uctale.uctale.repository.GameLogRepository;
 import com.uctale.uctale.repository.GameSessionRepository;
 import com.uctale.uctale.repository.GameStateSnapshotRepository;
+import com.uctale.uctale.repository.ImageAssetRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +27,7 @@ class GamePersistenceServiceTest {
     @Autowired private GameSessionRepository gameSessionRepository;
     @Autowired private GameLogRepository gameLogRepository;
     @Autowired private GameStateSnapshotRepository gameStateSnapshotRepository;
+    @Autowired private ImageAssetRepository imageAssetRepository;
 
     @Test
     @DisplayName("새 게임 세션은 생성 owner에게 귀속되고 동일 owner만 조회·진행할 수 있다")
@@ -62,13 +66,35 @@ class GamePersistenceServiceTest {
     }
 
     @Test
+    @DisplayName("image asset은 세션과 turn에 연결되고 GameLog에는 서버 발급 URL만 저장된다")
+    void imageAsset_IsPersistedWithSessionAndTurn() {
+        ImageAssetService.AssetReference reference = new ImageAssetService.AssetReference(
+                "11111111-1111-1111-1111-111111111111",
+                "/api/game/image-assets/11111111-1111-1111-1111-111111111111",
+                "dark street, zombie",
+                "16:9"
+        );
+
+        GameSession session = gamePersistenceService.saveOpening(
+                OWNER_A, "세계관", "캐릭터", "첫 이야기", "[]", reference
+        );
+
+        ImageAsset asset = imageAssetRepository.findById(reference.id()).orElseThrow();
+        assertThat(asset.getGameSession().getId()).isEqualTo(session.getId());
+        assertThat(asset.getTurnNumber()).isEqualTo(1);
+        assertThat(asset.getPrompt()).isEqualTo("dark street, zombie");
+        assertThat(gamePersistenceService.loadLatestTurn(OWNER_A, session.getId(), 1).imageUrl())
+                .isEqualTo(reference.publicUrl());
+    }
+
+    @Test
     @DisplayName("스냅샷이 없는 동일 owner 세션은 저장된 로그에서 GameState를 복구한다")
     void loadLatestTurn_RecoversLegacySnapshotForOwnedSession() {
         GameSession session = gamePersistenceService.saveOpening(
-                OWNER_A, "세계관", "캐릭터", "첫 이야기", "[]", "/image"
+                OWNER_A, "세계관", "캐릭터", "첫 이야기", "[]", null
         );
         gamePersistenceService.saveNextTurn(
-                OWNER_A, session.getId(), 1, "진행", "두 번째 이야기", "[]", "/image"
+                OWNER_A, session.getId(), 1, "진행", "두 번째 이야기", "[]", null
         );
         gameStateSnapshotRepository.deleteById(session.getId());
         gameStateSnapshotRepository.flush();
@@ -83,7 +109,7 @@ class GamePersistenceServiceTest {
     @DisplayName("동일 owner의 최신 턴 snapshot은 세션과 로그 상태가 일치한다")
     void loadLatestTurn_ReturnsConsistentSnapshot() {
         GameSession session = gamePersistenceService.saveOpening(
-                OWNER_A, "세계관", "캐릭터", "첫 이야기", "[]", "/image"
+                OWNER_A, "세계관", "캐릭터", "첫 이야기", "[]", null
         );
 
         GamePersistenceService.LoadedTurn loaded = gamePersistenceService.loadLatestTurn(OWNER_A, session.getId(), 1);

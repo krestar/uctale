@@ -3,6 +3,7 @@ package com.uctale.uctale.application.game;
 import com.uctale.uctale.repository.GameLogRepository;
 import com.uctale.uctale.repository.GameSessionRepository;
 import com.uctale.uctale.repository.GameStateSnapshotRepository;
+import com.uctale.uctale.repository.ImageAssetRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,7 @@ class GamePersistenceIntegrityTest {
     @Mock private GameSessionRepository gameSessionRepository;
     @Mock private GameLogRepository gameLogRepository;
     @Mock private GameStateSnapshotRepository gameStateSnapshotRepository;
+    @Mock private ImageAssetRepository imageAssetRepository;
     @Mock private GameStateCodec gameStateCodec;
 
     private GamePersistenceService persistenceService;
@@ -32,6 +34,7 @@ class GamePersistenceIntegrityTest {
                 gameSessionRepository,
                 gameLogRepository,
                 gameStateSnapshotRepository,
+                imageAssetRepository,
                 gameStateCodec
         );
     }
@@ -49,10 +52,21 @@ class GamePersistenceIntegrityTest {
     }
 
     @Test
-    @DisplayName("턴 unique constraint 위반만 턴 충돌로 분류한다")
-    void saveNextTurn_MapsTurnUniqueConstraintToConflict() {
+    @DisplayName("game log 턴 unique constraint 위반은 턴 충돌로 분류한다")
+    void saveNextTurn_MapsGameLogTurnUniqueConstraintToConflict() {
         given(gameSessionRepository.findByIdAndOwnerKey(42L, OWNER_KEY))
                 .willThrow(new DataIntegrityViolationException("constraint uk_game_log_session_turn violated"));
+
+        assertThatThrownBy(() -> persistenceService.saveNextTurn(
+                OWNER_KEY, 42L, 1, "선택", "본문", "[]", null
+        )).isInstanceOf(TurnConflictException.class);
+    }
+
+    @Test
+    @DisplayName("image asset 턴 unique constraint 위반도 턴 충돌로 분류한다")
+    void saveNextTurn_MapsImageAssetTurnUniqueConstraintToConflict() {
+        given(gameSessionRepository.findByIdAndOwnerKey(42L, OWNER_KEY))
+                .willThrow(new DataIntegrityViolationException("constraint uk_image_asset_session_turn violated"));
 
         assertThatThrownBy(() -> persistenceService.saveNextTurn(
                 OWNER_KEY, 42L, 1, "선택", "본문", "[]", null

@@ -3,7 +3,7 @@ package com.uctale.uctale.service;
 import com.uctale.uctale.application.game.ChoiceCodec;
 import com.uctale.uctale.application.game.GamePersistenceService;
 import com.uctale.uctale.application.game.ImagePromptComposer;
-import com.uctale.uctale.application.image.ImageGenerator;
+import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.application.narrative.InvalidNarrativeResponseException;
 import com.uctale.uctale.application.narrative.NarrativeContext;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
@@ -32,7 +32,7 @@ public class GameService {
     private static final int MAX_IMAGE_PROMPT_LENGTH = 2_000;
 
     private final NarrativeGenerator narrativeGenerator;
-    private final ImageGenerator imageGenerator;
+    private final ImageAssetService imageAssetService;
     private final GamePersistenceService gamePersistenceService;
     private final ChoiceCodec choiceCodec;
     private final ImagePromptComposer imagePromptComposer;
@@ -47,7 +47,7 @@ public class GameService {
             imagePrompt = "mysterious atmosphere, " + request.worldSetting();
         }
         validateImagePrompt(imagePrompt);
-        String imageUrl = imageGenerator.createPublicUrl(imagePrompt, "16:9");
+        ImageAssetService.AssetReference imageAsset = imageAssetService.issue(imagePrompt, "16:9");
 
         var session = gamePersistenceService.saveOpening(
                 ownerKey,
@@ -55,10 +55,16 @@ public class GameService {
                 request.characterSetting(),
                 opening.storyText(),
                 choiceCodec.serialize(choices),
-                imageUrl
+                imageAsset
         );
 
-        return toResponse(session.getId(), session.getCurrentTurn(), opening, choices, imageUrl);
+        return toResponse(
+                session.getId(),
+                session.getCurrentTurn(),
+                opening,
+                choices,
+                imageAsset.publicUrl()
+        );
     }
 
     public GameResponse progressGame(String ownerKey, GameProgressRequest request) {
@@ -74,17 +80,16 @@ public class GameService {
         validateNarrativeTurn(nextTurn);
         List<GameChoice> choices = toGameChoices(nextTurn.choices());
 
+        ImageAssetService.AssetReference imageAsset = null;
         String imageUrl = loadedTurn.imageUrl();
         String imagePrompt = imagePromptComposer.compose(nextTurn.visualAssets());
         if (imagePrompt != null && !imagePrompt.isBlank()) {
             validateImagePrompt(imagePrompt);
-            log.info("새로운 이미지 생성 요청");
-            String newImageUrl = imageGenerator.createPublicUrl(imagePrompt, "16:9");
-            if (newImageUrl != null) {
-                imageUrl = newImageUrl;
-            }
+            log.info("새로운 이미지 asset 발급");
+            imageAsset = imageAssetService.issue(imagePrompt, "16:9");
+            imageUrl = imageAsset.publicUrl();
         } else {
-            log.info("시각적 변화 없음 -> 이전 이미지 재사용");
+            log.info("시각적 변화 없음 -> 이전 이미지 asset 재사용");
         }
 
         int savedTurn = gamePersistenceService.saveNextTurn(
@@ -94,7 +99,7 @@ public class GameService {
                 userChoiceText,
                 nextTurn.storyText(),
                 choiceCodec.serialize(choices),
-                imageUrl
+                imageAsset
         );
 
         return toResponse(loadedTurn.sessionId(), savedTurn, nextTurn, choices, imageUrl);

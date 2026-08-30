@@ -4,6 +4,8 @@ import com.uctale.uctale.application.game.GameSessionNotFoundException;
 import com.uctale.uctale.application.game.InvalidChoiceException;
 import com.uctale.uctale.application.game.PersistenceOperationException;
 import com.uctale.uctale.application.game.TurnConflictException;
+import com.uctale.uctale.application.image.ImageAssetNotFoundException;
+import com.uctale.uctale.application.image.ImageGenerationException;
 import com.uctale.uctale.application.narrative.InvalidNarrativeResponseException;
 import com.uctale.uctale.security.AccessRequestForbiddenException;
 import com.uctale.uctale.security.AccessSessionException;
@@ -35,6 +37,16 @@ public class ApiExceptionHandler {
     @ExceptionHandler(GameSessionNotFoundException.class)
     public ResponseEntity<ApiError> handleSessionNotFound(GameSessionNotFoundException exception) {
         return error(HttpStatus.NOT_FOUND, "SESSION_NOT_FOUND", exception.getMessage());
+    }
+
+    @ExceptionHandler(ImageAssetNotFoundException.class)
+    public ResponseEntity<ApiError> handleImageAssetNotFound(ImageAssetNotFoundException exception) {
+        return error(HttpStatus.NOT_FOUND, "IMAGE_ASSET_NOT_FOUND", exception.getMessage());
+    }
+
+    @ExceptionHandler(ImageGenerationException.class)
+    public ResponseEntity<ApiError> handleImageGeneration(ImageGenerationException exception) {
+        return error(HttpStatus.BAD_GATEWAY, "IMAGE_PROVIDER_FAILURE", "이미지를 생성하지 못했습니다.");
     }
 
     @ExceptionHandler(TurnConflictException.class)
