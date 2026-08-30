@@ -20,27 +20,27 @@ class ImageGenerationPolicyTest {
             }
         };
         ImageGenerationPolicy policy = new ImageGenerationPolicy(
-                "flux", 1024, 576, 768, true, "uctale-charcoal-v1", random
+                "flux", 768, 432, 512, true, "uctale-charcoal-v1", random
         );
 
         ImageGenerationPolicy.GenerationSpec landscape = policy.issue("16:9");
         ImageGenerationPolicy.GenerationSpec square = policy.issue("1:1");
 
         assertThat(landscape.model()).isEqualTo("flux");
-        assertThat(landscape.width()).isEqualTo(1024);
-        assertThat(landscape.height()).isEqualTo(576);
+        assertThat(landscape.width()).isEqualTo(768);
+        assertThat(landscape.height()).isEqualTo(432);
         assertThat(landscape.seed()).isEqualTo(123456);
         assertThat(landscape.safe()).isTrue();
         assertThat(landscape.styleVersion()).isEqualTo("uctale-charcoal-v1");
-        assertThat(square.width()).isEqualTo(768);
-        assertThat(square.height()).isEqualTo(768);
+        assertThat(square.width()).isEqualTo(512);
+        assertThat(square.height()).isEqualTo(512);
     }
 
     @Test
     @DisplayName("잘못된 이미지 크기 설정은 애플리케이션 시작 전에 거부한다")
     void invalidDimension_IsRejected() {
         assertThatThrownBy(() -> new ImageGenerationPolicy(
-                "flux", 32, 576, 768, true, "uctale-charcoal-v1", new SecureRandom()
+                "flux", 32, 432, 512, true, "uctale-charcoal-v1", new SecureRandom()
         )).isInstanceOf(IllegalArgumentException.class);
     }
 }

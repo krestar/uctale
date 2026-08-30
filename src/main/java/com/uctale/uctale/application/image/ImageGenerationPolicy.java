@@ -21,9 +21,9 @@ public class ImageGenerationPolicy {
 
     public ImageGenerationPolicy(
             @Value("${game.image.model:flux}") String model,
-            @Value("${game.image.width:1024}") int width,
-            @Value("${game.image.height:576}") int height,
-            @Value("${game.image.square-size:768}") int squareSize,
+            @Value("${game.image.width:768}") int width,
+            @Value("${game.image.height:432}") int height,
+            @Value("${game.image.square-size:512}") int squareSize,
             @Value("${game.image.safe:true}") boolean safe,
             @Value("${game.image.style-version:uctale-charcoal-v1}") String styleVersion
     ) {

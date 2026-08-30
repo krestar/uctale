@@ -20,7 +20,7 @@ UCTale 장면 삽화의 기본 model과 해상도를 감으로 바꾸지 않고 
 - `dreamshaper`는 registry에서 매우 낮은 비용과 빠른 생성이 강점이지만 세부 묘사는 단순하다고 설명된다.
 - API는 model, width, height, seed, safe 입력과 Bearer 인증을 지원한다.
 
-이 정보만으로 이미지 품질 우열을 단정할 수 없으므로 production 기본값은 기존 `flux`를 유지한다.
+이 정보만으로 이미지 품질·해상도 우열을 단정할 수 없으므로 production 기본값은 기존 `flux`, `768x432`를 유지한다.
 
 ## 실행
 
@@ -54,14 +54,14 @@ POLLINATIONS_TOKEN=... python scripts/benchmark_pollinations_images.py
 
 ## 결과 기록 상태
 
-이 구현 작업에서는 production Pollinations secret에 접근하지 않고 외부 유료 생성도 임의 실행하지 않았기 때문에 실제 이미지/지연/비용 점수는 기록하지 않았다. 따라서 benchmark가 실행되고 blind review 결과가 채워지기 전까지는 `flux`를 기본값으로 유지한다.
+이 구현 작업에서는 production Pollinations secret에 접근하지 않고 외부 유료 생성도 임의 실행하지 않았기 때문에 실제 이미지/지연/비용 점수는 기록하지 않았다. 따라서 benchmark가 실행되고 blind review 결과가 채워지기 전까지는 `flux`, `768x432`를 기본값으로 유지한다.
 
 실행 후 아래 표를 채우고 기본값 변경 여부를 별도 PR에서 판단한다.
 
 | Model | Resolution | Prompt | Style | Distortion | Detail | Error rate | Avg/P95 | Cost/image | Usable cost | 결정 |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- |
-| flux | 768x432 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | 비교 |
-| flux | 1024x576 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | 현재 기본 |
+| flux | 768x432 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | 현재 기본 |
+| flux | 1024x576 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | 비교 |
 | zimage | 768x432 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | 비교 |
 | zimage | 1024x576 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | 비교 |
 | dreamshaper | 768x432 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | 비교 |

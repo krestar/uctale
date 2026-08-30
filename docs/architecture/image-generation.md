@@ -15,11 +15,11 @@
 
 ## 기본 정책
 
-현재 production 기본값은 benchmark 전환 근거가 마련되기 전까지 기존 `flux`를 유지한다.
+실제 benchmark 전환 근거가 마련되기 전까지 model과 생성 해상도는 기존 production 값인 `flux`, `768x432`를 유지한다. 원본보다 큰 CSS 표시로 생기던 소폭 확대는 프론트 표시 폭을 768px로 제한해 제거한다.
 
 - model: `flux`
-- landscape: `1024x576`
-- square: `768x768`
+- landscape: `768x432`
+- square: `512x512`
 - safe: `true`
 - style: `uctale-charcoal-v1`
 - connect timeout: 10초
