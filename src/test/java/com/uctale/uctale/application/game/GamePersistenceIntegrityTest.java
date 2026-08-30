@@ -17,6 +17,8 @@ import static org.mockito.BDDMockito.given;
 @ExtendWith(MockitoExtension.class)
 class GamePersistenceIntegrityTest {
 
+    private static final String OWNER_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
     @Mock private GameSessionRepository gameSessionRepository;
     @Mock private GameLogRepository gameLogRepository;
     @Mock private GameStateSnapshotRepository gameStateSnapshotRepository;
@@ -37,21 +39,23 @@ class GamePersistenceIntegrityTest {
     @Test
     @DisplayName("일반 DataIntegrityViolationException은 턴 충돌 409로 오인하지 않는다")
     void saveNextTurn_DoesNotMapEveryIntegrityFailureToTurnConflict() {
-        given(gameSessionRepository.findById(42L))
+        given(gameSessionRepository.findByIdAndOwnerKey(42L, OWNER_KEY))
                 .willThrow(new DataIntegrityViolationException("not-null constraint violation"));
 
-        assertThatThrownBy(() -> persistenceService.saveNextTurn(42L, 1, "선택", "본문", "[]", null))
-                .isInstanceOf(PersistenceOperationException.class)
+        assertThatThrownBy(() -> persistenceService.saveNextTurn(
+                OWNER_KEY, 42L, 1, "선택", "본문", "[]", null
+        )).isInstanceOf(PersistenceOperationException.class)
                 .isNotInstanceOf(TurnConflictException.class);
     }
 
     @Test
     @DisplayName("턴 unique constraint 위반만 턴 충돌로 분류한다")
     void saveNextTurn_MapsTurnUniqueConstraintToConflict() {
-        given(gameSessionRepository.findById(42L))
+        given(gameSessionRepository.findByIdAndOwnerKey(42L, OWNER_KEY))
                 .willThrow(new DataIntegrityViolationException("constraint uk_game_log_session_turn violated"));
 
-        assertThatThrownBy(() -> persistenceService.saveNextTurn(42L, 1, "선택", "본문", "[]", null))
-                .isInstanceOf(TurnConflictException.class);
+        assertThatThrownBy(() -> persistenceService.saveNextTurn(
+                OWNER_KEY, 42L, 1, "선택", "본문", "[]", null
+        )).isInstanceOf(TurnConflictException.class);
     }
 }
