@@ -13,12 +13,14 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.Immutable;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
 
 @Entity
+@Immutable
 @Table(uniqueConstraints = @UniqueConstraint(
         name = "uk_game_log_session_turn",
         columnNames = {"session_id", "turn_number"}
