@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, fix/neon-scale-to-zero-pool]
+    branches: [main]
   pull_request:
     branches: [main]
 
