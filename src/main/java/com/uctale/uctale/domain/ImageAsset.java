@@ -12,7 +12,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 @Entity
 @Table(uniqueConstraints = @UniqueConstraint(
@@ -50,8 +49,8 @@ public class ImageAsset {
 
     private LocalDateTime generatedAt;
 
-    public ImageAsset(GameSession gameSession, int turnNumber, String prompt, String aspectRatio) {
-        this.id = UUID.randomUUID().toString();
+    public ImageAsset(String id, GameSession gameSession, int turnNumber, String prompt, String aspectRatio) {
+        this.id = id;
         this.gameSession = gameSession;
         this.turnNumber = turnNumber;
         this.prompt = prompt;
