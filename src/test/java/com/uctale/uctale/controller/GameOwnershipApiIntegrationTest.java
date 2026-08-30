@@ -7,10 +7,10 @@ import com.uctale.uctale.application.narrative.NarrativeTurn;
 import com.uctale.uctale.security.AccessSessionInterceptor;
 import com.uctale.uctale.security.AccessSessionService;
 import jakarta.servlet.http.Cookie;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -19,7 +19,9 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
@@ -29,14 +31,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
-@AutoConfigureMockMvc
 @Import(GameOwnershipApiIntegrationTest.ProviderTestConfig.class)
 @Transactional
 class GameOwnershipApiIntegrationTest {
 
-    @Autowired private MockMvc mockMvc;
+    @Autowired private WebApplicationContext webApplicationContext;
     @Autowired private AccessSessionService accessSessionService;
     @Autowired private ObjectMapper objectMapper;
+
+    private MockMvc mockMvc;
+
+    @BeforeEach
+    void setUp() {
+        mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext).build();
+    }
 
     @Test
     @DisplayName("다른 접근 주체는 session ID를 알아도 진행할 수 없고 소유자는 정상 진행한다")
