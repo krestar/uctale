@@ -28,9 +28,8 @@ class GameMutationRequestServiceTest {
         GameMutationRequest stored = new GameMutationRequest(
                 OWNER_KEY, "PROGRESS", "same-key-123", 42L, 1, "a".repeat(64)
         );
-        given(repository.findByOwnerKeyAndOperationAndIdempotencyKey(
-                OWNER_KEY, "PROGRESS", "same-key-123"
-        )).willReturn(Optional.of(stored));
+        given(repository.findByOwnerKeyAndIdempotencyKey(OWNER_KEY, "same-key-123"))
+                .willReturn(Optional.of(stored));
 
         GameMutationRequestService service = new GameMutationRequestService(repository);
 
@@ -42,14 +41,28 @@ class GameMutationRequestServiceTest {
     }
 
     @Test
+    void sameKeyAcrossOperations_IsConflict() {
+        GameMutationRequest stored = new GameMutationRequest(
+                OWNER_KEY, "INIT", "same-key-123", null, null, "a".repeat(64)
+        );
+        given(repository.findByOwnerKeyAndIdempotencyKey(OWNER_KEY, "same-key-123"))
+                .willReturn(Optional.of(stored));
+
+        GameMutationRequestService service = new GameMutationRequestService(repository);
+
+        assertThatThrownBy(() -> service.begin(
+                OWNER_KEY, "PROGRESS", "same-key-123", 42L, 1, "a".repeat(64)
+        )).isInstanceOf(IdempotencyConflictException.class);
+    }
+
+    @Test
     void failedRequestWithSameFingerprint_CanRetry() {
         GameMutationRequest stored = new GameMutationRequest(
                 OWNER_KEY, "INIT", "retry-key-123", null, null, "a".repeat(64)
         );
         stored.fail();
-        given(repository.findByOwnerKeyAndOperationAndIdempotencyKey(
-                OWNER_KEY, "INIT", "retry-key-123"
-        )).willReturn(Optional.of(stored));
+        given(repository.findByOwnerKeyAndIdempotencyKey(OWNER_KEY, "retry-key-123"))
+                .willReturn(Optional.of(stored));
 
         GameMutationRequestService service = new GameMutationRequestService(repository);
         GameMutationRequestService.BeginResult result = service.begin(
