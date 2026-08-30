@@ -66,12 +66,12 @@ class GameOwnershipApiIntegrationTest {
                         .content("{\"worldSetting\":\"세계관\",\"characterSetting\":\"캐릭터\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.turnNumber").value(1))
-                .andExpect(jsonPath("$.imageUrl").value(org.hamcrest.Matchers.startsWith("/api/game/image-assets/")))
+                .andExpect(jsonPath("$.mainImageUrl").value(org.hamcrest.Matchers.startsWith("/api/game/image-assets/")))
                 .andReturn();
 
         var responseJson = objectMapper.readTree(initResult.getResponse().getContentAsString());
         long sessionId = responseJson.get("sessionId").asLong();
-        String imageUrl = responseJson.get("imageUrl").asText();
+        String imageUrl = responseJson.get("mainImageUrl").asText();
         String progressBody = "{\"sessionId\":" + sessionId + ",\"choiceId\":1,\"expectedTurn\":1}";
 
         mockMvc.perform(get(imageUrl)
