@@ -56,10 +56,7 @@ class GameServiceTest {
         choiceCodec = new ChoiceCodec(new ObjectMapper());
         Clock clock = Clock.systemUTC();
         gameService = new GameService(
-                narrativeGenerator,
-                imageAssetService,
-                gamePersistenceService,
-                choiceCodec,
+                narrativeGenerator, imageAssetService, gamePersistenceService, choiceCodec,
                 new ImagePromptComposer(),
                 new CostRateLimiter(new CostRateLimitPolicy(1_000, 1_000, 60), clock),
                 new ProviderCallTelemetry(clock, event -> {})
@@ -67,7 +64,7 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("게임 초기화는 서버 발급 image asset을 owner 세션 저장에 전달한다")
+    @DisplayName("게임 초기화는 versioned prompt로 서버 발급 image asset을 저장에 전달한다")
     void initGame_ReturnsFirstTurn() {
         GameInitRequest request = new GameInitRequest("좀비 아포칼립스", "김대리");
         NarrativeTurn opening = new NarrativeTurn(
@@ -78,11 +75,12 @@ class GameServiceTest {
         GameSession session = new GameSession(OWNER_KEY, request.worldSetting(), request.characterSetting());
         ReflectionTestUtils.setField(session, "id", 42L);
         ImageAssetService.AssetReference asset = new ImageAssetService.AssetReference(
-                "asset-id", "/api/game/image-assets/asset-id", "zombie, dark street", "16:9"
+                "asset-id", "/api/game/image-assets/asset-id", "prompt", "16:9",
+                "flux", 1024, 576, 123, true, "uctale-charcoal-v1"
         );
 
         given(narrativeGenerator.createOpening("좀비 아포칼립스", "김대리")).willReturn(opening);
-        given(imageAssetService.issue("zombie, dark street", "16:9")).willReturn(asset);
+        given(imageAssetService.issue(any(String.class), eq("16:9"))).willReturn(asset);
         given(gamePersistenceService.saveOpening(eq(OWNER_KEY), any(), any(), any(), any(), eq(asset))).willReturn(session);
 
         GameResponse response = gameService.initGame(OWNER_KEY, request);
@@ -90,7 +88,9 @@ class GameServiceTest {
         assertThat(response.sessionId()).isEqualTo(42L);
         assertThat(response.turnNumber()).isEqualTo(1);
         assertThat(response.mainImageUrl()).isEqualTo("/api/game/image-assets/asset-id");
-        verify(gamePersistenceService).saveOpening(eq(OWNER_KEY), any(), any(), any(), any(), eq(asset));
+        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
+        verify(imageAssetService).issue(promptCaptor.capture(), eq("16:9"));
+        assertThat(promptCaptor.getValue()).contains("subjects: zombie", "setting: dark street", "style[uctale-charcoal-v1]");
     }
 
     @Test

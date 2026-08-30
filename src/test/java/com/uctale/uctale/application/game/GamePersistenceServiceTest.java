@@ -33,17 +33,11 @@ class GamePersistenceServiceTest {
     @DisplayName("새 게임 세션은 생성 owner에게 귀속되고 동일 owner만 조회·진행할 수 있다")
     void sessionOwnership_IsEnforcedAcrossReadAndWrite() {
         GameSession session = gamePersistenceService.saveOpening(
-                OWNER_A,
-                "세계관",
-                "캐릭터",
-                "첫 이야기",
-                "[{\"id\":1,\"text\":\"진행\"}]",
-                null
+                OWNER_A, "세계관", "캐릭터", "첫 이야기", "[{\"id\":1,\"text\":\"진행\"}]", null
         );
 
         assertThat(gameSessionRepository.findById(session.getId()).orElseThrow().getOwnerKey()).isEqualTo(OWNER_A);
         assertThat(gamePersistenceService.loadLatestTurn(OWNER_A, session.getId(), 1).sessionId()).isEqualTo(session.getId());
-
         assertThatThrownBy(() -> gamePersistenceService.loadLatestTurn(OWNER_B, session.getId(), 1))
                 .isInstanceOf(GameSessionNotFoundException.class);
         assertThatThrownBy(() -> gamePersistenceService.saveNextTurn(
@@ -51,13 +45,8 @@ class GamePersistenceServiceTest {
         )).isInstanceOf(GameSessionNotFoundException.class);
 
         int savedTurn = gamePersistenceService.saveNextTurn(
-                OWNER_A,
-                session.getId(),
-                1,
-                "진행",
-                "두 번째 이야기",
-                "[{\"id\":1,\"text\":\"계속\"}]",
-                null
+                OWNER_A, session.getId(), 1, "진행", "두 번째 이야기",
+                "[{\"id\":1,\"text\":\"계속\"}]", null
         );
 
         assertThat(savedTurn).isEqualTo(2);
@@ -66,13 +55,12 @@ class GamePersistenceServiceTest {
     }
 
     @Test
-    @DisplayName("image asset은 세션과 turn에 연결되고 GameLog에는 서버 발급 URL만 저장된다")
-    void imageAsset_IsPersistedWithSessionAndTurn() {
+    @DisplayName("image asset은 생성 model/size/seed/safe/style을 turn과 함께 영속화한다")
+    void imageAsset_IsPersistedWithFrozenGenerationContract() {
         ImageAssetService.AssetReference reference = new ImageAssetService.AssetReference(
                 "11111111-1111-1111-1111-111111111111",
                 "/api/game/image-assets/11111111-1111-1111-1111-111111111111",
-                "dark street, zombie",
-                "16:9"
+                "dark street, zombie", "16:9", "flux", 1024, 576, 12345, true, "uctale-charcoal-v1"
         );
 
         GameSession session = gamePersistenceService.saveOpening(
@@ -83,6 +71,12 @@ class GamePersistenceServiceTest {
         assertThat(asset.getGameSession().getId()).isEqualTo(session.getId());
         assertThat(asset.getTurnNumber()).isEqualTo(1);
         assertThat(asset.getPrompt()).isEqualTo("dark street, zombie");
+        assertThat(asset.getModel()).isEqualTo("flux");
+        assertThat(asset.getWidth()).isEqualTo(1024);
+        assertThat(asset.getHeight()).isEqualTo(576);
+        assertThat(asset.getSeed()).isEqualTo(12345);
+        assertThat(asset.isSafe()).isTrue();
+        assertThat(asset.getStyleVersion()).isEqualTo("uctale-charcoal-v1");
         assertThat(gamePersistenceService.loadLatestTurn(OWNER_A, session.getId(), 1).imageUrl())
                 .isEqualTo(reference.publicUrl());
     }
