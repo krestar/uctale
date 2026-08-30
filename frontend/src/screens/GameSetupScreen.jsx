@@ -33,6 +33,7 @@ function GameSetupScreen({
         <form
           className="setup-form"
           aria-busy={isLoading}
+          noValidate
           onSubmit={(event) => {
             event.preventDefault()
             onStart()
