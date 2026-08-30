@@ -89,14 +89,10 @@ class PostgresGameLogMigrationTest extends PostgresIntegrationTestSupport {
             }
 
             try (ResultSet legacyColumn = statement.executeQuery("""
-                    select count(*)
-                    from information_schema.columns
-                    where table_schema = 'game_log_v6_legacy'
-                      and table_name = 'game_log'
-                      and column_name = 'user_choice'
+                    select user_choice from game_log where turn_number = 1
                     """)) {
                 assertThat(legacyColumn.next()).isTrue();
-                assertThat(legacyColumn.getInt(1)).isZero();
+                assertThat(legacyColumn.getString("user_choice")).isEqualTo("문을 연다");
             }
         }
     }
