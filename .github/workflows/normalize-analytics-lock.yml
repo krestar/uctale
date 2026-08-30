@@ -1,0 +1,59 @@
+name: Normalize analytics lockfile
+
+on:
+  push:
+    branches:
+      - feat/issue-59-vercel-web-analytics
+
+permissions:
+  contents: write
+
+jobs:
+  normalize-lockfile:
+    if: ${{ !contains(github.event.head_commit.message, '[analytics-lock-normalized]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/issue-59-vercel-web-analytics
+      - name: Restore unrelated libc metadata
+        working-directory: frontend
+        run: |
+          node <<'NODE'
+          const fs = require('fs')
+          const path = 'package-lock.json'
+          const lock = JSON.parse(fs.readFileSync(path, 'utf8'))
+          const entries = {
+            'node_modules/@rolldown/binding-linux-arm64-gnu': 'glibc',
+            'node_modules/@rolldown/binding-linux-arm64-musl': 'musl',
+            'node_modules/@rolldown/binding-linux-ppc64-gnu': 'glibc',
+            'node_modules/@rolldown/binding-linux-s390x-gnu': 'glibc',
+            'node_modules/@rolldown/binding-linux-x64-gnu': 'glibc',
+            'node_modules/@rolldown/binding-linux-x64-musl': 'musl',
+            'node_modules/lightningcss-linux-arm64-gnu': 'glibc',
+            'node_modules/lightningcss-linux-arm64-musl': 'musl',
+            'node_modules/lightningcss-linux-x64-gnu': 'glibc',
+            'node_modules/lightningcss-linux-x64-musl': 'musl',
+          }
+          for (const [name, libc] of Object.entries(entries)) {
+            const current = lock.packages[name]
+            if (!current) throw new Error(`Missing lock entry: ${name}`)
+            const normalized = {}
+            for (const [key, value] of Object.entries(current)) {
+              normalized[key] = value
+              if (key === 'dev') normalized.libc = [libc]
+            }
+            lock.packages[name] = normalized
+          }
+          fs.writeFileSync(path, `${JSON.stringify(lock, null, 2)}\n`)
+          NODE
+      - name: Remove temporary workflow
+        run: rm .github/workflows/normalize-analytics-lock.yml
+      - name: Commit normalized lockfile
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/package-lock.json .github/workflows/normalize-analytics-lock.yml
+          git commit -m "chore(frontend): analytics lockfile 변경 최소화 [analytics-lock-normalized]"
+          git push origin HEAD:feat/issue-59-vercel-web-analytics
