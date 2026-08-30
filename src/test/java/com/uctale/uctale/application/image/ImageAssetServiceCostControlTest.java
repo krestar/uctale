@@ -27,6 +27,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class ImageAssetServiceCostControlTest {
@@ -59,6 +60,7 @@ class ImageAssetServiceCostControlTest {
         assertThat(result.bytes()).containsExactly(1, 2, 3);
         verify(rateLimiter, never()).check(any(), any());
         verify(imageGenerator, never()).fetchImage(any(), any());
+        verifyNoInteractions(telemetry);
     }
 
     @Test
@@ -74,7 +76,7 @@ class ImageAssetServiceCostControlTest {
         )).isInstanceOf(RateLimitExceededException.class);
 
         verify(imageGenerator, never()).fetchImage(any(), any());
-        verify(telemetry, never()).observe(any(), any(), any(), any(Integer.class), any());
+        verifyNoInteractions(telemetry);
     }
 
     private ImageAsset asset(String id) {
