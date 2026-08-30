@@ -19,13 +19,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.ArgumentMatchers.any;
 
 @ExtendWith(MockitoExtension.class)
 class GameServiceValidationTest {
+
+    private static final String OWNER_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
     @Mock private NarrativeGenerator narrativeGenerator;
     @Mock private ImageGenerator imageGenerator;
@@ -56,11 +58,11 @@ class GameServiceValidationTest {
         );
         given(narrativeGenerator.createOpening("세계관", "캐릭터")).willReturn(invalidTurn);
 
-        assertThatThrownBy(() -> gameService.initGame(request))
+        assertThatThrownBy(() -> gameService.initGame(OWNER_KEY, request))
                 .isInstanceOf(InvalidNarrativeResponseException.class);
 
         verify(imageGenerator, never()).createPublicUrl(any(), any());
-        verify(gamePersistenceService, never()).saveOpening(any(), any(), any(), any(), any());
+        verify(gamePersistenceService, never()).saveOpening(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -78,9 +80,9 @@ class GameServiceValidationTest {
         );
         given(narrativeGenerator.createOpening("세계관", "캐릭터")).willReturn(invalidTurn);
 
-        assertThatThrownBy(() -> gameService.initGame(request))
+        assertThatThrownBy(() -> gameService.initGame(OWNER_KEY, request))
                 .isInstanceOf(InvalidNarrativeResponseException.class);
 
-        verify(gamePersistenceService, never()).saveOpening(any(), any(), any(), any(), any());
+        verify(gamePersistenceService, never()).saveOpening(any(), any(), any(), any(), any(), any());
     }
 }

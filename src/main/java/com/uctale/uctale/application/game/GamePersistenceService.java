@@ -38,6 +38,7 @@ public class GamePersistenceService {
 
     @Transactional
     public GameSession saveOpening(
+            String ownerKey,
             String worldSetting,
             String characterSetting,
             String storyText,
@@ -45,7 +46,7 @@ public class GamePersistenceService {
             String imageUrl
     ) {
         try {
-            GameSession session = gameSessionRepository.save(new GameSession(worldSetting, characterSetting));
+            GameSession session = gameSessionRepository.save(new GameSession(ownerKey, worldSetting, characterSetting));
             GameState initialState = GameState.initial(worldSetting, characterSetting, storyText);
             gameStateSnapshotRepository.save(new GameStateSnapshot(session, gameStateCodec.serialize(initialState)));
             gameLogRepository.save(new GameLog(session, 1, storyText, choicesJson, imageUrl));
@@ -59,9 +60,8 @@ public class GamePersistenceService {
     }
 
     @Transactional(readOnly = true)
-    public LoadedTurn loadLatestTurn(Long sessionId, int expectedTurn) {
-        GameSession session = gameSessionRepository.findById(sessionId)
-                .orElseThrow(() -> new GameSessionNotFoundException("존재하지 않는 세션입니다."));
+    public LoadedTurn loadLatestTurn(String ownerKey, Long sessionId, int expectedTurn) {
+        GameSession session = findOwnedSession(ownerKey, sessionId);
 
         if (session.getCurrentTurn() != expectedTurn) {
             throw new TurnConflictException("이미 처리되었거나 오래된 턴 요청입니다.");
@@ -93,6 +93,7 @@ public class GamePersistenceService {
 
     @Transactional
     public int saveNextTurn(
+            String ownerKey,
             Long sessionId,
             int expectedTurn,
             String userChoice,
@@ -101,8 +102,7 @@ public class GamePersistenceService {
             String imageUrl
     ) {
         try {
-            GameSession session = gameSessionRepository.findById(sessionId)
-                    .orElseThrow(() -> new GameSessionNotFoundException("존재하지 않는 세션입니다."));
+            GameSession session = findOwnedSession(ownerKey, sessionId);
 
             if (session.getCurrentTurn() != expectedTurn) {
                 throw new TurnConflictException("이미 처리되었거나 오래된 턴 요청입니다.");
@@ -151,6 +151,11 @@ public class GamePersistenceService {
             }
             throw new PersistenceOperationException("게임 진행 상태를 저장할 수 없습니다.", exception);
         }
+    }
+
+    private GameSession findOwnedSession(String ownerKey, Long sessionId) {
+        return gameSessionRepository.findByIdAndOwnerKey(sessionId, ownerKey)
+                .orElseThrow(() -> new GameSessionNotFoundException("존재하지 않는 세션입니다."));
     }
 
     private boolean isTurnUniqueConstraintViolation(DataIntegrityViolationException exception) {

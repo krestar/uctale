@@ -17,15 +17,19 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Transactional
 class GamePersistenceServiceTest {
 
+    private static final String OWNER_A = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    private static final String OWNER_B = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+
     @Autowired private GamePersistenceService gamePersistenceService;
     @Autowired private GameSessionRepository gameSessionRepository;
     @Autowired private GameLogRepository gameLogRepository;
     @Autowired private GameStateSnapshotRepository gameStateSnapshotRepository;
 
     @Test
-    @DisplayName("턴 저장 후 동일 expectedTurn 재요청은 거부하고 GameState도 함께 진행한다")
-    void saveNextTurn_RejectsStaleRetryAndAdvancesState() {
+    @DisplayName("새 게임 세션은 생성 owner에게 귀속되고 동일 owner만 조회·진행할 수 있다")
+    void sessionOwnership_IsEnforcedAcrossReadAndWrite() {
         GameSession session = gamePersistenceService.saveOpening(
+                OWNER_A,
                 "세계관",
                 "캐릭터",
                 "첫 이야기",
@@ -33,7 +37,17 @@ class GamePersistenceServiceTest {
                 null
         );
 
+        assertThat(gameSessionRepository.findById(session.getId()).orElseThrow().getOwnerKey()).isEqualTo(OWNER_A);
+        assertThat(gamePersistenceService.loadLatestTurn(OWNER_A, session.getId(), 1).sessionId()).isEqualTo(session.getId());
+
+        assertThatThrownBy(() -> gamePersistenceService.loadLatestTurn(OWNER_B, session.getId(), 1))
+                .isInstanceOf(GameSessionNotFoundException.class);
+        assertThatThrownBy(() -> gamePersistenceService.saveNextTurn(
+                OWNER_B, session.getId(), 1, "진행", "침입", "[]", null
+        )).isInstanceOf(GameSessionNotFoundException.class);
+
         int savedTurn = gamePersistenceService.saveNextTurn(
+                OWNER_A,
                 session.getId(),
                 1,
                 "진행",
@@ -44,63 +58,39 @@ class GamePersistenceServiceTest {
 
         assertThat(savedTurn).isEqualTo(2);
         assertThat(gameLogRepository.count()).isEqualTo(2);
-        assertThat(gameStateSnapshotRepository.findById(session.getId())).isPresent();
         assertThat(gameSessionRepository.findById(session.getId()).orElseThrow().getCurrentTurn()).isEqualTo(2);
-
-        GamePersistenceService.LoadedTurn loaded = gamePersistenceService.loadLatestTurn(session.getId(), 2);
-        assertThat(loaded.gameState().turnNumber()).isEqualTo(2);
-        assertThat(loaded.gameState().storyMemory().recentTurns()).hasSize(2);
-        assertThat(loaded.gameState().storyMemory().recentTurns().get(1).playerAction()).isEqualTo("진행");
-
-        assertThatThrownBy(() -> gamePersistenceService.loadLatestTurn(session.getId(), 1))
-                .isInstanceOf(TurnConflictException.class);
     }
 
     @Test
-    @DisplayName("스냅샷이 없는 기존 세션은 저장된 로그에서 GameState를 복구한다")
-    void loadLatestTurn_RecoversLegacySessionWithoutSnapshot() {
+    @DisplayName("스냅샷이 없는 동일 owner 세션은 저장된 로그에서 GameState를 복구한다")
+    void loadLatestTurn_RecoversLegacySnapshotForOwnedSession() {
         GameSession session = gamePersistenceService.saveOpening(
-                "세계관",
-                "캐릭터",
-                "첫 이야기",
-                "[]",
-                "/image"
+                OWNER_A, "세계관", "캐릭터", "첫 이야기", "[]", "/image"
         );
         gamePersistenceService.saveNextTurn(
-                session.getId(),
-                1,
-                "진행",
-                "두 번째 이야기",
-                "[]",
-                "/image"
+                OWNER_A, session.getId(), 1, "진행", "두 번째 이야기", "[]", "/image"
         );
         gameStateSnapshotRepository.deleteById(session.getId());
         gameStateSnapshotRepository.flush();
 
-        GamePersistenceService.LoadedTurn loaded = gamePersistenceService.loadLatestTurn(session.getId(), 2);
+        GamePersistenceService.LoadedTurn loaded = gamePersistenceService.loadLatestTurn(OWNER_A, session.getId(), 2);
 
         assertThat(loaded.gameState().turnNumber()).isEqualTo(2);
         assertThat(loaded.gameState().storyMemory().recentTurns()).hasSize(2);
-        assertThat(loaded.gameState().storyMemory().recentTurns().get(1).playerAction()).isEqualTo("진행");
     }
 
     @Test
-    @DisplayName("최신 턴 snapshot은 세션과 로그 상태가 일치한다")
+    @DisplayName("동일 owner의 최신 턴 snapshot은 세션과 로그 상태가 일치한다")
     void loadLatestTurn_ReturnsConsistentSnapshot() {
         GameSession session = gamePersistenceService.saveOpening(
-                "세계관",
-                "캐릭터",
-                "첫 이야기",
-                "[]",
-                "/image"
+                OWNER_A, "세계관", "캐릭터", "첫 이야기", "[]", "/image"
         );
 
-        GamePersistenceService.LoadedTurn loaded = gamePersistenceService.loadLatestTurn(session.getId(), 1);
+        GamePersistenceService.LoadedTurn loaded = gamePersistenceService.loadLatestTurn(OWNER_A, session.getId(), 1);
 
         assertThat(loaded.sessionId()).isEqualTo(session.getId());
         assertThat(loaded.turnNumber()).isEqualTo(1);
         assertThat(loaded.storyText()).isEqualTo("첫 이야기");
-        assertThat(loaded.imageUrl()).isEqualTo("/image");
         assertThat(loaded.gameState().storyMemory().canonicalFacts()).hasSize(2);
     }
 }

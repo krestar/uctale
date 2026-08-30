@@ -3,12 +3,14 @@ package com.uctale.uctale.controller;
 import com.uctale.uctale.dto.GameInitRequest;
 import com.uctale.uctale.dto.GameProgressRequest;
 import com.uctale.uctale.dto.GameResponse;
+import com.uctale.uctale.security.AccessSessionInterceptor;
 import com.uctale.uctale.service.GameService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -22,14 +24,20 @@ public class GameController {
     private final GameService gameService;
 
     @PostMapping("/init")
-    public ResponseEntity<GameResponse> initGame(@Valid @RequestBody GameInitRequest request) {
+    public ResponseEntity<GameResponse> initGame(
+            @RequestAttribute(AccessSessionInterceptor.OWNER_KEY_ATTRIBUTE) String ownerKey,
+            @Valid @RequestBody GameInitRequest request
+    ) {
         log.info("게임 초기화 요청 수신");
-        return ResponseEntity.ok(gameService.initGame(request));
+        return ResponseEntity.ok(gameService.initGame(ownerKey, request));
     }
 
     @PostMapping("/progress")
-    public ResponseEntity<GameResponse> progressGame(@Valid @RequestBody GameProgressRequest request) {
+    public ResponseEntity<GameResponse> progressGame(
+            @RequestAttribute(AccessSessionInterceptor.OWNER_KEY_ATTRIBUTE) String ownerKey,
+            @Valid @RequestBody GameProgressRequest request
+    ) {
         log.info("게임 진행 요청: 세션ID={}, 기대턴={}", request.sessionId(), request.expectedTurn());
-        return ResponseEntity.ok(gameService.progressGame(request));
+        return ResponseEntity.ok(gameService.progressGame(ownerKey, request));
     }
 }

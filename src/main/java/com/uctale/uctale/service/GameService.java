@@ -37,7 +37,7 @@ public class GameService {
     private final ChoiceCodec choiceCodec;
     private final ImagePromptComposer imagePromptComposer;
 
-    public GameResponse initGame(GameInitRequest request) {
+    public GameResponse initGame(String ownerKey, GameInitRequest request) {
         NarrativeTurn opening = narrativeGenerator.createOpening(request.worldSetting(), request.characterSetting());
         validateNarrativeTurn(opening);
         List<GameChoice> choices = toGameChoices(opening.choices());
@@ -50,6 +50,7 @@ public class GameService {
         String imageUrl = imageGenerator.createPublicUrl(imagePrompt, "16:9");
 
         var session = gamePersistenceService.saveOpening(
+                ownerKey,
                 request.worldSetting(),
                 request.characterSetting(),
                 opening.storyText(),
@@ -60,8 +61,9 @@ public class GameService {
         return toResponse(session.getId(), session.getCurrentTurn(), opening, choices, imageUrl);
     }
 
-    public GameResponse progressGame(GameProgressRequest request) {
+    public GameResponse progressGame(String ownerKey, GameProgressRequest request) {
         GamePersistenceService.LoadedTurn loadedTurn = gamePersistenceService.loadLatestTurn(
+                ownerKey,
                 request.sessionId(),
                 request.expectedTurn()
         );
@@ -86,6 +88,7 @@ public class GameService {
         }
 
         int savedTurn = gamePersistenceService.saveNextTurn(
+                ownerKey,
                 loadedTurn.sessionId(),
                 request.expectedTurn(),
                 userChoiceText,
