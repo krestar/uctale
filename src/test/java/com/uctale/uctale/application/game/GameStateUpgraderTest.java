@@ -2,13 +2,18 @@ package com.uctale.uctale.application.game;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.io.ClassPathResource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+
+import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class GameStateUpgraderTest {
+
+    private static final String LEGACY_FIXTURE = "fixtures/game-state/snapshot-v0-production.json";
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final GameStateUpgrader upgrader = new GameStateUpgrader();
@@ -91,23 +96,10 @@ class GameStateUpgraderTest {
                 .hasMessageContaining("state가 누락");
     }
 
-    private String legacyStateJson() {
-        return """
-                {
-                  "turnNumber": 1,
-                  "playerCharacter": {"description": "캐릭터", "stats": {}},
-                  "worldState": {"premise": "세계관", "flags": {}},
-                  "storyMemory": {
-                    "canonicalFacts": [
-                      {"key": "world.premise", "value": "세계관"},
-                      {"key": "player.description", "value": "캐릭터"}
-                    ],
-                    "rollingSummary": "",
-                    "recentTurns": [
-                      {"turnNumber": 1, "playerAction": "", "storyText": "첫 이야기"}
-                    ]
-                  }
-                }
-                """;
+    private String legacyStateJson() throws Exception {
+        ClassPathResource resource = new ClassPathResource(LEGACY_FIXTURE);
+        try (var inputStream = resource.getInputStream()) {
+            return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+        }
     }
 }
