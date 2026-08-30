@@ -28,6 +28,9 @@ public class GameSession {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(nullable = false, length = 64)
+    private String ownerKey;
+
     @Column(nullable = false)
     private String worldSetting;
 
@@ -53,7 +56,8 @@ public class GameSession {
     @OneToMany(mappedBy = "gameSession", cascade = jakarta.persistence.CascadeType.ALL, orphanRemoval = true)
     private List<GameLog> logs = new ArrayList<>();
 
-    public GameSession(String worldSetting, String characterSetting) {
+    public GameSession(String ownerKey, String worldSetting, String characterSetting) {
+        this.ownerKey = ownerKey;
         this.worldSetting = worldSetting;
         this.characterSetting = characterSetting;
     }
