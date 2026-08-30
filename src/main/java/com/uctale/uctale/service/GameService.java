@@ -6,12 +6,14 @@ import com.uctale.uctale.application.cost.CostRequestContext;
 import com.uctale.uctale.application.cost.ProviderCallTelemetry;
 import com.uctale.uctale.application.game.ChoiceCodec;
 import com.uctale.uctale.application.game.GamePersistenceService;
+import com.uctale.uctale.application.game.GameTurnCommit;
 import com.uctale.uctale.application.game.ImagePromptComposer;
 import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.application.narrative.InvalidNarrativeResponseException;
 import com.uctale.uctale.application.narrative.NarrativeContext;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
+import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.dto.GameChoice;
 import com.uctale.uctale.dto.GameInitRequest;
 import com.uctale.uctale.dto.GameProgressRequest;
@@ -111,9 +113,22 @@ public class GameService {
             log.info("시각적 변화 없음 -> 이전 이미지 asset 재사용");
         }
 
+        GameState nextState = loadedTurn.gameState().advance(userChoiceText, nextTurn.storyText());
+        GameTurnCommit commit = new GameTurnCommit(
+                request.expectedTurn(),
+                request.choiceId(),
+                userChoiceText,
+                loadedTurn.gameState(),
+                nextState,
+                nextTurn.storyText(),
+                choiceCodec.serialize(choices),
+                imageAsset
+        );
+
         int savedTurn = gamePersistenceService.saveNextTurn(
-                costContext.ownerKey(), loadedTurn.sessionId(), request.expectedTurn(), userChoiceText,
-                nextTurn.storyText(), choiceCodec.serialize(choices), imageAsset
+                costContext.ownerKey(),
+                loadedTurn.sessionId(),
+                commit
         );
 
         return toResponse(loadedTurn.sessionId(), savedTurn, nextTurn, choices, imageUrl);
