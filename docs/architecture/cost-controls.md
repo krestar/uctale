@@ -26,9 +26,26 @@
 - `GAME_COST_NARRATIVE_LIMIT`
 - `GAME_COST_IMAGE_LIMIT`
 
+### 접근 비밀번호 인증 rate limit
+
+`POST /api/game/verify-password`는 비용 API quota와 별도의 IP 기반 실패 limiter를 사용한다.
+
+- 기본값은 300초 window에서 연속 실패 5회까지 허용하고, 다음 인증 시도부터 `429 ACCESS_RATE_LIMIT_EXCEEDED`를 반환한다.
+- 응답에는 현재 fixed window가 끝날 때까지의 초를 `Retry-After`로 제공한다.
+- 정상 인증이 성공하면 해당 IP의 실패 counter를 초기화한다.
+- 비밀번호 검증과 실패 counter 갱신은 하나의 원자적 limiter 경계에서 처리해 동시 요청 burst가 실패 한도를 우회하지 못하게 한다.
+- client IP는 비용 limiter와 동일한 `ClientIpResolver` 경계를 재사용한다.
+- 인증 실패는 Narrative/Image quota를 소비하지 않는다.
+- 비밀번호, request body, access/owner token은 limiter에서 로그로 남기지 않는다.
+
+환경변수:
+
+- `GAME_ACCESS_RATE_LIMIT_FAILURE_LIMIT`
+- `GAME_ACCESS_RATE_LIMIT_WINDOW_SECONDS`
+
 ### 운영 한계
 
-이 limiter는 Render 인스턴스 하나의 메모리에만 존재한다. 인스턴스가 여러 개가 되면 각 인스턴스가 독립 quota를 가지므로 전역 한도를 보장하지 않는다. 현재 단일 인스턴스 공유 베타에 맞춘 최소 안전장치이며, multi-instance 전환 시 Redis 등 외부 shared store 기반 limiter로 교체한다.
+이 limiter들은 Render 인스턴스 하나의 메모리에만 존재한다. 인스턴스가 여러 개가 되면 각 인스턴스가 독립 quota/counter를 가지므로 전역 한도를 보장하지 않는다. 현재 단일 인스턴스 공유 베타에 맞춘 최소 안전장치이며, multi-instance 전환 시 Redis 등 외부 shared store 기반 limiter로 교체한다.
 
 ## Provider 관측성
 
@@ -50,6 +67,7 @@ Narrative는 현재 provider 내부 retry가 없어 `retryCount=0`이다. Image�
 
 ## 책임 경계
 
+- Access authentication: `AccessController`가 `ClientIpResolver`로 IP를 식별하고 `AccessAuthenticationRateLimiter` 안에서 비밀번호 판정과 실패 counter를 원자적으로 처리한다.
 - Narrative: `GameService`가 소유권/turn 조회 후 rate limit을 확인하고 Gemini 호출만 telemetry로 감싼다.
 - Image: `ImageAssetService`가 asset 소유권과 기존 생성 결과를 먼저 확인한다. 미생성 asset에 대해서만 lock 내부에서 rate limit을 확인하고 Pollinations 호출을 telemetry로 감싼다.
 - DB에 저장된 이미지 재조회는 provider를 호출하지 않으므로 Image quota를 소비하지 않는다.
