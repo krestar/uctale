@@ -5,7 +5,7 @@ import com.uctale.uctale.application.game.ChoiceCodec;
 import com.uctale.uctale.application.game.GamePersistenceService;
 import com.uctale.uctale.application.game.ImagePromptComposer;
 import com.uctale.uctale.application.game.TurnConflictException;
-import com.uctale.uctale.application.image.ImageGenerator;
+import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.application.narrative.NarrativeContext;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
@@ -41,7 +41,7 @@ class GameServiceTest {
     private static final String OWNER_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
     @Mock private NarrativeGenerator narrativeGenerator;
-    @Mock private ImageGenerator imageGenerator;
+    @Mock private ImageAssetService imageAssetService;
     @Mock private GamePersistenceService gamePersistenceService;
 
     private ChoiceCodec choiceCodec;
@@ -52,7 +52,7 @@ class GameServiceTest {
         choiceCodec = new ChoiceCodec(new ObjectMapper());
         gameService = new GameService(
                 narrativeGenerator,
-                imageGenerator,
+                imageAssetService,
                 gamePersistenceService,
                 choiceCodec,
                 new ImagePromptComposer()
@@ -60,7 +60,7 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("게임 초기화는 owner key를 새 세션 저장에 전달한다")
+    @DisplayName("게임 초기화는 서버 발급 image asset을 owner 세션 저장에 전달한다")
     void initGame_ReturnsFirstTurn() {
         GameInitRequest request = new GameInitRequest("좀비 아포칼립스", "김대리");
         NarrativeTurn opening = new NarrativeTurn(
@@ -71,21 +71,24 @@ class GameServiceTest {
         );
         GameSession session = new GameSession(OWNER_KEY, request.worldSetting(), request.characterSetting());
         ReflectionTestUtils.setField(session, "id", 42L);
+        ImageAssetService.AssetReference asset = new ImageAssetService.AssetReference(
+                "asset-id", "/api/game/image-assets/asset-id", "zombie, dark street", "16:9"
+        );
 
         given(narrativeGenerator.createOpening("좀비 아포칼립스", "김대리")).willReturn(opening);
-        given(imageGenerator.createPublicUrl("zombie, dark street", "16:9"))
-                .willReturn("/api/game/image?prompt=test&aspectRatio=16%3A9");
-        given(gamePersistenceService.saveOpening(eq(OWNER_KEY), any(), any(), any(), any(), any())).willReturn(session);
+        given(imageAssetService.issue("zombie, dark street", "16:9")).willReturn(asset);
+        given(gamePersistenceService.saveOpening(eq(OWNER_KEY), any(), any(), any(), any(), eq(asset))).willReturn(session);
 
         GameResponse response = gameService.initGame(OWNER_KEY, request);
 
         assertThat(response.sessionId()).isEqualTo(42L);
         assertThat(response.turnNumber()).isEqualTo(1);
-        verify(gamePersistenceService).saveOpening(eq(OWNER_KEY), any(), any(), any(), any(), any());
+        assertThat(response.imageUrl()).isEqualTo("/api/game/image-assets/asset-id");
+        verify(gamePersistenceService).saveOpening(eq(OWNER_KEY), any(), any(), any(), any(), eq(asset));
     }
 
     @Test
-    @DisplayName("게임 진행은 owner key로 세션을 읽고 저장한다")
+    @DisplayName("시각적 변화가 없으면 이전 image asset을 재사용한다")
     void progressGame_UsesCanonicalGameState() {
         String choicesJson = choiceCodec.serialize(List.of(new GameChoice(1, "문을 잠근다")));
         GamePersistenceService.LoadedTurn loadedTurn = loadedTurn(choicesJson);
@@ -101,20 +104,22 @@ class GameServiceTest {
         given(gamePersistenceService.saveNextTurn(
                 OWNER_KEY, 42L, 1, "문을 잠근다", "다음 스토리",
                 "[{\"id\":1,\"text\":\"기다린다\"}]",
-                "/api/game/image?prompt=old&aspectRatio=16%3A9"
+                null
         )).willReturn(2);
 
         GameResponse response = gameService.progressGame(OWNER_KEY, new GameProgressRequest(42L, 1, 1));
 
         assertThat(response.turnNumber()).isEqualTo(2);
+        assertThat(response.imageUrl()).isEqualTo("/api/game/image-assets/old-asset");
         ArgumentCaptor<NarrativeContext> contextCaptor = ArgumentCaptor.forClass(NarrativeContext.class);
         verify(narrativeGenerator).createNextTurn(contextCaptor.capture());
         assertThat(contextCaptor.getValue().playerAction()).isEqualTo("문을 잠근다");
-        verify(gamePersistenceService).saveNextTurn(eq(OWNER_KEY), eq(42L), eq(1), any(), any(), any(), any());
+        verify(imageAssetService, never()).issue(any(), any());
+        verify(gamePersistenceService).saveNextTurn(eq(OWNER_KEY), eq(42L), eq(1), any(), any(), any(), eq(null));
     }
 
     @Test
-    @DisplayName("소유권 또는 오래된 턴 거부는 내러티브 생성 전에 발생한다")
+    @DisplayName("소유권 또는 오래된 턴 거부는 내러티브와 asset 발급 전에 발생한다")
     void progressGame_RejectsBeforeNarrativeCall() {
         given(gamePersistenceService.loadLatestTurn(OWNER_KEY, 42L, 1))
                 .willThrow(new TurnConflictException("이미 처리되었거나 오래된 턴 요청입니다."));
@@ -123,13 +128,14 @@ class GameServiceTest {
                 .isInstanceOf(TurnConflictException.class);
 
         verify(narrativeGenerator, never()).createNextTurn(any(NarrativeContext.class));
+        verify(imageAssetService, never()).issue(any(), any());
         verify(gamePersistenceService, never()).saveNextTurn(any(), any(), anyInt(), any(), any(), any(), any());
     }
 
     private GamePersistenceService.LoadedTurn loadedTurn(String choicesJson) {
         return new GamePersistenceService.LoadedTurn(
                 42L, 1, "좀비 아포칼립스", "김대리", "직전 스토리", choicesJson,
-                "/api/game/image?prompt=old&aspectRatio=16%3A9",
+                "/api/game/image-assets/old-asset",
                 GameState.initial("좀비 아포칼립스", "김대리", "직전 스토리")
         );
     }
