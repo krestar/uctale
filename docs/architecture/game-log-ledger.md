@@ -36,11 +36,11 @@ Opening은 외부 입력이 없으므로 `input_choice_id`, `input_choice_text`�
 3. Narrative 결과를 검증한다.
 4. application/domain에서 다음 `GameState`를 확정한다.
 5. `GameTurnCommit`으로 입력, 이전/다음 state, narrative 결과를 persistence에 전달한다.
-6. persistence는 현재 session/log state version과 commit을 검증하고 새 `GameLog` 한 행과 snapshot/session을 원자적으로 저장한다.
+6. persistence는 현재 session/log state version, canonical previous state와 commit을 검증하고 새 `GameLog` 한 행과 snapshot/session을 원자적으로 저장한다.
 
-Persistence는 `userChoice + storyText`를 받아 `GameState.advance(...)`를 호출하지 않습니다. 상태 전이를 계산하는 책임은 persistence 바깥에 있습니다.
+`GamePersistenceService`는 `userChoice + storyText`를 받아 `GameState.advance(...)`를 호출하지 않습니다. 상태 전이를 계산하는 책임은 persistence 바깥에 있습니다. Snapshot이 없을 때의 기존 로그 복구 계산도 `GameStateRecovery`로 분리합니다.
 
-Commit된 기존 `GameLog`를 수정하는 domain method도 제공하지 않습니다.
+Commit된 기존 `GameLog`를 수정하는 domain method는 제공하지 않으며 entity는 Hibernate `@Immutable`로 dirty update 대상에서도 제외합니다.
 
 ## legacy V1~V5 migration
 
@@ -54,10 +54,12 @@ V1~V5에서는 선택 입력이 **선택이 발생한 행이 아니라 그 이�
 
 `previous_state_version`과 `state_version`은 기존 turn number에서 결정적으로 backfill합니다.
 
+기존 `user_choice` DB 컬럼은 즉시 drop하지 않습니다. 배포 롤백 시 이전 애플리케이션이 schema 자체 때문에 기동 불가해지는 위험을 줄이기 위한 **legacy compatibility column**으로 남겨 둡니다. V6 애플리케이션의 `GameLog` entity에는 매핑하지 않으며 새 commit에서는 읽거나 쓰지 않습니다. canonical ledger 의미는 새 `input_choice_*` 컬럼만 소유합니다.
+
 ## 복구
 
 Snapshot이 존재하면 최신 상태 복구는 snapshot을 우선 사용합니다.
 
-Snapshot이 없다면 `GameLog`를 turn 순서로 읽고 각 **행 자체의** `input_choice_text`, story, state version을 사용해 현재 `GameState`를 복구합니다. 더 이상 이전 행을 수정해 둔 `user_choice`에 의존하지 않습니다.
+Snapshot이 없다면 `GameLog`를 turn 순서로 읽고 각 **행 자체의** `input_choice_text`, story, state version을 사용해 `GameStateRecovery`가 현재 `GameState`를 복구합니다. 더 이상 이전 행을 수정해 둔 `user_choice`에 의존하지 않습니다.
 
 전체 event replay engine이나 Event Sourcing은 이 설계의 목표가 아닙니다.
