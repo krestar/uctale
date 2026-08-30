@@ -4,7 +4,7 @@ import tools.jackson.databind.ObjectMapper;
 import com.uctale.uctale.application.game.ChoiceCodec;
 import com.uctale.uctale.application.game.GamePersistenceService;
 import com.uctale.uctale.application.game.ImagePromptComposer;
-import com.uctale.uctale.application.image.ImageGenerator;
+import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.application.narrative.InvalidNarrativeResponseException;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
@@ -30,7 +30,7 @@ class GameServiceValidationTest {
     private static final String OWNER_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
     @Mock private NarrativeGenerator narrativeGenerator;
-    @Mock private ImageGenerator imageGenerator;
+    @Mock private ImageAssetService imageAssetService;
     @Mock private GamePersistenceService gamePersistenceService;
 
     private GameService gameService;
@@ -39,7 +39,7 @@ class GameServiceValidationTest {
     void setUp() {
         gameService = new GameService(
                 narrativeGenerator,
-                imageGenerator,
+                imageAssetService,
                 gamePersistenceService,
                 new ChoiceCodec(new ObjectMapper()),
                 new ImagePromptComposer()
@@ -47,7 +47,7 @@ class GameServiceValidationTest {
     }
 
     @Test
-    @DisplayName("DB user_choice 한계를 넘는 provider 선택지는 이미지 생성과 저장 전에 거부한다")
+    @DisplayName("DB user_choice 한계를 넘는 provider 선택지는 asset 발급과 저장 전에 거부한다")
     void initGame_RejectsOversizedProviderChoiceBeforeSideEffects() {
         GameInitRequest request = new GameInitRequest("세계관", "캐릭터");
         NarrativeTurn invalidTurn = new NarrativeTurn(
@@ -61,12 +61,12 @@ class GameServiceValidationTest {
         assertThatThrownBy(() -> gameService.initGame(OWNER_KEY, request))
                 .isInstanceOf(InvalidNarrativeResponseException.class);
 
-        verify(imageGenerator, never()).createPublicUrl(any(), any());
+        verify(imageAssetService, never()).issue(any(), any());
         verify(gamePersistenceService, never()).saveOpening(any(), any(), any(), any(), any(), any());
     }
 
     @Test
-    @DisplayName("중복 선택지 ID가 있는 provider 응답은 저장 전에 거부한다")
+    @DisplayName("중복 선택지 ID가 있는 provider 응답은 asset 발급과 저장 전에 거부한다")
     void initGame_RejectsDuplicateProviderChoiceIds() {
         GameInitRequest request = new GameInitRequest("세계관", "캐릭터");
         NarrativeTurn invalidTurn = new NarrativeTurn(
@@ -83,6 +83,7 @@ class GameServiceValidationTest {
         assertThatThrownBy(() -> gameService.initGame(OWNER_KEY, request))
                 .isInstanceOf(InvalidNarrativeResponseException.class);
 
+        verify(imageAssetService, never()).issue(any(), any());
         verify(gamePersistenceService, never()).saveOpening(any(), any(), any(), any(), any(), any());
     }
 }
