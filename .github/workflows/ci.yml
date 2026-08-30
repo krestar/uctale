@@ -17,7 +17,7 @@ jobs:
   backend:
     name: Backend test and build
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
@@ -35,6 +35,9 @@ jobs:
 
       - name: Run backend tests
         run: ./gradlew clean test
+
+      - name: Run PostgreSQL integration tests
+        run: ./gradlew postgresIntegrationTest
 
       - name: Build backend
         run: ./gradlew build -x test
