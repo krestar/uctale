@@ -15,8 +15,6 @@ import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-
 @Service
 public class GamePersistenceService {
 
@@ -28,19 +26,22 @@ public class GamePersistenceService {
     private final GameStateSnapshotRepository gameStateSnapshotRepository;
     private final ImageAssetRepository imageAssetRepository;
     private final GameStateCodec gameStateCodec;
+    private final GameStateRecovery gameStateRecovery;
 
     public GamePersistenceService(
             GameSessionRepository gameSessionRepository,
             GameLogRepository gameLogRepository,
             GameStateSnapshotRepository gameStateSnapshotRepository,
             ImageAssetRepository imageAssetRepository,
-            GameStateCodec gameStateCodec
+            GameStateCodec gameStateCodec,
+            GameStateRecovery gameStateRecovery
     ) {
         this.gameSessionRepository = gameSessionRepository;
         this.gameLogRepository = gameLogRepository;
         this.gameStateSnapshotRepository = gameStateSnapshotRepository;
         this.imageAssetRepository = imageAssetRepository;
         this.gameStateCodec = gameStateCodec;
+        this.gameStateRecovery = gameStateRecovery;
     }
 
     @Transactional
@@ -57,11 +58,8 @@ public class GamePersistenceService {
             String imageUrl = persistImageAsset(session, 1, imageAsset);
             GameState initialState = GameState.initial(worldSetting, characterSetting, storyText);
             gameStateSnapshotRepository.save(new GameStateSnapshot(session, gameStateCodec.serialize(initialState)));
-            gameLogRepository.save(new GameLog(session, 1, storyText, choicesJson, imageUrl));
-            imageAssetRepository.flush();
-            gameLogRepository.flush();
-            gameStateSnapshotRepository.flush();
-            gameSessionRepository.flush();
+            gameLogRepository.save(GameLog.opening(session, storyText, choicesJson, imageUrl));
+            flushAll();
             return session;
         } catch (DataIntegrityViolationException exception) {
             throw new PersistenceOperationException("게임 시작 상태를 저장할 수 없습니다.", exception);
@@ -84,8 +82,8 @@ public class GamePersistenceService {
         }
 
         GameState gameState = loadOrRecoverState(session);
-        if (gameState.turnNumber() != expectedTurn) {
-            throw new IllegalStateException("세션 턴과 GameState가 일치하지 않습니다.");
+        if (gameState.turnNumber() != expectedTurn || lastLog.getStateVersion() != expectedTurn) {
+            throw new IllegalStateException("세션 턴과 canonical state version이 일치하지 않습니다.");
         }
 
         return new LoadedTurn(
@@ -101,61 +99,49 @@ public class GamePersistenceService {
     }
 
     @Transactional
-    public int saveNextTurn(
-            String ownerKey,
-            Long sessionId,
-            int expectedTurn,
-            String userChoice,
-            String storyText,
-            String choicesJson,
-            ImageAssetService.AssetReference imageAsset
-    ) {
+    public int saveNextTurn(String ownerKey, Long sessionId, GameTurnCommit commit) {
         try {
             GameSession session = findOwnedSession(ownerKey, sessionId);
-
-            if (session.getCurrentTurn() != expectedTurn) {
-                throw new TurnConflictException("이미 처리되었거나 오래된 턴 요청입니다.");
-            }
+            validateCommitAgainstSession(session, commit);
 
             GameLog previousLog = gameLogRepository.findTopByGameSessionOrderByTurnNumberDesc(session)
                     .orElseThrow(() -> new IllegalStateException("게임 로그가 없습니다."));
 
-            if (previousLog.getTurnNumber() != expectedTurn) {
-                throw new IllegalStateException("세션 턴과 저장된 로그가 일치하지 않습니다.");
+            if (previousLog.getTurnNumber() != commit.expectedTurn()
+                    || previousLog.getStateVersion() != commit.previousStateVersion()) {
+                throw new IllegalStateException("세션 턴과 저장된 로그의 state version이 일치하지 않습니다.");
             }
 
-            GameState currentState = loadOrRecoverState(session);
-            if (currentState.turnNumber() != expectedTurn) {
-                throw new IllegalStateException("세션 턴과 GameState가 일치하지 않습니다.");
+            GameState canonicalPreviousState = loadOrRecoverState(session);
+            if (!canonicalPreviousState.equals(commit.previousState())) {
+                throw new TurnConflictException("commit의 이전 상태가 현재 canonical state와 일치하지 않습니다.");
             }
-            GameState nextState = currentState.advance(userChoice, storyText);
 
-            previousLog.updateUserChoice(userChoice);
             session.advanceTurn();
 
-            String imageUrl = imageAsset == null
+            String imageUrl = commit.imageAsset() == null
                     ? previousLog.getImageUrl()
-                    : persistImageAsset(session, expectedTurn + 1, imageAsset);
+                    : persistImageAsset(session, commit.nextStateVersion(), commit.imageAsset());
 
-            gameLogRepository.save(previousLog);
             gameSessionRepository.save(session);
-            gameLogRepository.save(new GameLog(
+            gameLogRepository.save(GameLog.committedTurn(
                     session,
-                    expectedTurn + 1,
-                    storyText,
-                    choicesJson,
+                    commit.nextStateVersion(),
+                    commit.inputChoiceId(),
+                    commit.inputChoiceText(),
+                    commit.previousStateVersion(),
+                    commit.nextStateVersion(),
+                    commit.storyText(),
+                    commit.choicesJson(),
                     imageUrl
             ));
 
             GameStateSnapshot snapshot = gameStateSnapshotRepository.findById(sessionId)
-                    .orElseGet(() -> new GameStateSnapshot(session, gameStateCodec.serialize(currentState)));
-            snapshot.updateStateJson(gameStateCodec.serialize(nextState));
+                    .orElseGet(() -> new GameStateSnapshot(session, gameStateCodec.serialize(commit.previousState())));
+            snapshot.updateStateJson(gameStateCodec.serialize(commit.nextState()));
             gameStateSnapshotRepository.save(snapshot);
 
-            imageAssetRepository.flush();
-            gameLogRepository.flush();
-            gameStateSnapshotRepository.flush();
-            gameSessionRepository.flush();
+            flushAll();
             return session.getCurrentTurn();
         } catch (ObjectOptimisticLockingFailureException exception) {
             throw new TurnConflictException("동시에 처리된 턴 요청과 충돌했습니다.", exception);
@@ -164,6 +150,18 @@ public class GamePersistenceService {
                 throw new TurnConflictException("동시에 처리된 턴 요청과 충돌했습니다.", exception);
             }
             throw new PersistenceOperationException("게임 진행 상태를 저장할 수 없습니다.", exception);
+        }
+    }
+
+    private void validateCommitAgainstSession(GameSession session, GameTurnCommit commit) {
+        if (session.getCurrentTurn() != commit.expectedTurn()) {
+            throw new TurnConflictException("이미 처리되었거나 오래된 턴 요청입니다.");
+        }
+        if (commit.previousStateVersion() != commit.expectedTurn()) {
+            throw new IllegalArgumentException("commit의 이전 state version이 expectedTurn과 일치하지 않습니다.");
+        }
+        if (commit.nextStateVersion() != commit.expectedTurn() + 1) {
+            throw new IllegalArgumentException("commit의 다음 state version이 올바르지 않습니다.");
         }
     }
 
@@ -211,25 +209,17 @@ public class GamePersistenceService {
     private GameState loadOrRecoverState(GameSession session) {
         return gameStateSnapshotRepository.findById(session.getId())
                 .map(snapshot -> gameStateCodec.deserialize(snapshot.getStateJson()))
-                .orElseGet(() -> recoverState(session));
+                .orElseGet(() -> gameStateRecovery.recover(
+                        session,
+                        gameLogRepository.findByGameSessionOrderByTurnNumberAsc(session)
+                ));
     }
 
-    private GameState recoverState(GameSession session) {
-        List<GameLog> logs = gameLogRepository.findByGameSessionOrderByTurnNumberAsc(session);
-        if (logs.isEmpty()) {
-            throw new IllegalStateException("GameState를 복구할 게임 로그가 없습니다.");
-        }
-
-        GameState state = GameState.initial(
-                session.getWorldSetting(),
-                session.getCharacterSetting(),
-                logs.get(0).getStoryText()
-        );
-        for (int i = 1; i < logs.size(); i++) {
-            String action = logs.get(i - 1).getUserChoice();
-            state = state.advance(action, logs.get(i).getStoryText());
-        }
-        return state;
+    private void flushAll() {
+        imageAssetRepository.flush();
+        gameLogRepository.flush();
+        gameStateSnapshotRepository.flush();
+        gameSessionRepository.flush();
     }
 
     public record LoadedTurn(

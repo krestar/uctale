@@ -6,6 +6,7 @@ import com.uctale.uctale.application.cost.CostRateLimiter;
 import com.uctale.uctale.application.cost.ProviderCallTelemetry;
 import com.uctale.uctale.application.game.ChoiceCodec;
 import com.uctale.uctale.application.game.GamePersistenceService;
+import com.uctale.uctale.application.game.GameTurnCommit;
 import com.uctale.uctale.application.game.ImagePromptComposer;
 import com.uctale.uctale.application.game.TurnConflictException;
 import com.uctale.uctale.application.image.ImageAssetService;
@@ -33,7 +34,6 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
@@ -96,9 +96,9 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("시각적 변화가 없으면 이전 image asset을 재사용한다")
-    void progressGame_UsesCanonicalGameState() {
-        String choicesJson = choiceCodec.serialize(List.of(new GameChoice(1, "문을 잠근다")));
+    @DisplayName("progress는 persistence 전에 입력과 다음 canonical state를 확정한다")
+    void progressGame_PreparesCommittedStateTransitionBeforePersistence() {
+        String choicesJson = choiceCodec.serialize(List.of(new GameChoice(7, "문을 잠근다")));
         GamePersistenceService.LoadedTurn loadedTurn = loadedTurn(choicesJson);
         NarrativeTurn nextTurn = new NarrativeTurn(
                 "다음 장면", "다음 스토리",
@@ -108,20 +108,27 @@ class GameServiceTest {
 
         given(gamePersistenceService.loadLatestTurn(OWNER_KEY, 42L, 1)).willReturn(loadedTurn);
         given(narrativeGenerator.createNextTurn(any(NarrativeContext.class))).willReturn(nextTurn);
-        given(gamePersistenceService.saveNextTurn(
-                OWNER_KEY, 42L, 1, "문을 잠근다", "다음 스토리",
-                "[{\"id\":1,\"text\":\"기다린다\"}]", null
-        )).willReturn(2);
+        given(gamePersistenceService.saveNextTurn(eq(OWNER_KEY), eq(42L), any(GameTurnCommit.class))).willReturn(2);
 
-        GameResponse response = gameService.progressGame(OWNER_KEY, new GameProgressRequest(42L, 1, 1));
+        GameResponse response = gameService.progressGame(OWNER_KEY, new GameProgressRequest(42L, 7, 1));
 
         assertThat(response.turnNumber()).isEqualTo(2);
         assertThat(response.mainImageUrl()).isEqualTo("/api/game/image-assets/old-asset");
+
         ArgumentCaptor<NarrativeContext> contextCaptor = ArgumentCaptor.forClass(NarrativeContext.class);
         verify(narrativeGenerator).createNextTurn(contextCaptor.capture());
         assertThat(contextCaptor.getValue().playerAction()).isEqualTo("문을 잠근다");
+
+        ArgumentCaptor<GameTurnCommit> commitCaptor = ArgumentCaptor.forClass(GameTurnCommit.class);
+        verify(gamePersistenceService).saveNextTurn(eq(OWNER_KEY), eq(42L), commitCaptor.capture());
+        GameTurnCommit commit = commitCaptor.getValue();
+        assertThat(commit.inputChoiceId()).isEqualTo(7);
+        assertThat(commit.inputChoiceText()).isEqualTo("문을 잠근다");
+        assertThat(commit.previousStateVersion()).isEqualTo(1);
+        assertThat(commit.nextStateVersion()).isEqualTo(2);
+        assertThat(commit.nextState().storyMemory().recentTurns()).hasSize(2);
+        assertThat(commit.storyText()).isEqualTo("다음 스토리");
         verify(imageAssetService, never()).issue(any(), any());
-        verify(gamePersistenceService).saveNextTurn(eq(OWNER_KEY), eq(42L), eq(1), any(), any(), any(), eq(null));
     }
 
     @Test
@@ -135,7 +142,7 @@ class GameServiceTest {
 
         verify(narrativeGenerator, never()).createNextTurn(any(NarrativeContext.class));
         verify(imageAssetService, never()).issue(any(), any());
-        verify(gamePersistenceService, never()).saveNextTurn(any(), any(), anyInt(), any(), any(), any(), any());
+        verify(gamePersistenceService, never()).saveNextTurn(any(), any(), any(GameTurnCommit.class));
     }
 
     private GamePersistenceService.LoadedTurn loadedTurn(String choicesJson) {

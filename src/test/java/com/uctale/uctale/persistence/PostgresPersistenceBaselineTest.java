@@ -37,7 +37,7 @@ class PostgresPersistenceBaselineTest extends PostgresIntegrationTestSupport {
         assertThat(flyway.info().pending()).isEmpty();
         assertThat(flyway.info().applied())
                 .extracting(info -> info.getVersion().getVersion())
-                .contains("1", "2", "3", "4", "5");
+                .contains("1", "2", "3", "4", "5", "6");
 
         assertThat(tableExists("game_session")).isTrue();
         assertThat(tableExists("game_log")).isTrue();
@@ -114,8 +114,14 @@ class PostgresPersistenceBaselineTest extends PostgresIntegrationTestSupport {
 
     private void insertGameLog(Long sessionId, int turnNumber) {
         jdbcTemplate.update(
-                "insert into game_log (session_id, turn_number, story_text, choices_json) values (?, ?, ?, ?)",
+                """
+                insert into game_log (
+                    session_id, turn_number, previous_state_version, state_version, story_text, choices_json
+                ) values (?, ?, ?, ?, ?, ?)
+                """,
                 sessionId,
+                turnNumber,
+                turnNumber - 1,
                 turnNumber,
                 "이야기",
                 "[]"
