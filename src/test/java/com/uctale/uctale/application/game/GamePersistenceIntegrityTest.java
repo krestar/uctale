@@ -52,10 +52,21 @@ class GamePersistenceIntegrityTest {
     }
 
     @Test
-    @DisplayName("턴 unique constraint 위반만 턴 충돌로 분류한다")
-    void saveNextTurn_MapsTurnUniqueConstraintToConflict() {
+    @DisplayName("game log 턴 unique constraint 위반은 턴 충돌로 분류한다")
+    void saveNextTurn_MapsGameLogTurnUniqueConstraintToConflict() {
         given(gameSessionRepository.findByIdAndOwnerKey(42L, OWNER_KEY))
                 .willThrow(new DataIntegrityViolationException("constraint uk_game_log_session_turn violated"));
+
+        assertThatThrownBy(() -> persistenceService.saveNextTurn(
+                OWNER_KEY, 42L, 1, "선택", "본문", "[]", null
+        )).isInstanceOf(TurnConflictException.class);
+    }
+
+    @Test
+    @DisplayName("image asset 턴 unique constraint 위반도 턴 충돌로 분류한다")
+    void saveNextTurn_MapsImageAssetTurnUniqueConstraintToConflict() {
+        given(gameSessionRepository.findByIdAndOwnerKey(42L, OWNER_KEY))
+                .willThrow(new DataIntegrityViolationException("constraint uk_image_asset_session_turn violated"));
 
         assertThatThrownBy(() -> persistenceService.saveNextTurn(
                 OWNER_KEY, 42L, 1, "선택", "본문", "[]", null
