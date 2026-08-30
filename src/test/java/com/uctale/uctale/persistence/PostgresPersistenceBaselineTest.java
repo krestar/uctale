@@ -32,11 +32,12 @@ class PostgresPersistenceBaselineTest extends PostgresIntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("빈 PostgreSQL에 production Flyway migration V1~V5가 적용된다")
+    @DisplayName("빈 PostgreSQL에 production Flyway migration이 모두 적용된다")
     void productionMigrationChain_IsAppliedToPostgres() {
+        assertThat(flyway.info().pending()).isEmpty();
         assertThat(flyway.info().applied())
                 .extracting(info -> info.getVersion().getVersion())
-                .containsExactly("1", "2", "3", "4", "5");
+                .contains("1", "2", "3", "4", "5");
 
         assertThat(tableExists("game_session")).isTrue();
         assertThat(tableExists("game_log")).isTrue();
