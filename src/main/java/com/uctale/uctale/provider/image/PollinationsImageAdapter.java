@@ -16,6 +16,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -82,14 +83,14 @@ public class PollinationsImageAdapter implements ImageGenerator {
 
     @Override
     public GeneratedImage fetchImage(GenerationRequest request) {
-        String providerUrl = buildProviderUrl(request);
+        URI providerUri = buildProviderUri(request);
         String promptHash = promptHash(request.prompt());
 
         for (int attempt = 0; attempt <= maxRetries; attempt++) {
             long startedAt = System.nanoTime();
             try {
                 ResponseEntity<byte[]> response = restClient.get()
-                        .uri(providerUrl)
+                        .uri(providerUri)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + pollinationsToken)
                         .retrieve()
                         .onStatus(status -> status.isError(), (httpRequest, httpResponse) -> {
@@ -163,7 +164,7 @@ public class PollinationsImageAdapter implements ImageGenerator {
                 && (IMAGE_JPEG.isCompatibleWith(contentType) || IMAGE_PNG.isCompatibleWith(contentType));
     }
 
-    private String buildProviderUrl(GenerationRequest request) {
+    private URI buildProviderUri(GenerationRequest request) {
         return UriComponentsBuilder.fromUriString(PROVIDER_BASE_URL)
                 .pathSegment(request.prompt())
                 .queryParam("model", request.model())
@@ -173,7 +174,7 @@ public class PollinationsImageAdapter implements ImageGenerator {
                 .queryParam("safe", request.safe())
                 .build()
                 .encode(StandardCharsets.UTF_8)
-                .toUriString();
+                .toUri();
     }
 
     private PollinationsProviderException providerException(org.springframework.http.client.ClientHttpResponse response) {
