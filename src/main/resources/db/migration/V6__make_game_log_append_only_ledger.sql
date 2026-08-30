@@ -30,6 +30,3 @@ alter table game_log
 
 alter table game_log
     alter column state_version set not null;
-
-alter table game_log
-    drop column user_choice;
