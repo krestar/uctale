@@ -83,7 +83,7 @@ class GameServiceTest {
 
         assertThat(response.sessionId()).isEqualTo(42L);
         assertThat(response.turnNumber()).isEqualTo(1);
-        assertThat(response.imageUrl()).isEqualTo("/api/game/image-assets/asset-id");
+        assertThat(response.mainImageUrl()).isEqualTo("/api/game/image-assets/asset-id");
         verify(gamePersistenceService).saveOpening(eq(OWNER_KEY), any(), any(), any(), any(), eq(asset));
     }
 
@@ -110,7 +110,7 @@ class GameServiceTest {
         GameResponse response = gameService.progressGame(OWNER_KEY, new GameProgressRequest(42L, 1, 1));
 
         assertThat(response.turnNumber()).isEqualTo(2);
-        assertThat(response.imageUrl()).isEqualTo("/api/game/image-assets/old-asset");
+        assertThat(response.mainImageUrl()).isEqualTo("/api/game/image-assets/old-asset");
         ArgumentCaptor<NarrativeContext> contextCaptor = ArgumentCaptor.forClass(NarrativeContext.class);
         verify(narrativeGenerator).createNextTurn(contextCaptor.capture());
         assertThat(contextCaptor.getValue().playerAction()).isEqualTo("문을 잠근다");
