@@ -1,6 +1,9 @@
 package com.uctale.uctale.service;
 
 import tools.jackson.databind.ObjectMapper;
+import com.uctale.uctale.application.cost.CostRateLimitPolicy;
+import com.uctale.uctale.application.cost.CostRateLimiter;
+import com.uctale.uctale.application.cost.ProviderCallTelemetry;
 import com.uctale.uctale.application.game.ChoiceCodec;
 import com.uctale.uctale.application.game.GamePersistenceService;
 import com.uctale.uctale.application.game.ImagePromptComposer;
@@ -24,6 +27,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Clock;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -50,12 +54,15 @@ class GameServiceTest {
     @BeforeEach
     void setUp() {
         choiceCodec = new ChoiceCodec(new ObjectMapper());
+        Clock clock = Clock.systemUTC();
         gameService = new GameService(
                 narrativeGenerator,
                 imageAssetService,
                 gamePersistenceService,
                 choiceCodec,
-                new ImagePromptComposer()
+                new ImagePromptComposer(),
+                new CostRateLimiter(new CostRateLimitPolicy(1_000, 1_000, 60), clock),
+                new ProviderCallTelemetry(clock, event -> {})
         );
     }
 
@@ -64,8 +71,7 @@ class GameServiceTest {
     void initGame_ReturnsFirstTurn() {
         GameInitRequest request = new GameInitRequest("좀비 아포칼립스", "김대리");
         NarrativeTurn opening = new NarrativeTurn(
-                "첫날 밤",
-                "오프닝 스토리",
+                "첫날 밤", "오프닝 스토리",
                 List.of(new NarrativeTurn.Choice(1, "도망간다")),
                 new NarrativeTurn.VisualAssets("dark street", List.of("zombie"), List.of())
         );
@@ -93,8 +99,7 @@ class GameServiceTest {
         String choicesJson = choiceCodec.serialize(List.of(new GameChoice(1, "문을 잠근다")));
         GamePersistenceService.LoadedTurn loadedTurn = loadedTurn(choicesJson);
         NarrativeTurn nextTurn = new NarrativeTurn(
-                "다음 장면",
-                "다음 스토리",
+                "다음 장면", "다음 스토리",
                 List.of(new NarrativeTurn.Choice(1, "기다린다")),
                 new NarrativeTurn.VisualAssets("", List.of(), List.of())
         );
@@ -103,8 +108,7 @@ class GameServiceTest {
         given(narrativeGenerator.createNextTurn(any(NarrativeContext.class))).willReturn(nextTurn);
         given(gamePersistenceService.saveNextTurn(
                 OWNER_KEY, 42L, 1, "문을 잠근다", "다음 스토리",
-                "[{\"id\":1,\"text\":\"기다린다\"}]",
-                null
+                "[{\"id\":1,\"text\":\"기다린다\"}]", null
         )).willReturn(2);
 
         GameResponse response = gameService.progressGame(OWNER_KEY, new GameProgressRequest(42L, 1, 1));
