@@ -5,6 +5,7 @@ import AccessScreen from './screens/AccessScreen'
 import GamePlayScreen from './screens/GamePlayScreen'
 import GameSetupScreen from './screens/GameSetupScreen'
 import './App.css'
+import './interaction.css'
 
 const RETRYABLE_PROGRESS_ERROR_CODES = new Set([
   'PROVIDER_RESPONSE_INVALID',
