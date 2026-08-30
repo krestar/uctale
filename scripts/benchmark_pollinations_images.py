@@ -38,18 +38,29 @@ FIXTURES = (
     ("battlefield", "subjects: soldier, dragon; objects: banner; setting: burning battlefield"),
     ("transit", "subjects: passenger, conductor; objects: ticket; setting: train interior"),
     ("ruins", "subjects: explorer; objects: ancient key; setting: desert ruins"),
+    ("nuclear", "setting: Seoul skyline under a nuclear explosion and huge orange mushroom cloud"),
+    ("fire", "subjects: firefighter; setting: burning city street with red flames"),
+    ("neon", "subjects: pedestrian; setting: neon city alley with glowing pink and blue signs"),
+    ("sunset", "setting: vivid red and orange sunset over the ocean"),
+    ("festival", "subjects: crowd; objects: multicolor lanterns; setting: brightly colored festival"),
 )
-STYLE = (
-    "atmosphere: dramatic storybook scene; "
-    "composition: clear focal point, readable silhouettes, cinematic depth; "
-    "style[uctale-charcoal-v1]: rough charcoal sketch, high contrast black and white, "
-    "gritty paper texture, expressive pencil strokes, no colors, story concept art"
+STYLE_PREFIX = (
+    "style[uctale-charcoal-v2]: monochrome charcoal and graphite drawing on off-white paper, "
+    "grayscale only, visible charcoal grain, smudged shading, expressive hand-drawn strokes, "
+    "no colored pigments or color accents, no watercolor, no oil painting, no digital color painting, "
+    "no photorealism, no 3D render"
+)
+STYLE_SUFFIX = (
+    "atmosphere: narrative editorial scene with restrained tonal drama; "
+    "composition: clear focal point, readable silhouettes, layered hand-drawn depth; "
+    "final style lock: monochrome charcoal and graphite only; render fire, explosions, neon, sunsets, "
+    "and glowing objects using black, gray, and white tonal values only; no color"
 )
 FAIL_FAST_STATUSES = {401, 402, 403}
 DEFAULT_HEADERS = {
     "Authorization": "",
     "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 UCTaleBenchmark/1.1",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 UCTaleBenchmark/1.2",
 }
 
 
@@ -159,7 +170,7 @@ def main() -> int:
     rows: list[dict] = []
 
     for fixture_index, (fixture_id, scene) in enumerate(FIXTURES):
-        prompt = f"{scene}; {STYLE}"
+        prompt = f"{STYLE_PREFIX}; {scene}; {STYLE_SUFFIX}"
         seed = args.seed + fixture_index
         for model in MODELS:
             for width, height in SIZES:
