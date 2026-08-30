@@ -27,7 +27,7 @@ public class ImageGenerationPolicy {
             @Value("${game.image.height:432}") int height,
             @Value("${game.image.square-size:512}") int squareSize,
             @Value("${game.image.safe:true}") boolean safe,
-            @Value("${game.image.style-version:uctale-charcoal-v1}") String styleVersion
+            @Value("${game.image.style-version:uctale-charcoal-v2}") String styleVersion
     ) {
         this(model, width, height, squareSize, safe, styleVersion, new SecureRandom());
     }
