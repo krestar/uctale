@@ -1,0 +1,55 @@
+# 비용 API rate limit과 provider 관측성
+
+## 목적
+
+공유 베타에서 인증된 사용자의 반복 클릭·자동화 요청·재시도로 Narrative/Image provider 비용이 급증하는 상황을 줄이고, 실제 provider 호출을 turn 단위로 추적할 수 있게 한다.
+
+## Rate limit
+
+현재 구현은 단일 application instance 메모리 안에서 동작하는 fixed-window limiter다.
+
+- Narrative와 Image quota를 서로 분리한다.
+- owner principal, client IP, session(존재할 때) 각각에 같은 operation quota를 적용한다.
+- 어느 bucket 하나라도 한도를 넘으면 provider 호출 전에 `429 RATE_LIMIT_EXCEEDED`를 반환한다.
+- 응답에는 다음 window까지 남은 초를 `Retry-After` 헤더로 제공한다.
+- 이미 생성되어 DB에 저장된 image asset 조회는 provider 비용이 들지 않으므로 quota를 소비하지 않는다.
+
+기본값:
+
+- window: 60초
+- Narrative: 12회/window
+- Image: 8회/window
+
+환경변수:
+
+- `GAME_COST_RATE_LIMIT_WINDOW_SECONDS`
+- `GAME_COST_NARRATIVE_LIMIT`
+- `GAME_COST_IMAGE_LIMIT`
+
+### 운영 한계
+
+이 limiter는 Render 인스턴스 하나의 메모리에만 존재한다. 인스턴스가 여러 개가 되면 각 인스턴스가 독립 quota를 가지므로 전역 한도를 보장하지 않는다. 현재 단일 인스턴스 공유 베타에 맞춘 최소 안전장치이며, multi-instance 전환 시 Redis 등 외부 shared store 기반 limiter로 교체한다.
+
+## Provider 관측성
+
+provider 호출마다 다음 항목을 구조화된 key/value 로그로 기록한다.
+
+- provider
+- operation
+- sessionId
+- turn
+- requestId
+- idempotencyKey(현재는 미도입이므로 `-`)
+- latencyMs
+- outcome (`SUCCESS` / `FAILURE`)
+- retryCount
+
+사용자 world/character/action, provider prompt/응답 전문, access/owner token, API key는 로그에 기록하지 않는다.
+
+현재 retryCount는 provider retry 정책이 아직 없으므로 0이다. 후속 #35/#50에서 bounded retry를 도입할 때 같은 event 계약에 실제 retry 횟수를 연결한다.
+
+## 책임 경계
+
+- Narrative: `GameService`가 소유권/turn 조회 후 rate limit을 확인하고 Gemini 호출만 telemetry로 감싼다.
+- Image: `ImageAssetService`가 asset 소유권과 기존 생성 결과를 먼저 확인한다. 미생성 asset에 대해서만 lock 내부에서 rate limit을 확인하고 Pollinations 호출을 telemetry로 감싼다.
+- DB에 저장된 이미지 재조회는 provider를 호출하지 않으므로 Image quota를 소비하지 않는다.
