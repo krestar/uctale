@@ -76,7 +76,7 @@ class GameServiceTest {
         ReflectionTestUtils.setField(session, "id", 42L);
         ImageAssetService.AssetReference asset = new ImageAssetService.AssetReference(
                 "asset-id", "/api/game/image-assets/asset-id", "prompt", "16:9",
-                "flux", 1024, 576, 123, true, "uctale-charcoal-v1"
+                "flux", 1024, 576, 123, true, "uctale-charcoal-v2"
         );
 
         given(narrativeGenerator.createOpening("좀비 아포칼립스", "김대리")).willReturn(opening);
@@ -90,7 +90,9 @@ class GameServiceTest {
         assertThat(response.mainImageUrl()).isEqualTo("/api/game/image-assets/asset-id");
         ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
         verify(imageAssetService).issue(promptCaptor.capture(), eq("16:9"));
-        assertThat(promptCaptor.getValue()).contains("subjects: zombie", "setting: dark street", "style[uctale-charcoal-v1]");
+        assertThat(promptCaptor.getValue())
+                .startsWith("style[uctale-charcoal-v2]")
+                .contains("subjects: zombie", "setting: dark street", "final style lock:");
     }
 
     @Test
