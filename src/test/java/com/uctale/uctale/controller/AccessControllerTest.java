@@ -1,5 +1,7 @@
 package com.uctale.uctale.controller;
 
+import com.uctale.uctale.security.AccessAuthenticationRateLimitPolicy;
+import com.uctale.uctale.security.AccessAuthenticationRateLimiter;
 import com.uctale.uctale.security.AccessSessionInterceptor;
 import com.uctale.uctale.security.AccessSessionService;
 import jakarta.servlet.http.Cookie;
@@ -8,6 +10,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+import java.time.Clock;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -24,9 +28,7 @@ class AccessControllerTest {
     @DisplayName("올바른 비밀번호는 운영용 HttpOnly Secure 접근 쿠키를 발급한다")
     void verifyPassword_IssuesSecureHttpOnlyCookie() throws Exception {
         AccessSessionService service = new AccessSessionService("TEST_PASSWORD", SECRET, 3600, true);
-        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new AccessController(service))
-                .setControllerAdvice(new ApiExceptionHandler())
-                .build();
+        MockMvc mockMvc = standaloneMockMvc(service, limiter(5));
 
         mockMvc.perform(post("/api/game/verify-password")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -42,15 +44,59 @@ class AccessControllerTest {
     @DisplayName("잘못된 비밀번호는 안정적인 401 오류를 반환한다")
     void verifyPassword_RejectsWrongPassword() throws Exception {
         AccessSessionService service = new AccessSessionService("TEST_PASSWORD", SECRET, 3600, false);
-        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new AccessController(service))
-                .setControllerAdvice(new ApiExceptionHandler())
-                .build();
+        MockMvc mockMvc = standaloneMockMvc(service, limiter(5));
 
         mockMvc.perform(post("/api/game/verify-password")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"password\":\"wrong\"}"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
+    }
+
+    @Test
+    @DisplayName("같은 IP가 실패 한도에 도달하면 다음 인증부터 429와 Retry-After를 반환한다")
+    void verifyPassword_RateLimitsRepeatedFailures() throws Exception {
+        AccessSessionService service = new AccessSessionService("TEST_PASSWORD", SECRET, 3600, false);
+        MockMvc mockMvc = standaloneMockMvc(service, limiter(2));
+
+        for (int i = 0; i < 2; i++) {
+            mockMvc.perform(post("/api/game/verify-password")
+                            .with(request -> { request.setRemoteAddr("1.2.3.4"); return request; })
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"password\":\"wrong\"}"))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        mockMvc.perform(post("/api/game/verify-password")
+                        .with(request -> { request.setRemoteAddr("1.2.3.4"); return request; })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"TEST_PASSWORD\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists("Retry-After"))
+                .andExpect(jsonPath("$.code").value("ACCESS_RATE_LIMIT_EXCEEDED"));
+    }
+
+    @Test
+    @DisplayName("성공 인증은 같은 IP의 실패 기록을 초기화한다")
+    void verifyPassword_SuccessResetsFailures() throws Exception {
+        AccessSessionService service = new AccessSessionService("TEST_PASSWORD", SECRET, 3600, false);
+        MockMvc mockMvc = standaloneMockMvc(service, limiter(2));
+
+        mockMvc.perform(post("/api/game/verify-password")
+                        .with(request -> { request.setRemoteAddr("1.2.3.4"); return request; })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"wrong\"}"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/game/verify-password")
+                        .with(request -> { request.setRemoteAddr("1.2.3.4"); return request; })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"TEST_PASSWORD\"}"))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(post("/api/game/verify-password")
+                        .with(request -> { request.setRemoteAddr("1.2.3.4"); return request; })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"wrong\"}"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -104,10 +150,23 @@ class AccessControllerTest {
                 .andExpect(status().isNoContent());
     }
 
+    private MockMvc standaloneMockMvc(AccessSessionService service, AccessAuthenticationRateLimiter limiter) {
+        return MockMvcBuilders.standaloneSetup(new AccessController(service, limiter))
+                .setControllerAdvice(new ApiExceptionHandler())
+                .build();
+    }
+
     private MockMvc protectedMockMvc(AccessSessionService service, AccessSessionInterceptor interceptor) {
-        return MockMvcBuilders.standaloneSetup(new AccessController(service))
+        return MockMvcBuilders.standaloneSetup(new AccessController(service, limiter(5)))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .addInterceptors(interceptor)
                 .build();
+    }
+
+    private AccessAuthenticationRateLimiter limiter(int failureLimit) {
+        return new AccessAuthenticationRateLimiter(
+                new AccessAuthenticationRateLimitPolicy(failureLimit, 300),
+                Clock.systemUTC()
+        );
     }
 }

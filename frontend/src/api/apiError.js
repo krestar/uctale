@@ -5,6 +5,7 @@ const ERROR_MESSAGES = {
   PROVIDER_RESPONSE_INVALID: '이야기 생성 응답이 올바르지 않습니다. 다시 시도해주세요.',
   PERSISTENCE_FAILURE: '게임 상태 저장 중 오류가 발생했습니다. 다시 시도해주세요.',
   RATE_LIMIT_EXCEEDED: '요청이 잠시 몰렸습니다. 잠시 후 다시 시도해주세요.',
+  ACCESS_RATE_LIMIT_EXCEEDED: '비밀번호 인증 시도가 너무 많습니다. 잠시 후 다시 시도해주세요.',
   IMAGE_ASSET_NOT_FOUND: '장면 이미지를 찾을 수 없습니다.',
   IMAGE_PROVIDER_FAILURE: '장면 이미지를 생성하지 못했습니다.',
   INVALID_CREDENTIALS: '비밀번호가 올바르지 않습니다.',

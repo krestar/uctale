@@ -1,6 +1,8 @@
 package com.uctale.uctale.controller;
 
+import com.uctale.uctale.application.cost.ClientIpResolver;
 import com.uctale.uctale.dto.AccessPasswordRequest;
+import com.uctale.uctale.security.AccessAuthenticationRateLimiter;
 import com.uctale.uctale.security.AccessSessionService;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -21,9 +23,14 @@ import java.util.Arrays;
 public class AccessController {
 
     private final AccessSessionService accessSessionService;
+    private final AccessAuthenticationRateLimiter authenticationRateLimiter;
 
-    public AccessController(AccessSessionService accessSessionService) {
+    public AccessController(
+            AccessSessionService accessSessionService,
+            AccessAuthenticationRateLimiter authenticationRateLimiter
+    ) {
         this.accessSessionService = accessSessionService;
+        this.authenticationRateLimiter = authenticationRateLimiter;
     }
 
     @PostMapping("/verify-password")
@@ -31,10 +38,11 @@ public class AccessController {
             @Valid @RequestBody AccessPasswordRequest request,
             HttpServletRequest servletRequest
     ) {
+        String clientIp = ClientIpResolver.resolve(servletRequest);
         String existingOwnerToken = findCookie(servletRequest, AccessSessionService.OWNER_COOKIE_NAME);
-        AccessSessionService.IssuedSession session = accessSessionService.authenticate(
-                request.password(),
-                existingOwnerToken
+        AccessSessionService.IssuedSession session = authenticationRateLimiter.authenticate(
+                clientIp,
+                () -> accessSessionService.authenticate(request.password(), existingOwnerToken)
         );
 
         ResponseCookie accessCookie = ResponseCookie.from(AccessSessionService.COOKIE_NAME, session.accessToken())
