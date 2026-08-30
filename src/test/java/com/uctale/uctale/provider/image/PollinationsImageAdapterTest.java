@@ -91,8 +91,13 @@ class PollinationsImageAdapterTest {
             mockServer.expect(requestTo(url(seed))).andRespond(withStatus(HttpStatus.valueOf(status))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(error(status, "PERMANENT_" + status, "req-" + status)));
+        }
 
-            assertThatThrownBy(() -> adapter(2, 8_388_608).fetchImage(request(seed)))
+        PollinationsImageAdapter adapter = adapter(2, 8_388_608);
+        for (int i = 0; i < statuses.length; i++) {
+            int status = statuses[i];
+            int seed = 900 + i;
+            assertThatThrownBy(() -> adapter.fetchImage(request(seed)))
                     .isInstanceOf(PollinationsProviderException.class)
                     .satisfies(error -> assertThat(((PollinationsProviderException) error).status()).isEqualTo(status));
         }
@@ -103,14 +108,14 @@ class PollinationsImageAdapterTest {
     @DisplayName("빈 body와 허용되지 않은 MIME, 최대 크기 초과 응답을 거부한다")
     void invalidResponses_AreRejected() {
         mockServer.expect(requestTo(url(1001))).andRespond(withSuccess(new byte[0], MediaType.IMAGE_JPEG));
-        assertThatThrownBy(() -> adapter(0, 100).fetchImage(request(1001)))
-                .isInstanceOf(ImageGenerationException.class);
-
         mockServer.expect(requestTo(url(1002))).andRespond(withSuccess("not-image", MediaType.TEXT_PLAIN));
-        assertThatThrownBy(() -> adapter(0, 100).fetchImage(request(1002)))
-                .isInstanceOf(ImageGenerationException.class);
-
         mockServer.expect(requestTo(url(1003))).andRespond(withSuccess("1234", MediaType.IMAGE_PNG));
+
+        PollinationsImageAdapter normalLimitAdapter = adapter(0, 100);
+        assertThatThrownBy(() -> normalLimitAdapter.fetchImage(request(1001)))
+                .isInstanceOf(ImageGenerationException.class);
+        assertThatThrownBy(() -> normalLimitAdapter.fetchImage(request(1002)))
+                .isInstanceOf(ImageGenerationException.class);
         assertThatThrownBy(() -> adapter(0, 3).fetchImage(request(1003)))
                 .isInstanceOf(ImageGenerationException.class);
 
