@@ -1,5 +1,6 @@
 package com.uctale.uctale.security;
 
+import com.uctale.uctale.controller.GameController;
 import jakarta.servlet.DispatcherType;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
@@ -50,7 +51,11 @@ public class SecurityWebConfig implements WebMvcConfigurer {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(origins);
         configuration.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Content-Type", AccessSessionInterceptor.CLIENT_HEADER));
+        configuration.setAllowedHeaders(List.of(
+                "Content-Type",
+                AccessSessionInterceptor.CLIENT_HEADER,
+                GameController.IDEMPOTENCY_KEY_HEADER
+        ));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
 
