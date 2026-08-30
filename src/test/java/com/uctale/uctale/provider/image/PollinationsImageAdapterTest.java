@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -118,6 +119,22 @@ class PollinationsImageAdapterTest {
                 .isInstanceOf(ImageGenerationException.class);
         assertThatThrownBy(() -> adapter(0, 3).fetchImage(request(1003)))
                 .isInstanceOf(ImageGenerationException.class);
+
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("예상 밖 RestClient 오류도 이미지 생성 실패 경계로 변환한다")
+    void unexpectedRestClientError_IsConvertedToImageGenerationFailure() {
+        int seed = 1100;
+        mockServer.expect(requestTo(url(seed)))
+                .andRespond(request -> {
+                    throw new RestClientException("unexpected client failure");
+                });
+
+        assertThatThrownBy(() -> adapter(0, 8_388_608).fetchImage(request(seed)))
+                .isInstanceOf(ImageGenerationException.class)
+                .hasMessageContaining("HTTP client");
 
         mockServer.verify();
     }

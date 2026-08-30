@@ -12,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.util.UriComponentsBuilder;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -133,6 +134,13 @@ public class PollinationsImageAdapter implements ImageGenerator {
                     );
                 }
                 sleepBeforeRetry(null, attempt);
+            } catch (RestClientException exception) {
+                log.warn(
+                        "pollinations_image promptHash={} model={} size={}x{} seed={} styleVersion={} latencyMs={} outcome=FAILURE status=0 code=REST_CLIENT_ERROR retryCount={} willRetry=false",
+                        promptHash, request.model(), request.width(), request.height(), request.seed(), request.styleVersion(),
+                        elapsedMs(startedAt), attempt
+                );
+                throw new ImageGenerationException("Pollinations HTTP client 요청에 실패했습니다.", exception);
             }
         }
         throw new ImageGenerationException("Pollinations 이미지 생성에 실패했습니다.");

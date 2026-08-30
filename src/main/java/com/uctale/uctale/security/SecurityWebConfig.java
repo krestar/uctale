@@ -1,8 +1,11 @@
 package com.uctale.uctale.security;
 
+import jakarta.servlet.DispatcherType;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
@@ -33,7 +36,9 @@ public class SecurityWebConfig implements WebMvcConfigurer {
     }
 
     @Bean
-    CorsFilter corsFilter(@Value("${game.cors.allowed-origins}") String configuredOrigins) {
+    FilterRegistrationBean<CorsFilter> corsFilterRegistration(
+            @Value("${game.cors.allowed-origins}") String configuredOrigins
+    ) {
         List<String> origins = Arrays.stream(configuredOrigins.split(","))
                 .map(String::trim)
                 .filter(value -> !value.isBlank())
@@ -51,6 +56,23 @@ public class SecurityWebConfig implements WebMvcConfigurer {
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", configuration);
-        return new CorsFilter(source);
+
+        CorsFilter corsFilter = new CorsFilter(source) {
+            @Override
+            protected boolean shouldNotFilterAsyncDispatch() {
+                return false;
+            }
+
+            @Override
+            protected boolean shouldNotFilterErrorDispatch() {
+                return false;
+            }
+        };
+
+        FilterRegistrationBean<CorsFilter> registration = new FilterRegistrationBean<>(corsFilter);
+        registration.setUrlPatterns(List.of("/api/*"));
+        registration.setDispatcherTypes(DispatcherType.REQUEST, DispatcherType.ASYNC, DispatcherType.ERROR);
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        return registration;
     }
 }

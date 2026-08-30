@@ -36,7 +36,7 @@ function GameSetupScreen({
               id="world-setting"
               rows="4"
               aria-describedby="world-setting-help"
-              placeholder="예: 현대 서울의 좀비 아포칼립스. 한강 이남의 통신이 끊기기 시작했다."
+              placeholder="예: 현대 서울 좀비 아포칼립스, 서울에 핵미사일이 발사된 상황, 눈을 떴더니 고양이"
               value={world}
               onChange={(event) => onWorldChange(event.target.value)}
             />
@@ -51,7 +51,7 @@ function GameSetupScreen({
               id="player-character"
               rows="4"
               aria-describedby="player-character-help"
-              placeholder="예: 지하철로 출근하던 30대 회사원 김대리. 평범하지만 위기에는 침착하다."
+              placeholder="예: 지하철로 출근하는 30대 회사원 김대리, 눈을 떴더니 이세계로 전이된 대학생, 사람 말을 할 수 있게 된 고양이"
               value={character}
               onChange={(event) => onCharacterChange(event.target.value)}
             />
