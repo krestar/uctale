@@ -26,10 +26,10 @@ class PostgresGameMutationRequestTest extends PostgresIntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("PostgreSQL은 owner/operation/idempotency key 중복 request를 unique constraint로 거부한다")
+    @DisplayName("PostgreSQL은 같은 owner/idempotency key를 operation과 무관하게 거부한다")
     void duplicateIdempotencyKey_IsRejectedByDatabase() {
         repository.saveAndFlush(new GameMutationRequest(
-                OWNER_KEY, "PROGRESS", "same-key-123", 42L, 1, "a".repeat(64)
+                OWNER_KEY, "INIT", "same-key-123", null, null, "a".repeat(64)
         ));
 
         assertThatThrownBy(() -> repository.saveAndFlush(new GameMutationRequest(
