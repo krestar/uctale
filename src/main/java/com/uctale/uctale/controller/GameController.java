@@ -1,5 +1,6 @@
 package com.uctale.uctale.controller;
 
+import com.uctale.uctale.application.cost.ClientIpResolver;
 import com.uctale.uctale.application.cost.CostRequestContext;
 import com.uctale.uctale.dto.GameInitRequest;
 import com.uctale.uctale.dto.GameProgressRequest;
@@ -32,7 +33,7 @@ public class GameController {
             HttpServletRequest servletRequest
     ) {
         log.info("게임 초기화 요청 수신");
-        CostRequestContext context = CostRequestContext.create(ownerKey, servletRequest.getRemoteAddr(), null, 1);
+        CostRequestContext context = CostRequestContext.create(ownerKey, ClientIpResolver.resolve(servletRequest), null, 1);
         return ResponseEntity.ok(gameService.initGame(context, request));
     }
 
@@ -44,7 +45,7 @@ public class GameController {
     ) {
         log.info("게임 진행 요청: 세션ID={}, 기대턴={}", request.sessionId(), request.expectedTurn());
         CostRequestContext context = CostRequestContext.create(
-                ownerKey, servletRequest.getRemoteAddr(), request.sessionId(), request.expectedTurn() + 1
+                ownerKey, ClientIpResolver.resolve(servletRequest), request.sessionId(), request.expectedTurn() + 1
         );
         return ResponseEntity.ok(gameService.progressGame(context, request));
     }
