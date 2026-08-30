@@ -3,6 +3,7 @@ package com.uctale.uctale.application.game;
 import com.uctale.uctale.repository.GameLogRepository;
 import com.uctale.uctale.repository.GameSessionRepository;
 import com.uctale.uctale.repository.GameStateSnapshotRepository;
+import com.uctale.uctale.repository.ImageAssetRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,7 @@ class GamePersistenceIntegrityTest {
     @Mock private GameSessionRepository gameSessionRepository;
     @Mock private GameLogRepository gameLogRepository;
     @Mock private GameStateSnapshotRepository gameStateSnapshotRepository;
+    @Mock private ImageAssetRepository imageAssetRepository;
     @Mock private GameStateCodec gameStateCodec;
 
     private GamePersistenceService persistenceService;
@@ -32,6 +34,7 @@ class GamePersistenceIntegrityTest {
                 gameSessionRepository,
                 gameLogRepository,
                 gameStateSnapshotRepository,
+                imageAssetRepository,
                 gameStateCodec
         );
     }
