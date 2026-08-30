@@ -13,6 +13,7 @@ import json
 import os
 import pathlib
 import statistics
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -44,6 +45,12 @@ STYLE = (
     "style[uctale-charcoal-v1]: rough charcoal sketch, high contrast black and white, "
     "gritty paper texture, expressive pencil strokes, no colors, story concept art"
 )
+FAIL_FAST_STATUSES = {401, 402, 403}
+DEFAULT_HEADERS = {
+    "Authorization": "",
+    "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 UCTaleBenchmark/1.1",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -52,6 +59,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=20260830)
     parser.add_argument("--timeout", type=int, default=180)
     return parser.parse_args()
+
+
+def build_request(token: str, url: str) -> urllib.request.Request:
+    headers = dict(DEFAULT_HEADERS)
+    headers["Authorization"] = f"Bearer {token}"
+    return urllib.request.Request(url, headers=headers)
 
 
 def request_image(token: str, prompt: str, model: str, width: int, height: int, seed: int, timeout: int):
@@ -64,7 +77,7 @@ def request_image(token: str, prompt: str, model: str, width: int, height: int, 
         "safe": "true",
     })
     url = f"https://gen.pollinations.ai/image/{encoded}?{query}"
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    req = build_request(token, url)
     started = time.perf_counter()
     try:
         with urllib.request.urlopen(req, timeout=timeout) as response:
@@ -76,8 +89,14 @@ def request_image(token: str, prompt: str, model: str, width: int, height: int, 
                 "bytes": len(body),
                 "body": body,
                 "error": "",
+                "error_detail": "",
             }
     except urllib.error.HTTPError as exc:
+        raw_detail = exc.read()
+        detail = raw_detail.decode("utf-8", errors="replace") if raw_detail else ""
+        if detail:
+            detail = detail.replace(prompt, "<redacted-prompt>")
+            detail = detail.replace(encoded, "<redacted-prompt>")[:1000]
         return {
             "status": exc.code,
             "latency_ms": round((time.perf_counter() - started) * 1000),
@@ -85,6 +104,7 @@ def request_image(token: str, prompt: str, model: str, width: int, height: int, 
             "bytes": 0,
             "body": b"",
             "error": f"HTTP_{exc.code}",
+            "error_detail": detail,
         }
     except Exception as exc:  # benchmark diagnostic only
         return {
@@ -94,6 +114,7 @@ def request_image(token: str, prompt: str, model: str, width: int, height: int, 
             "bytes": 0,
             "body": b"",
             "error": exc.__class__.__name__,
+            "error_detail": str(exc),
         }
 
 
@@ -115,6 +136,15 @@ def summarize(rows: list[dict]) -> list[dict]:
                 "p95_latency_ms": p95,
             })
     return summary
+
+
+def write_outputs(output: pathlib.Path, rows: list[dict]):
+    if rows:
+        with (output / "raw.csv").open("w", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(file, fieldnames=rows[0].keys())
+            writer.writeheader()
+            writer.writerows(rows)
+        (output / "summary.json").write_text(json.dumps(summarize(rows), ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def main() -> int:
@@ -141,7 +171,7 @@ def main() -> int:
                     (images / filename).write_bytes(result.pop("body"))
                 else:
                     result.pop("body", None)
-                rows.append({
+                row = {
                     "fixture": fixture_id,
                     "model": model,
                     "width": width,
@@ -149,14 +179,16 @@ def main() -> int:
                     "seed": seed,
                     "image": filename,
                     **result,
-                })
+                }
+                rows.append(row)
                 print(f"{fixture_id:16} {model:12} {width}x{height} status={result['status']} latency={result['latency_ms']}ms")
+                if row["status"] in FAIL_FAST_STATUSES:
+                    write_outputs(output, rows)
+                    print("Fail-fast: authentication/billing/permission style error encountered.", file=sys.stderr)
+                    print(row["error_detail"] or row["error"], file=sys.stderr)
+                    return 2
 
-    with (output / "raw.csv").open("w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=rows[0].keys())
-        writer.writeheader()
-        writer.writerows(rows)
-    (output / "summary.json").write_text(json.dumps(summarize(rows), ensure_ascii=False, indent=2), encoding="utf-8")
+    write_outputs(output, rows)
     print(f"Results written to {output}")
     return 0
 
