@@ -31,7 +31,7 @@
 
 ## legacy production snapshot
 
-#31 이전 production 형식은 envelope 없이 `GameState` 자체를 `state_json`에 저장했다. 이 형식은 논리적인 schema version `0`으로 취급한다.
+#31 이전 production 형식은 envelope 없이 `GameState` 자체를 `state_json`에 저장했다. 이 형식은 논리적인 schema version `0`으로 취급한다. 버전 필드가 없던 당시의 게임 규칙 의미는 **legacy ruleset baseline `1`** 로 고정하며, 향후 `CURRENT_RULESET_VERSION`이 증가해도 legacy snapshot의 ruleset 의미를 따라 올리지 않는다.
 
 legacy 판별은 단순히 `schemaVersion` 누락 여부만 보지 않는다. 기존 raw `GameState`의 최상위 필드인 `turnNumber`, `playerCharacter`, `worldState`, `storyMemory`가 모두 존재하고 envelope 필드가 없어야 한다. 따라서 `schemaVersion`만 유실된 손상 envelope를 legacy로 오인하지 않는다.
 
