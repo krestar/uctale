@@ -16,12 +16,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ProviderCallTelemetryTest {
 
     @Test
-    @DisplayName("provider 성공 호출은 민감 본문 없이 식별자와 latency를 기록한다")
+    @DisplayName("provider 성공 호출은 민감 본문 없이 식별자와 idempotency key, latency를 기록한다")
     void success_IsRecorded() {
         MutableClock clock = new MutableClock(Instant.parse("2026-08-30T06:00:00Z"));
         List<ProviderCallEvent> events = new ArrayList<>();
         ProviderCallTelemetry telemetry = new ProviderCallTelemetry(clock, events::add);
-        CostRequestContext context = new CostRequestContext("request-1", "owner-secret", "1.2.3.4", 42L, 3, null);
+        CostRequestContext context = new CostRequestContext(
+                "request-1", "owner-secret", "1.2.3.4", 42L, 3, "mutation-key-123"
+        );
 
         String result = telemetry.observe("gemini", "progress", context, 0, () -> {
             clock.advanceMillis(37);
@@ -35,6 +37,7 @@ class ProviderCallTelemetryTest {
             assertThat(event.sessionId()).isEqualTo(42L);
             assertThat(event.turn()).isEqualTo(3);
             assertThat(event.requestId()).isEqualTo("request-1");
+            assertThat(event.idempotencyKey()).isEqualTo("mutation-key-123");
             assertThat(event.latencyMs()).isEqualTo(37);
             assertThat(event.outcome()).isEqualTo("SUCCESS");
             assertThat(event.retryCount()).isZero();
