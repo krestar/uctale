@@ -25,15 +25,16 @@ public class ChoiceCodec {
         }
     }
 
-    public String findText(String json, int choiceId) {
-        final List<GameChoice> choices;
+    public List<GameChoice> deserialize(String json) {
         try {
-            choices = objectMapper.readValue(json, new TypeReference<>() {});
+            return objectMapper.readValue(json, new TypeReference<>() {});
         } catch (JacksonException e) {
             throw new IllegalStateException("저장된 선택지를 읽을 수 없습니다.", e);
         }
+    }
 
-        return choices.stream()
+    public String findText(String json, int choiceId) {
+        return deserialize(json).stream()
                 .filter(choice -> choice.id() == choiceId)
                 .findFirst()
                 .map(GameChoice::text)
