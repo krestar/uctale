@@ -3,16 +3,16 @@ package com.uctale.uctale.support;
 import org.junit.jupiter.api.Tag;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 @Tag("postgres")
-@Testcontainers(disabledWithoutDocker = true)
+@Testcontainers
 public abstract class PostgresIntegrationTestSupport {
 
     @Container
-    protected static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17.6-alpine")
+    protected static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17.6-alpine")
             .withDatabaseName("uctale_test")
             .withUsername("uctale")
             .withPassword("uctale");
