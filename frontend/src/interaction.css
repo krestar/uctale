@@ -1,0 +1,103 @@
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.field-error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.field-group [aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+
+.status-message {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.request-feedback,
+.progress-feedback {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.request-feedback p,
+.progress-feedback p {
+  margin: 0;
+}
+
+.progress-feedback {
+  margin-top: var(--space-4);
+}
+
+.progress-feedback__choice {
+  color: var(--color-text);
+}
+
+.button--compact {
+  min-height: 2.5rem;
+  padding: 0.55rem 0.8rem;
+  justify-self: start;
+}
+
+.typewriter {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.typewriter__skip {
+  justify-self: start;
+}
+
+.scene-heading:focus {
+  outline: none;
+}
+
+.scene-heading:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 0.45rem;
+  border-radius: var(--radius-sm);
+}
+
+.choice-button:disabled,
+.button:disabled {
+  opacity: 0.72;
+}
+
+.choice-button--pending {
+  border-color: var(--color-action);
+  background: var(--color-surface-raised);
+}
+
+.choice-button__state {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--color-action);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
+
+  .spinner {
+    animation: none;
+  }
+}
