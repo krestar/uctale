@@ -10,9 +10,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+
+import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -20,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PostgresGameStateSnapshotCompatibilityTest extends PostgresIntegrationTestSupport {
 
     private static final String OWNER_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    private static final String LEGACY_FIXTURE = "fixtures/game-state/snapshot-v0-production.json";
 
     @Autowired private GamePersistenceService gamePersistenceService;
     @Autowired private JdbcTemplate jdbcTemplate;
@@ -47,7 +51,7 @@ class PostgresGameStateSnapshotCompatibilityTest extends PostgresIntegrationTest
         assertThat(openingSnapshot.get("state").get("turnNumber").asInt()).isEqualTo(1);
 
         GameState initialState = gamePersistenceService.loadLatestTurn(OWNER_KEY, session.getId(), 1).gameState();
-        String legacyRawJson = objectMapper.writeValueAsString(initialState);
+        String legacyRawJson = legacyStateJson();
         jdbcTemplate.update(
                 "update game_state_snapshot set state_json = ? where session_id = ?",
                 legacyRawJson,
@@ -100,5 +104,12 @@ class PostgresGameStateSnapshotCompatibilityTest extends PostgresIntegrationTest
 
         assertThat(recovered).isEqualTo(nextState);
         assertThat(recovered.storyMemory().recentTurns().getLast().playerAction()).isEqualTo("진행");
+    }
+
+    private String legacyStateJson() throws Exception {
+        ClassPathResource resource = new ClassPathResource(LEGACY_FIXTURE);
+        try (var inputStream = resource.getInputStream()) {
+            return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+        }
     }
 }
