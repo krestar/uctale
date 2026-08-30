@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 import java.time.Clock;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Supplier;
 
 @Component
 public class AccessAuthenticationRateLimiter {
@@ -18,7 +19,7 @@ public class AccessAuthenticationRateLimiter {
         this.clock = clock;
     }
 
-    public synchronized void check(String clientIp) {
+    public synchronized <T> T authenticate(String clientIp, Supplier<T> authentication) {
         long now = clock.instant().getEpochSecond();
         long window = now / policy.windowSeconds();
         String key = normalize(clientIp);
@@ -28,14 +29,21 @@ public class AccessAuthenticationRateLimiter {
             long retryAfter = Math.max(1, ((window + 1) * policy.windowSeconds()) - now);
             throw new AccessAuthenticationRateLimitExceededException(retryAfter);
         }
+
+        try {
+            T result = authentication.get();
+            counters.remove(key);
+            return result;
+        } catch (AccessSessionException exception) {
+            if ("INVALID_CREDENTIALS".equals(exception.code())) {
+                recordFailure(key, window);
+            }
+            throw exception;
+        }
     }
 
-    public synchronized void recordFailure(String clientIp) {
-        long now = clock.instant().getEpochSecond();
-        long window = now / policy.windowSeconds();
-        String key = normalize(clientIp);
+    private void recordFailure(String key, long window) {
         Counter counter = counters.get(key);
-
         if (counter == null || counter.window != window) {
             counters.put(key, new Counter(window, 1));
         } else {
@@ -45,10 +53,6 @@ public class AccessAuthenticationRateLimiter {
         if (counters.size() > 10_000) {
             counters.entrySet().removeIf(entry -> entry.getValue().window < window - 1);
         }
-    }
-
-    public synchronized void recordSuccess(String clientIp) {
-        counters.remove(normalize(clientIp));
     }
 
     private String normalize(String clientIp) {
