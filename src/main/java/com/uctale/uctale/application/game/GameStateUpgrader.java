@@ -12,7 +12,10 @@ public class GameStateUpgrader {
         }
 
         if (!snapshotJson.has("schemaVersion")) {
-            return upgradeLegacy(snapshotJson);
+            if (looksLikeLegacyState(snapshotJson)) {
+                return upgradeLegacy(snapshotJson);
+            }
+            throw new GameStateSnapshotException("snapshot schemaVersion이 누락되었습니다.");
         }
 
         int schemaVersion = requiredInteger(snapshotJson, "schemaVersion");
@@ -27,6 +30,15 @@ public class GameStateUpgrader {
             case 1 -> readV1(snapshotJson);
             default -> throw new GameStateSnapshotException("지원하지 않는 snapshot schemaVersion입니다: " + schemaVersion);
         };
+    }
+
+    private boolean looksLikeLegacyState(JsonNode snapshotJson) {
+        return snapshotJson.has("turnNumber")
+                && snapshotJson.has("playerCharacter")
+                && snapshotJson.has("worldState")
+                && snapshotJson.has("storyMemory")
+                && !snapshotJson.has("rulesetVersion")
+                && !snapshotJson.has("state");
     }
 
     private UpgradedSnapshot upgradeLegacy(JsonNode legacyState) {
@@ -58,7 +70,11 @@ public class GameStateUpgrader {
         if (value == null || !value.isIntegralNumber()) {
             throw new GameStateSnapshotException("snapshot " + fieldName + "이 누락되었거나 정수가 아닙니다.");
         }
-        return value.asInt();
+        long version = value.asLong();
+        if (version < Integer.MIN_VALUE || version > Integer.MAX_VALUE) {
+            throw new GameStateSnapshotException("snapshot " + fieldName + "이 지원 범위를 벗어났습니다: " + version);
+        }
+        return (int) version;
     }
 
     public record UpgradedSnapshot(int schemaVersion, int rulesetVersion, JsonNode state) {
