@@ -1,26 +1,26 @@
 package com.uctale.uctale.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.uctale.uctale.ai.NarrativeContext;
-import com.uctale.uctale.ai.NarrativeGenerator;
-import com.uctale.uctale.ai.NarrativeTurn;
+import tools.jackson.databind.ObjectMapper;
+import com.uctale.uctale.application.cost.CostRateLimitPolicy;
+import com.uctale.uctale.application.cost.CostRateLimiter;
+import com.uctale.uctale.application.cost.ProviderCallTelemetry;
+import com.uctale.uctale.application.game.ChoiceCodec;
 import com.uctale.uctale.application.game.GameMutationFingerprint;
 import com.uctale.uctale.application.game.GameMutationRequestService;
 import com.uctale.uctale.application.game.GamePersistenceService;
-import com.uctale.uctale.cost.CostOperation;
-import com.uctale.uctale.cost.CostRateLimitPolicy;
-import com.uctale.uctale.cost.CostRateLimiter;
-import com.uctale.uctale.cost.CostRequestContext;
-import com.uctale.uctale.cost.ProviderCallTelemetry;
+import com.uctale.uctale.application.game.GameTurnCommit;
+import com.uctale.uctale.application.game.ImagePromptComposer;
+import com.uctale.uctale.application.game.TurnConflictException;
+import com.uctale.uctale.application.image.ImageAssetService;
+import com.uctale.uctale.application.narrative.NarrativeContext;
+import com.uctale.uctale.application.narrative.NarrativeGenerator;
+import com.uctale.uctale.application.narrative.NarrativeTurn;
+import com.uctale.uctale.domain.GameSession;
+import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.dto.GameChoice;
 import com.uctale.uctale.dto.GameInitRequest;
 import com.uctale.uctale.dto.GameProgressRequest;
 import com.uctale.uctale.dto.GameResponse;
-import com.uctale.uctale.image.ImageAssetService;
-import com.uctale.uctale.image.ImagePromptComposer;
-import com.uctale.uctale.model.GameState;
-import com.uctale.uctale.model.GameTurnCommit;
-import com.uctale.uctale.util.ChoiceCodec;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -74,47 +74,54 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("init은 persistence 전에 narrative와 choice를 확정한다")
-    void initializeGame_PreparesNarrativeBeforePersistence() {
+    @DisplayName("게임 초기화는 versioned prompt로 서버 발급 image asset을 저장에 전달한다")
+    void initGame_ReturnsFirstTurn() {
+        GameInitRequest request = new GameInitRequest("좀비 아포칼립스", "김대리");
         NarrativeTurn opening = new NarrativeTurn(
-                "오프닝", "스토리",
-                List.of(new NarrativeTurn.Choice(1, "간다")),
-                new NarrativeTurn.VisualAssets("", List.of(), List.of())
+                "첫날 밤", "오프닝 스토리",
+                List.of(new NarrativeTurn.Choice(1, "도망간다")),
+                new NarrativeTurn.VisualAssets("dark street", List.of("zombie"), List.of())
         );
-        given(narrativeGenerator.createOpening("세계관", "캐릭터")).willReturn(opening);
-        given(gamePersistenceService.saveOpening(any(), any(), any(), any(), any(), any(), any(), any()))
-                .willAnswer(invocation -> {
-                    var session = new com.uctale.uctale.domain.GameSession(OWNER_KEY, "세계관", "캐릭터");
-                    ReflectionTestUtils.setField(session, "id", 42L);
-                    return session;
-                });
+        GameSession session = new GameSession(OWNER_KEY, request.worldSetting(), request.characterSetting());
+        ReflectionTestUtils.setField(session, "id", 42L);
+        ImageAssetService.AssetReference asset = new ImageAssetService.AssetReference(
+                "asset-id", "/api/game/image-assets/asset-id", "prompt", "16:9",
+                "flux", 1024, 576, 123, true, "uctale-charcoal-v2"
+        );
 
-        GameResponse response = gameService.initializeGame(
-                OWNER_KEY,
-                new GameInitRequest("세계관", "캐릭터")
-        );
+        given(narrativeGenerator.createOpening("좀비 아포칼립스", "김대리")).willReturn(opening);
+        given(imageAssetService.issue(any(String.class), eq("16:9"))).willReturn(asset);
+        given(gamePersistenceService.saveOpening(
+                eq(OWNER_KEY), any(), any(), any(), any(), eq(asset), eq(100L), eq("첫날 밤")
+        )).willReturn(session);
+
+        GameResponse response = gameService.initGame(OWNER_KEY, request);
 
         assertThat(response.sessionId()).isEqualTo(42L);
         assertThat(response.turnNumber()).isEqualTo(1);
-        verify(narrativeGenerator).createOpening("세계관", "캐릭터");
+        assertThat(response.mainImageUrl()).isEqualTo("/api/game/image-assets/asset-id");
+        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
+        verify(imageAssetService).issue(promptCaptor.capture(), eq("16:9"));
+        assertThat(promptCaptor.getValue())
+                .startsWith("style[uctale-charcoal-v2]")
+                .contains("subjects: zombie", "setting: dark street", "final style lock:");
     }
 
     @Test
-    @DisplayName("init replay는 provider와 persistence를 다시 호출하지 않는다")
-    void initializeGame_ReplaysCompletedMutation() {
+    @DisplayName("완료된 init retry는 provider와 새 session 생성 없이 기존 결과를 반환한다")
+    void initGame_ReplaysCompletedMutation() {
         given(mutationRequestService.begin(anyString(), eq(GameMutationRequestService.INIT), anyString(), any(), any(), anyString()))
                 .willReturn(new GameMutationRequestService.BeginResult(100L, true, 42L, 1, "기존 오프닝"));
-        given(gamePersistenceService.loadTurnForReplay(OWNER_KEY, 42L, 1))
-                .willReturn(new GamePersistenceService.ReplayedTurn(
-                        42L, 1, "기존 오프닝", "기존 스토리",
-                        choiceCodec.serialize(List.of(new GameChoice(1, "간다"))), null
+        given(gamePersistenceService.loadCommittedTurn(OWNER_KEY, 42L, 1))
+                .willReturn(new GamePersistenceService.CommittedTurn(
+                        "기존 스토리",
+                        choiceCodec.serialize(List.of(new GameChoice(3, "계속한다"))),
+                        "/api/game/image-assets/replayed"
                 ));
 
-        GameResponse response = gameService.initializeGame(
-                OWNER_KEY,
-                new GameInitRequest("세계관", "캐릭터")
-        );
+        GameResponse response = gameService.initGame(OWNER_KEY, new GameInitRequest("세계관", "캐릭터"));
 
+        assertThat(response.sessionId()).isEqualTo(42L);
         assertThat(response.turnNumber()).isEqualTo(1);
         assertThat(response.title()).isEqualTo("기존 오프닝");
         verify(narrativeGenerator, never()).createOpening(anyString(), anyString());
@@ -162,21 +169,47 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("잘못된 choice는 provider를 호출하지 않는다")
-    void progressGame_RejectsInvalidChoiceBeforeProviderCall() {
-        given(gamePersistenceService.loadLatestTurn(OWNER_KEY, 42L, 1))
-                .willReturn(loadedTurn(choiceCodec.serialize(List.of(new GameChoice(1, "간다")))));
+    @DisplayName("완료된 progress retry는 provider와 state mutation 없이 기존 결과를 반환한다")
+    void progressGame_ReplaysCompletedMutation() {
+        given(mutationRequestService.begin(anyString(), eq(GameMutationRequestService.PROGRESS), anyString(), eq(42L), eq(1), anyString()))
+                .willReturn(new GameMutationRequestService.BeginResult(100L, true, 42L, 2, "기존 장면"));
+        given(gamePersistenceService.loadCommittedTurn(OWNER_KEY, 42L, 2))
+                .willReturn(new GamePersistenceService.CommittedTurn(
+                        "기존 스토리",
+                        choiceCodec.serialize(List.of(new GameChoice(3, "계속한다"))),
+                        "/api/game/image-assets/replayed"
+                ));
 
-        assertThatThrownBy(() -> gameService.progressGame(OWNER_KEY, new GameProgressRequest(42L, 99, 1)))
-                .isInstanceOf(IllegalArgumentException.class);
+        GameResponse response = gameService.progressGame(OWNER_KEY, new GameProgressRequest(42L, 7, 1));
 
+        assertThat(response.turnNumber()).isEqualTo(2);
+        assertThat(response.title()).isEqualTo("기존 장면");
+        assertThat(response.storyText()).isEqualTo("기존 스토리");
         verify(narrativeGenerator, never()).createNextTurn(any());
+        verify(gamePersistenceService, never()).loadLatestTurn(anyString(), any(), anyInt());
+        verify(gamePersistenceService, never()).saveNextTurn(anyString(), any(), any(GameTurnCommit.class), any(), any());
+    }
+
+    @Test
+    @DisplayName("소유권 또는 오래된 턴 거부는 내러티브와 asset 발급 전에 발생한다")
+    void progressGame_RejectsBeforeNarrativeCall() {
+        given(gamePersistenceService.loadLatestTurn(OWNER_KEY, 42L, 1))
+                .willThrow(new TurnConflictException("이미 처리되었거나 오래된 턴 요청입니다."));
+
+        assertThatThrownBy(() -> gameService.progressGame(OWNER_KEY, new GameProgressRequest(42L, 1, 1)))
+                .isInstanceOf(TurnConflictException.class);
+
+        verify(narrativeGenerator, never()).createNextTurn(any(NarrativeContext.class));
+        verify(imageAssetService, never()).issue(any(), any());
+        verify(gamePersistenceService, never()).saveNextTurn(any(), any(), any(GameTurnCommit.class), any(), any());
+        verify(mutationRequestService).markFailed(100L);
     }
 
     private GamePersistenceService.LoadedTurn loadedTurn(String choicesJson) {
-        GameState state = GameState.initial("세계관", "캐릭터", "첫 장면");
         return new GamePersistenceService.LoadedTurn(
-                42L, 1, "첫 장면", choicesJson, "/api/game/image-assets/old-asset", state, 1
+                42L, 1, "좀비 아포칼립스", "김대리", "직전 스토리", choicesJson,
+                "/api/game/image-assets/old-asset",
+                GameState.initial("좀비 아포칼립스", "김대리", "직전 스토리")
         );
     }
 }
