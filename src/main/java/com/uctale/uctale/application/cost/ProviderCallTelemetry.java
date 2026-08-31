@@ -1,5 +1,6 @@
 package com.uctale.uctale.application.cost;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -13,10 +14,46 @@ public class ProviderCallTelemetry {
     private final ProviderCallEventSink sink;
     private final ProviderBudgetGuard budgetGuard;
 
+    @Autowired
     public ProviderCallTelemetry(Clock clock, ProviderCallEventSink sink, ProviderBudgetGuard budgetGuard) {
         this.clock = clock;
         this.sink = sink;
         this.budgetGuard = budgetGuard;
+    }
+
+    ProviderCallTelemetry(Clock clock, ProviderCallEventSink sink) {
+        this.clock = clock;
+        this.sink = sink;
+        this.budgetGuard = null;
+    }
+
+    public <T> T observe(
+            String provider,
+            String operation,
+            CostRequestContext context,
+            int retryCount,
+            Supplier<T> invocation
+    ) {
+        return observe(provider, defaultModel(provider), operation, context, retryCount, invocation);
+    }
+
+    public <T> T observe(
+            String provider,
+            String operation,
+            CostRequestContext context,
+            Supplier<T> invocation,
+            ToIntFunction<T> successRetryCount,
+            ToIntFunction<RuntimeException> failureRetryCount
+    ) {
+        return observe(
+                provider,
+                defaultModel(provider),
+                operation,
+                context,
+                invocation,
+                successRetryCount,
+                failureRetryCount
+        );
     }
 
     public <T> T observe(
@@ -47,7 +84,9 @@ public class ProviderCallTelemetry {
             ToIntFunction<T> successRetryCount,
             ToIntFunction<RuntimeException> failureRetryCount
     ) {
-        budgetGuard.checkBeforeCall(operation);
+        if (budgetGuard != null) {
+            budgetGuard.checkBeforeCall(operation);
+        }
         long startedAt = clock.millis();
         try {
             T result = invocation.get();
@@ -80,5 +119,9 @@ public class ProviderCallTelemetry {
                 outcome,
                 retryCount
         ));
+    }
+
+    private String defaultModel(String provider) {
+        return "gemini".equals(provider) ? "gemini-2.5-flash" : "configured";
     }
 }
