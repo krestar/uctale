@@ -53,6 +53,12 @@ public class GameLog {
     @Column(name = "state_version", nullable = false)
     private int stateVersion;
 
+    @Column(name = "canonical_result_id", length = 128)
+    private String canonicalResultId;
+
+    @Column(name = "generated_story_id", length = 128)
+    private String generatedStoryId;
+
     @Column(columnDefinition = "TEXT")
     private String storyText;
 
@@ -79,6 +85,8 @@ public class GameLog {
                 null,
                 0,
                 1,
+                null,
+                null,
                 storyText,
                 choicesJson,
                 imageUrl
@@ -96,6 +104,25 @@ public class GameLog {
             String choicesJson,
             String imageUrl
     ) {
+        return committedTurn(
+                gameSession, turnNumber, inputChoiceId, inputChoiceText, previousStateVersion, stateVersion,
+                null, null, storyText, choicesJson, imageUrl
+        );
+    }
+
+    public static GameLog committedTurn(
+            GameSession gameSession,
+            int turnNumber,
+            int inputChoiceId,
+            String inputChoiceText,
+            int previousStateVersion,
+            int stateVersion,
+            String canonicalResultId,
+            String generatedStoryId,
+            String storyText,
+            String choicesJson,
+            String imageUrl
+    ) {
         return new GameLog(
                 gameSession,
                 turnNumber,
@@ -103,6 +130,8 @@ public class GameLog {
                 inputChoiceText,
                 previousStateVersion,
                 stateVersion,
+                canonicalResultId,
+                generatedStoryId,
                 storyText,
                 choicesJson,
                 imageUrl
@@ -116,6 +145,8 @@ public class GameLog {
             String inputChoiceText,
             int previousStateVersion,
             int stateVersion,
+            String canonicalResultId,
+            String generatedStoryId,
             String storyText,
             String choicesJson,
             String imageUrl
@@ -126,6 +157,8 @@ public class GameLog {
         this.inputChoiceText = inputChoiceText;
         this.previousStateVersion = previousStateVersion;
         this.stateVersion = stateVersion;
+        this.canonicalResultId = canonicalResultId;
+        this.generatedStoryId = generatedStoryId;
         this.storyText = storyText;
         this.choicesJson = choicesJson;
         this.imageUrl = imageUrl;

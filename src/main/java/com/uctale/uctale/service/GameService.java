@@ -30,6 +30,7 @@ import org.springframework.stereotype.Service;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -118,7 +119,9 @@ public class GameService {
             PlayerAction playerAction = choiceCodec.resolve(loadedTurn.choicesJson(), request);
             TurnResolution resolution = turnProcessor.resolve(loadedTurn.gameState(), playerAction);
             String userChoiceText = resolution.gameResult().resolvedAction().displayText();
-            NarrativeContext narrativeContext = NarrativeContext.from(loadedTurn.gameState(), userChoiceText);
+            String canonicalResultId = canonicalResultId(mutation.requestId(), loadedTurn.sessionId(),
+                    resolution.stateTransition().nextState().turnNumber());
+            NarrativeContext narrativeContext = NarrativeContext.from(canonicalResultId, resolution);
             costRateLimiter.check(CostOperation.NARRATIVE, providerContext);
             NarrativeTurn nextTurn = providerCallTelemetry.observe(
                     "gemini", "progress", providerContext, 0,
@@ -128,6 +131,7 @@ public class GameService {
                     () -> narrativeGenerator.createNextTurn(narrativeContext)
             );
             validateNarrativeTurn(nextTurn);
+            String generatedStoryId = "story:" + UUID.randomUUID();
             StateTransition committedTransition = turnProcessor.attachNarrative(resolution, nextTurn.storyText());
             List<GameChoice> choices = choiceCodec.issue(nextTurn.choices(), request.expectedTurn() + 1);
 
@@ -145,7 +149,8 @@ public class GameService {
 
             GameTurnCommit commit = new GameTurnCommit(
                     request.expectedTurn(), resolution.gameResult().resolvedAction().legacyChoiceId(), userChoiceText,
-                    committedTransition, nextTurn.storyText(), choiceCodec.serialize(choices), imageAsset
+                    committedTransition, nextTurn.storyText(), choiceCodec.serialize(choices),
+                    canonicalResultId, generatedStoryId, imageAsset
             );
 
             int savedTurn = gamePersistenceService.saveNextTurn(
@@ -170,6 +175,13 @@ public class GameService {
                 mutation.resultSessionId(), mutation.resultTurn(), mutation.resultTitle(), turn.storyText(),
                 choiceCodec.deserialize(turn.choicesJson()), turn.imageUrl()
         );
+    }
+
+    private String canonicalResultId(Long mutationRequestId, Long sessionId, int nextTurn) {
+        if (mutationRequestId == null || sessionId == null || nextTurn < 2) {
+            throw new IllegalArgumentException("canonical result link를 만들 수 없습니다.");
+        }
+        return "game-result:%d:%d:%d".formatted(sessionId, nextTurn, mutationRequestId);
     }
 
     private void validateNarrativeTurn(NarrativeTurn turn) {
