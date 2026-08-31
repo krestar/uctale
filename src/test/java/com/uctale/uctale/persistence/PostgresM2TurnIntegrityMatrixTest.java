@@ -11,6 +11,7 @@ import com.uctale.uctale.application.game.GameTurnCommit;
 import com.uctale.uctale.application.game.IdempotencyConflictException;
 import com.uctale.uctale.application.game.ImagePromptComposer;
 import com.uctale.uctale.application.game.MutationInProgressException;
+import com.uctale.uctale.application.game.TurnConflictException;
 import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.application.narrative.NarrativeContext;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
@@ -194,8 +195,8 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("provider 성공 직후 crash와 lease expiry는 재호출을 허용해도 canonical commit은 하나로 수렴한다")
-    void expiredLeaseTakeover_AllowsProviderRetryButSingleCanonicalCommit() {
+    @DisplayName("provider 성공 직후 crash와 lease expiry는 재호출을 허용해도 stale owner를 막고 canonical commit 하나로 수렴한다")
+    void expiredLeaseTakeover_AllowsProviderRetryButSingleCanonicalCommit() throws Exception {
         GameResponse opening = createOpening("matrix-opening-crash");
         GameProgressRequest request = new GameProgressRequest(opening.sessionId(), 1, 1);
         String crashedKey = "matrix-crash-key-a";
@@ -216,23 +217,53 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
         )).as(context("provider-success-before-crash", crashedKey, opening.sessionId(), 1))
                 .isInstanceOf(SimulatedCrash.class);
 
+        Long crashedRequestId = requestId(crashedKey);
+        String staleOwner = reservationOwner(opening.sessionId(), 1);
         assertThat(narrativeGenerator.progressCalls()).as("provider calls before simulated crash").isEqualTo(1);
         assertThat(requestStatus(crashedKey)).as("crashed request remains in-flight").isEqualTo("PROCESSING");
         assertThat(reservationCount(opening.sessionId(), 1)).as("crashed active reservation").isEqualTo(1);
 
         clock.advance(Duration.ofSeconds(LEASE_SECONDS + 1));
+        narrativeGenerator.blockNextProgress();
 
         String takeoverKey = "matrix-crash-key-b";
-        GameResponse recovered = gameService.progressGame(
-                progressContext(takeoverKey, opening.sessionId()), request
-        );
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<GameResponse> takeover = executor.submit(() -> gameService.progressGame(
+                    progressContext(takeoverKey, opening.sessionId()), request
+            ));
+            narrativeGenerator.awaitProgressEntry();
 
-        assertThat(recovered.turnNumber()).isEqualTo(2);
-        assertThat(narrativeGenerator.progressCalls())
-                .as("external provider strict exactly-once is intentionally not guaranteed after lease expiry")
-                .isEqualTo(2);
-        assertCanonicalTurn(opening.sessionId(), takeoverKey, 2, 2);
-        assertThat(reservationCount(opening.sessionId(), 1)).isZero();
+            assertThat(narrativeGenerator.progressCalls())
+                    .as("provider retry after deterministic lease expiry")
+                    .isEqualTo(2);
+            assertThat(reservationOwner(opening.sessionId(), 1))
+                    .as("reservation owner after takeover")
+                    .isNotEqualTo(staleOwner);
+            assertThat(jdbcTemplate.queryForObject(
+                    "select attempt_count from game_turn_reservation where session_id = ? and expected_turn = ?",
+                    Integer.class, opening.sessionId(), 1
+            )).as("reservation attempt_count session=%d turn=1", opening.sessionId()).isEqualTo(2);
+
+            assertThatThrownBy(() -> commitWithReservation(
+                    opening.sessionId(), crashedRequestId, staleOwner, "stale-owner-story"
+            )).as(context("stale-owner-commit", crashedKey, opening.sessionId(), 1))
+                    .isInstanceOf(TurnConflictException.class)
+                    .hasMessageContaining("reservation");
+
+            narrativeGenerator.releaseProgress();
+            GameResponse recovered = takeover.get();
+
+            assertThat(recovered.turnNumber()).isEqualTo(2);
+            assertThat(narrativeGenerator.progressCalls())
+                    .as("external provider strict exactly-once is intentionally not guaranteed after lease expiry")
+                    .isEqualTo(2);
+            assertCanonicalTurn(opening.sessionId(), takeoverKey, 2, 2);
+            assertThat(reservationCount(opening.sessionId(), 1)).isZero();
+        } finally {
+            narrativeGenerator.releaseProgress();
+            executor.shutdownNow();
+        }
     }
 
     private Callable<ProgressAttempt> concurrentProgressAttempt(
@@ -288,6 +319,29 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
         return CostRequestContext.create(OWNER_KEY, "127.0.0.1", sessionId, 2, key);
     }
 
+    private void commitWithReservation(Long sessionId, Long requestId, String reservationOwner, String story) {
+        GamePersistenceService.LoadedTurn loaded = persistenceService.loadLatestTurn(OWNER_KEY, sessionId, 1);
+        var nextState = loaded.gameState().advance("문을 연다", story);
+        GameTurnCommit commit = new GameTurnCommit(
+                1,
+                1,
+                "문을 연다",
+                loaded.gameState(),
+                nextState,
+                story,
+                loaded.choicesJson(),
+                null
+        );
+        persistenceService.saveNextTurn(
+                OWNER_KEY,
+                sessionId,
+                commit,
+                requestId,
+                "stale-owner-title",
+                reservationOwner
+        );
+    }
+
     private void assertCanonicalTurn(Long sessionId, String completedKey, int expectedTurn, int expectedLogCount) {
         Integer sessionTurn = jdbcTemplate.queryForObject(
                 "select current_turn from game_session where id = ?", Integer.class, sessionId
@@ -314,10 +368,24 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
         assertThat(requestResultTurn).as("request=%s result_turn", completedKey).isEqualTo(expectedTurn);
     }
 
+    private Long requestId(String key) {
+        return jdbcTemplate.queryForObject(
+                "select id from game_mutation_request where owner_key = ? and idempotency_key = ?",
+                Long.class, OWNER_KEY, key
+        );
+    }
+
     private String requestStatus(String key) {
         return jdbcTemplate.queryForObject(
                 "select status from game_mutation_request where owner_key = ? and idempotency_key = ?",
                 String.class, OWNER_KEY, key
+        );
+    }
+
+    private String reservationOwner(Long sessionId, int expectedTurn) {
+        return jdbcTemplate.queryForObject(
+                "select lease_owner from game_turn_reservation where session_id = ? and expected_turn = ?",
+                String.class, sessionId, expectedTurn
         );
     }
 
