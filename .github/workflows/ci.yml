@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, test/32-m2-postgres-regression-matrix]
   pull_request:
     branches: [main]
 
