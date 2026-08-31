@@ -28,22 +28,27 @@ class PostgresPersistenceBaselineTest extends PostgresIntegrationTestSupport {
 
     @BeforeEach
     void cleanDatabase() {
-        jdbcTemplate.execute("truncate table game_mutation_request, image_asset, game_state_snapshot, game_log, game_session restart identity cascade");
+        jdbcTemplate.execute("""
+                truncate table game_turn_reservation, game_mutation_request, image_asset,
+                    game_state_snapshot, game_log, game_session restart identity
+                """);
     }
 
     @Test
     @DisplayName("빈 PostgreSQL에 production Flyway migration이 모두 적용된다")
     void productionMigrationChain_IsAppliedToPostgres() {
-        assertThat(flyway.info().pending()).isEmpty();
+        assertThat(flyway.info().pending()).as("pending production migration").isEmpty();
         assertThat(flyway.info().applied())
+                .as("applied production migration chain")
                 .extracting(info -> info.getVersion().getVersion())
-                .contains("1", "2", "3", "4", "5", "6", "7");
+                .contains("1", "2", "3", "4", "5", "6", "7", "8");
 
         assertThat(tableExists("game_session")).isTrue();
         assertThat(tableExists("game_log")).isTrue();
         assertThat(tableExists("game_state_snapshot")).isTrue();
         assertThat(tableExists("image_asset")).isTrue();
         assertThat(tableExists("game_mutation_request")).isTrue();
+        assertThat(tableExists("game_turn_reservation")).isTrue();
     }
 
     @Test
@@ -53,6 +58,7 @@ class PostgresPersistenceBaselineTest extends PostgresIntegrationTestSupport {
         insertGameLog(sessionId, 1);
 
         assertThatThrownBy(() -> insertGameLog(sessionId, 1))
+                .as("constraint=uk_game_log_session_turn session=%d turn=1", sessionId)
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
@@ -75,6 +81,7 @@ class PostgresPersistenceBaselineTest extends PostgresIntegrationTestSupport {
             stale.advanceTurn();
 
             assertThatThrownBy(() -> secondEntityManager.getTransaction().commit())
+                    .as("optimistic-lock session=%d staleVersion=0", sessionId)
                     .isInstanceOf(RollbackException.class);
         } finally {
             rollbackIfActive(firstEntityManager);
