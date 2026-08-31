@@ -7,6 +7,8 @@ import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Map;
+import java.util.TreeMap;
 
 @Component
 public class GameMutationFingerprint {
@@ -16,12 +18,44 @@ public class GameMutationFingerprint {
     }
 
     public String progress(GameProgressRequest request) {
+        boolean legacyWireRequest = request.actionToken() == null
+                && request.actionType() == null
+                && request.sourceTurn() == null
+                && request.arguments() == null;
+        if (legacyWireRequest) {
+            return sha256(join(
+                    "progress",
+                    Long.toString(request.sessionId()),
+                    Integer.toString(request.choiceId()),
+                    Integer.toString(request.expectedTurn())
+            ));
+        }
+
         return sha256(join(
                 "progress",
                 Long.toString(request.sessionId()),
                 Integer.toString(request.choiceId()),
-                Integer.toString(request.expectedTurn())
+                Integer.toString(request.expectedTurn()),
+                nullable(request.actionToken()),
+                nullable(request.actionType()),
+                request.sourceTurn() == null ? "" : Integer.toString(request.sourceTurn()),
+                canonicalArguments(request.arguments())
         ));
+    }
+
+    private String canonicalArguments(Map<String, String> arguments) {
+        if (arguments == null || arguments.isEmpty()) return "";
+        StringBuilder builder = new StringBuilder();
+        new TreeMap<>(arguments).forEach((key, value) -> builder
+                .append(key.length()).append(':').append(key)
+                .append('=')
+                .append(value == null ? -1 : value.length()).append(':').append(value == null ? "" : value)
+                .append('|'));
+        return builder.toString();
+    }
+
+    private String nullable(String value) {
+        return value == null ? "" : value;
     }
 
     private String normalize(String value) {

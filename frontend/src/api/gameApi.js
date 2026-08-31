@@ -19,11 +19,15 @@ export const initGame = async (worldSetting, characterSetting, idempotencyKey) =
     return response.data;
 };
 
-export const progressGame = async (sessionId, choiceId, expectedTurn, idempotencyKey) => {
+export const progressGame = async (sessionId, choice, expectedTurn, idempotencyKey) => {
     const response = await apiClient.post(`${BASE_URL}/progress`, {
         sessionId,
-        choiceId,
-        expectedTurn
+        choiceId: choice.id,
+        expectedTurn,
+        actionToken: choice.actionToken ?? null,
+        actionType: choice.actionType ?? null,
+        sourceTurn: choice.sourceTurn ?? null,
+        arguments: choice.arguments ?? null
     }, {
         headers: { 'Idempotency-Key': idempotencyKey }
     });
