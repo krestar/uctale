@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -25,6 +26,9 @@ public class GameMutationRequestService {
     private final JdbcTemplate jdbcTemplate;
     private final Clock clock;
     private final long leaseSeconds;
+
+    @Value("${spring.datasource.driver-class-name:org.postgresql.Driver}")
+    private String datasourceDriverClassName;
 
     public GameMutationRequestService(
             GameMutationRequestRepository repository,
@@ -49,7 +53,7 @@ public class GameMutationRequestService {
     ) {
         validateKey(idempotencyKey);
 
-        int inserted = repository.insertIfAbsent(
+        int inserted = insertMutationRequestIfAbsent(
                 ownerKey, operation, idempotencyKey, sessionId, expectedTurn, fingerprint
         );
         GameMutationRequest request = repository.findForUpdate(ownerKey, idempotencyKey)
@@ -81,20 +85,7 @@ public class GameMutationRequestService {
         String leaseOwner = UUID.randomUUID().toString();
         LocalDateTime now = LocalDateTime.now(clock);
         LocalDateTime expiresAt = now.plusSeconds(leaseSeconds);
-        int acquired = jdbcTemplate.update("""
-                INSERT INTO game_turn_reservation (
-                    session_id, expected_turn, request_id, lease_owner, lease_expires_at, attempt_count,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                ON CONFLICT (session_id, expected_turn) DO UPDATE SET
-                    request_id = EXCLUDED.request_id,
-                    lease_owner = EXCLUDED.lease_owner,
-                    lease_expires_at = EXCLUDED.lease_expires_at,
-                    attempt_count = game_turn_reservation.attempt_count + 1,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE game_turn_reservation.lease_expires_at <= ?
-                  AND game_turn_reservation.attempt_count < ?
-                """, sessionId, expectedTurn, request.getId(), leaseOwner, expiresAt, now, MAX_RESERVATION_ATTEMPTS);
+        int acquired = acquireReservation(sessionId, expectedTurn, request.getId(), leaseOwner, now, expiresAt);
 
         if (acquired == 0) {
             request.fail();
@@ -118,6 +109,87 @@ public class GameMutationRequestService {
         });
     }
 
+    private int insertMutationRequestIfAbsent(
+            String ownerKey,
+            String operation,
+            String idempotencyKey,
+            Long sessionId,
+            Integer expectedTurn,
+            String fingerprint
+    ) {
+        if (!isH2()) {
+            return repository.insertIfAbsent(
+                    ownerKey, operation, idempotencyKey, sessionId, expectedTurn, fingerprint
+            );
+        }
+        if (repository.findByOwnerKeyAndIdempotencyKey(ownerKey, idempotencyKey).isPresent()) {
+            return 0;
+        }
+        repository.saveAndFlush(new GameMutationRequest(
+                ownerKey, operation, idempotencyKey, sessionId, expectedTurn, fingerprint
+        ));
+        return 1;
+    }
+
+    private int acquireReservation(
+            Long sessionId,
+            int expectedTurn,
+            Long requestId,
+            String leaseOwner,
+            LocalDateTime now,
+            LocalDateTime expiresAt
+    ) {
+        if (!isH2()) {
+            return jdbcTemplate.update("""
+                    INSERT INTO game_turn_reservation (
+                        session_id, expected_turn, request_id, lease_owner, lease_expires_at, attempt_count,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT (session_id, expected_turn) DO UPDATE SET
+                        request_id = EXCLUDED.request_id,
+                        lease_owner = EXCLUDED.lease_owner,
+                        lease_expires_at = EXCLUDED.lease_expires_at,
+                        attempt_count = game_turn_reservation.attempt_count + 1,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE game_turn_reservation.lease_expires_at <= ?
+                      AND game_turn_reservation.attempt_count < ?
+                    """, sessionId, expectedTurn, requestId, leaseOwner, expiresAt, now, MAX_RESERVATION_ATTEMPTS);
+        }
+
+        List<ReservationState> reservations = jdbcTemplate.query(
+                """
+                        SELECT lease_expires_at, attempt_count
+                        FROM game_turn_reservation
+                        WHERE session_id = ? AND expected_turn = ?
+                        """,
+                (rs, rowNum) -> new ReservationState(
+                        rs.getTimestamp("lease_expires_at").toLocalDateTime(),
+                        rs.getInt("attempt_count")
+                ),
+                sessionId, expectedTurn
+        );
+        if (reservations.isEmpty()) {
+            return jdbcTemplate.update("""
+                    INSERT INTO game_turn_reservation (
+                        session_id, expected_turn, request_id, lease_owner, lease_expires_at, attempt_count,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """, sessionId, expectedTurn, requestId, leaseOwner, expiresAt);
+        }
+
+        ReservationState reservation = reservations.getFirst();
+        if (reservation.leaseExpiresAt().isAfter(now) || reservation.attemptCount() >= MAX_RESERVATION_ATTEMPTS) {
+            return 0;
+        }
+        return jdbcTemplate.update("""
+                UPDATE game_turn_reservation
+                SET request_id = ?, lease_owner = ?, lease_expires_at = ?,
+                    attempt_count = attempt_count + 1, updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ? AND expected_turn = ?
+                  AND lease_expires_at <= ? AND attempt_count < ?
+                """, requestId, leaseOwner, expiresAt, sessionId, expectedTurn, now, MAX_RESERVATION_ATTEMPTS);
+    }
+
     private long currentRetryAfterSeconds(Long sessionId, int expectedTurn, LocalDateTime now) {
         return jdbcTemplate.query(
                 "SELECT lease_expires_at FROM game_turn_reservation WHERE session_id = ? AND expected_turn = ?",
@@ -128,6 +200,10 @@ public class GameMutationRequestService {
         );
     }
 
+    private boolean isH2() {
+        return datasourceDriverClassName != null && datasourceDriverClassName.contains("h2.Driver");
+    }
+
     private void validateKey(String idempotencyKey) {
         if (idempotencyKey == null || !IDEMPOTENCY_KEY_PATTERN.matcher(idempotencyKey).matches()) {
             throw new IllegalArgumentException(
@@ -135,6 +211,8 @@ public class GameMutationRequestService {
             );
         }
     }
+
+    private record ReservationState(LocalDateTime leaseExpiresAt, int attemptCount) {}
 
     public record BeginResult(
             Long requestId,
