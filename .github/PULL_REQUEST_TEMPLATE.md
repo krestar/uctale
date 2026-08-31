@@ -23,14 +23,16 @@
 
 ## 어떻게 검증했나요?
 
+- [ ] PR 작성 전 변경 diff를 비판적으로 검토하고 타당한 지적을 반영했습니다.
 - [ ] `./gradlew clean test`
+- [ ] `./gradlew postgresIntegrationTest`
 - [ ] `./gradlew build`
-- [ ] `cd frontend && npm ci && npm run lint && npm run build`
+- [ ] `cd frontend && npm ci && npm test && npm run lint && npm run build`
 - [ ] 정상 흐름을 직접 확인했습니다.
 - [ ] 잘못된 입력/실패 흐름을 확인했습니다.
 - [ ] 중복 요청 또는 상태 전이가 관련되면 이를 검증했습니다.
 
-테스트 명령과 결과, 수동 검증 시나리오를 짧게 적어 주세요.
+테스트 명령과 결과, 수동 검증 시나리오를 짧게 적어 주세요. 해당하지 않는 검증은 이유를 적어 주세요.
 
 ## 게임 상태·AI 안전성
 
