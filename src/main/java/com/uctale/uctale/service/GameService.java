@@ -145,7 +145,7 @@ public class GameService {
             );
             return toResponse(loadedTurn.sessionId(), savedTurn, nextTurn, choices, imageUrl);
         } catch (RuntimeException exception) {
-            mutationRequestService.markFailed(mutation.requestId());
+            mutationRequestService.markFailed(mutation.requestId(), mutation.reservationOwner());
             throw exception;
         }
     }
