@@ -11,14 +11,17 @@ public class ProviderCallTelemetry {
 
     private final Clock clock;
     private final ProviderCallEventSink sink;
+    private final ProviderBudgetGuard budgetGuard;
 
-    public ProviderCallTelemetry(Clock clock, ProviderCallEventSink sink) {
+    public ProviderCallTelemetry(Clock clock, ProviderCallEventSink sink, ProviderBudgetGuard budgetGuard) {
         this.clock = clock;
         this.sink = sink;
+        this.budgetGuard = budgetGuard;
     }
 
     public <T> T observe(
             String provider,
+            String model,
             String operation,
             CostRequestContext context,
             int retryCount,
@@ -26,6 +29,7 @@ public class ProviderCallTelemetry {
     ) {
         return observe(
                 provider,
+                model,
                 operation,
                 context,
                 invocation,
@@ -36,25 +40,28 @@ public class ProviderCallTelemetry {
 
     public <T> T observe(
             String provider,
+            String model,
             String operation,
             CostRequestContext context,
             Supplier<T> invocation,
             ToIntFunction<T> successRetryCount,
             ToIntFunction<RuntimeException> failureRetryCount
     ) {
+        budgetGuard.checkBeforeCall(operation);
         long startedAt = clock.millis();
         try {
             T result = invocation.get();
-            record(provider, operation, context, Math.max(0, successRetryCount.applyAsInt(result)), startedAt, "SUCCESS");
+            record(provider, model, operation, context, Math.max(0, successRetryCount.applyAsInt(result)), startedAt, "SUCCESS");
             return result;
         } catch (RuntimeException exception) {
-            record(provider, operation, context, Math.max(0, failureRetryCount.applyAsInt(exception)), startedAt, "FAILURE");
+            record(provider, model, operation, context, Math.max(0, failureRetryCount.applyAsInt(exception)), startedAt, "FAILURE");
             throw exception;
         }
     }
 
     private void record(
             String provider,
+            String model,
             String operation,
             CostRequestContext context,
             int retryCount,
@@ -63,6 +70,7 @@ public class ProviderCallTelemetry {
     ) {
         sink.record(new ProviderCallEvent(
                 provider,
+                model,
                 operation,
                 context.sessionId(),
                 context.turn(),
