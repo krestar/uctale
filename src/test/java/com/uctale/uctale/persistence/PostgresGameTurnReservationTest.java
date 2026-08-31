@@ -50,7 +50,7 @@ class PostgresGameTurnReservationTest extends PostgresIntegrationTestSupport {
                 SESSION_ID, EXPECTED_TURN, "b".repeat(64));
 
         assertThat(second.reservationOwner()).isNotEqualTo(first.reservationOwner());
-        assertThat(attemptCount()).isZero();
+        assertThat(providerAttemptCount()).isZero();
     }
 
     @Test
@@ -65,7 +65,7 @@ class PostgresGameTurnReservationTest extends PostgresIntegrationTestSupport {
                     EXPECTED_TURN,
                     Integer.toString(index).repeat(64)
             );
-            assertThat(attemptCount()).isZero();
+            assertThat(providerAttemptCount()).isZero();
             service.markFailed(reservation.requestId(), reservation.reservationOwner());
         }
 
@@ -79,7 +79,7 @@ class PostgresGameTurnReservationTest extends PostgresIntegrationTestSupport {
         );
         service.markProviderAttemptStarted(valid.requestId(), valid.reservationOwner());
 
-        assertThat(attemptCount()).isEqualTo(1);
+        assertThat(providerAttemptCount()).isEqualTo(1);
     }
 
     @Test
@@ -95,7 +95,7 @@ class PostgresGameTurnReservationTest extends PostgresIntegrationTestSupport {
                     Integer.toString(index).repeat(64)
             );
             service.markProviderAttemptStarted(reservation.requestId(), reservation.reservationOwner());
-            assertThat(attemptCount()).isEqualTo(index);
+            assertThat(providerAttemptCount()).isEqualTo(index);
             service.markFailed(reservation.requestId(), reservation.reservationOwner());
         }
 
@@ -108,7 +108,7 @@ class PostgresGameTurnReservationTest extends PostgresIntegrationTestSupport {
                 "4".repeat(64)
         )).isInstanceOf(MutationInProgressException.class);
 
-        assertThat(attemptCount()).isEqualTo(3);
+        assertThat(providerAttemptCount()).isEqualTo(3);
     }
 
     @Test
@@ -123,15 +123,36 @@ class PostgresGameTurnReservationTest extends PostgresIntegrationTestSupport {
 
         assertThatThrownBy(() -> service.markProviderAttemptStarted(first.requestId(), first.reservationOwner()))
                 .isInstanceOf(MutationInProgressException.class);
-        assertThat(attemptCount()).isZero();
+        assertThat(providerAttemptCount()).isZero();
 
         service.markProviderAttemptStarted(second.requestId(), second.reservationOwner());
-        assertThat(attemptCount()).isEqualTo(1);
+        assertThat(providerAttemptCount()).isEqualTo(1);
     }
 
-    private int attemptCount() {
-        return jdbcTemplate.queryForObject(
+    @Test
+    @DisplayName("기존 attempt_count 값은 새 provider attempt 한도를 오염시키지 않는다")
+    void legacyAttemptCount_DoesNotBlockProviderAttemptAccounting() {
+        var first = service.begin(OWNER_KEY, GameMutationRequestService.PROGRESS, "legacy-key-001",
+                SESSION_ID, EXPECTED_TURN, "a".repeat(64));
+        jdbcTemplate.update("""
+                UPDATE game_turn_reservation
+                SET attempt_count = 3, lease_expires_at = CURRENT_TIMESTAMP - INTERVAL '1 second'
+                WHERE request_id = ? AND lease_owner = ?
+                """, first.requestId(), first.reservationOwner());
+
+        var second = service.begin(OWNER_KEY, GameMutationRequestService.PROGRESS, "legacy-key-002",
+                SESSION_ID, EXPECTED_TURN, "b".repeat(64));
+        service.markProviderAttemptStarted(second.requestId(), second.reservationOwner());
+
+        assertThat(providerAttemptCount()).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
                 "SELECT attempt_count FROM game_turn_reservation WHERE session_id = ? AND expected_turn = ?",
+                Integer.class, SESSION_ID, EXPECTED_TURN)).isEqualTo(3);
+    }
+
+    private int providerAttemptCount() {
+        return jdbcTemplate.queryForObject(
+                "SELECT provider_attempt_count FROM game_turn_reservation WHERE session_id = ? AND expected_turn = ?",
                 Integer.class, SESSION_ID, EXPECTED_TURN
         );
     }
