@@ -12,6 +12,7 @@ import com.uctale.uctale.repository.GameMutationRequestRepository;
 import com.uctale.uctale.support.PostgresIntegrationTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -69,41 +70,81 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("완료 retry는 provider와 canonical state를 재실행하지 않고 저장 결과를 재사용한다")
-    void completedRetry_ReusesCanonicalResultExactlyOnce() {
+    @DisplayName("완료된 init retry는 provider와 새 session을 만들지 않고 canonical opening을 재사용한다")
+    void completedInitRetry_ReusesCanonicalOpeningExactlyOnce() {
+        String key = "matrix-init-key-001";
+        String fingerprint = "i".repeat(64);
+
+        BeginAttempt first = beginInitAttempt(key, fingerprint);
+        assertThat(first.error()).as("phase=init-begin request=%s", key).isNull();
+
+        String openingStory = provider.nextStory();
+        GameSession session = persistenceService.saveOpening(
+                OWNER_KEY,
+                "matrix-world",
+                "matrix-character",
+                openingStory,
+                OPENING_CHOICES,
+                null,
+                first.result().requestId(),
+                "matrix-opening"
+        );
+
+        BeginAttempt retry = beginInitAttempt(key, fingerprint);
+        assertThat(retry.error()).as("phase=init-retry request=%s", key).isNull();
+        assertThat(retry.result().replay()).isTrue();
+        assertThat(retry.result().resultSessionId()).isEqualTo(session.getId());
+        assertThat(retry.result().resultTurn()).isEqualTo(1);
+
+        BeginAttempt conflictingPayload = beginInitAttempt(key, "j".repeat(64));
+        assertThat(conflictingPayload.error())
+                .as("phase=init-fingerprint-conflict request=%s", key)
+                .isInstanceOf(IdempotencyConflictException.class);
+
+        assertThat(provider.calls()).as("provider calls for completed init retry").isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("select count(*) from game_session", Integer.class))
+                .as("canonical session count after init retry")
+                .isEqualTo(1);
+        assertCanonicalTurn(session.getId(), key, 1, 1);
+    }
+
+    @Test
+    @DisplayName("완료된 progress retry는 provider와 canonical state를 재실행하지 않고 저장 결과를 재사용한다")
+    void completedProgressRetry_ReusesCanonicalResultExactlyOnce() {
         GameSession session = createOpening();
         String key = "matrix-retry-key-001";
         String fingerprint = "a".repeat(64);
 
-        BeginAttempt first = beginAttempt(session.getId(), key, fingerprint);
+        BeginAttempt first = beginProgressAttempt(session.getId(), key, fingerprint);
         assertThat(first.error()).as(context("begin", key, session.getId(), 1)).isNull();
 
         String story = provider.nextStory();
         commitTurn(session.getId(), first.result(), story);
 
-        BeginAttempt retry = beginAttempt(session.getId(), key, fingerprint);
+        BeginAttempt retry = beginProgressAttempt(session.getId(), key, fingerprint);
         assertThat(retry.error()).as(context("retry", key, session.getId(), 1)).isNull();
         assertThat(retry.result().replay()).isTrue();
         assertThat(retry.result().resultSessionId()).isEqualTo(session.getId());
         assertThat(retry.result().resultTurn()).isEqualTo(2);
 
-        BeginAttempt conflictingPayload = beginAttempt(session.getId(), key, "b".repeat(64));
+        BeginAttempt conflictingPayload = beginProgressAttempt(session.getId(), key, "b".repeat(64));
         assertThat(conflictingPayload.error())
                 .as(context("fingerprint-conflict", key, session.getId(), 1))
                 .isInstanceOf(IdempotencyConflictException.class);
 
-        assertThat(provider.calls()).as("provider calls for completed retry").isEqualTo(1);
+        assertThat(provider.calls()).as("provider calls for completed progress retry").isEqualTo(1);
         assertCanonicalTurn(session.getId(), key, 2, 2);
     }
 
-    @Test
+    @RepeatedTest(3)
     @DisplayName("같은 session/turn 최초 동시 요청은 active reservation과 provider 진입을 하나로 제한한다")
     void concurrentFirstRequests_AllowSingleActiveProviderExecution() throws Exception {
         GameSession session = createOpening();
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
 
-        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+        try {
             Future<ProviderAttempt> first = executor.submit(concurrentAttempt(
                     ready, start, session.getId(), "matrix-concurrent-key-a", "c".repeat(64)
             ));
@@ -129,6 +170,8 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
 
             assertCanonicalTurn(session.getId(), winner.key(), 2, 2);
             assertThat(reservationCount(session.getId(), 1)).isZero();
+        } finally {
+            executor.shutdownNow();
         }
     }
 
@@ -137,13 +180,13 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
     void expiredLeaseTakeover_AllowsProviderRetryButSingleCanonicalCommit() {
         GameSession session = createOpening();
 
-        BeginAttempt crashed = beginAttempt(session.getId(), "matrix-crash-key-a", "d".repeat(64));
+        BeginAttempt crashed = beginProgressAttempt(session.getId(), "matrix-crash-key-a", "d".repeat(64));
         assertThat(crashed.error()).as(context("crashed-begin", "matrix-crash-key-a", session.getId(), 1)).isNull();
         String staleStory = provider.nextStory();
 
         clock.advance(Duration.ofSeconds(LEASE_SECONDS + 1));
 
-        BeginAttempt takeover = beginAttempt(session.getId(), "matrix-crash-key-b", "d".repeat(64));
+        BeginAttempt takeover = beginProgressAttempt(session.getId(), "matrix-crash-key-b", "d".repeat(64));
         assertThat(takeover.error()).as(context("takeover-begin", "matrix-crash-key-b", session.getId(), 1)).isNull();
         String canonicalStory = provider.nextStory();
 
@@ -177,7 +220,7 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
         return () -> {
             ready.countDown();
             start.await();
-            BeginAttempt begin = beginAttempt(sessionId, key, fingerprint);
+            BeginAttempt begin = beginProgressAttempt(sessionId, key, fingerprint);
             if (begin.error() != null) {
                 return new ProviderAttempt(key, begin, null, false);
             }
@@ -185,19 +228,36 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
         };
     }
 
-    private BeginAttempt beginAttempt(Long sessionId, String key, String fingerprint) {
+    private BeginAttempt beginInitAttempt(String key, String fingerprint) {
+        return executeBegin(() -> mutationService.begin(
+                OWNER_KEY,
+                GameMutationRequestService.INIT,
+                key,
+                null,
+                null,
+                fingerprint
+        ));
+    }
+
+    private BeginAttempt beginProgressAttempt(Long sessionId, String key, String fingerprint) {
+        return executeBegin(() -> mutationService.begin(
+                OWNER_KEY,
+                GameMutationRequestService.PROGRESS,
+                key,
+                sessionId,
+                1,
+                fingerprint
+        ));
+    }
+
+    private BeginAttempt executeBegin(Callable<GameMutationRequestService.BeginResult> begin) {
         return transactionTemplate.execute(status -> {
             try {
-                return BeginAttempt.success(mutationService.begin(
-                        OWNER_KEY,
-                        GameMutationRequestService.PROGRESS,
-                        key,
-                        sessionId,
-                        1,
-                        fingerprint
-                ));
+                return BeginAttempt.success(begin.call());
             } catch (RuntimeException exception) {
                 return BeginAttempt.failure(exception);
+            } catch (Exception exception) {
+                throw new IllegalStateException("mutation begin 실행에 실패했습니다.", exception);
             }
         });
     }
