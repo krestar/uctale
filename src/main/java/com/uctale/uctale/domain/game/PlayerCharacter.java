@@ -1,17 +1,17 @@
 package com.uctale.uctale.domain.game;
 
-import java.util.Map;
+import java.util.Objects;
 
 public record PlayerCharacter(
         String description,
-        Map<String, Integer> stats
+        CharacterStats stats
 ) {
     public PlayerCharacter {
         description = description == null ? "" : description.trim();
-        stats = stats == null ? Map.of() : Map.copyOf(stats);
+        Objects.requireNonNull(stats, "stats는 필수입니다.");
     }
 
     public static PlayerCharacter initial(String characterSetting) {
-        return new PlayerCharacter(characterSetting, Map.of());
+        return new PlayerCharacter(characterSetting, CharacterStats.defaults());
     }
 }

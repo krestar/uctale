@@ -3,6 +3,7 @@ package com.uctale.uctale.persistence;
 import com.uctale.uctale.application.game.GamePersistenceService;
 import com.uctale.uctale.application.game.GameTurnCommit;
 import com.uctale.uctale.domain.GameSession;
+import com.uctale.uctale.domain.game.CharacterStats;
 import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.support.PostgresIntegrationTestSupport;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,7 +36,7 @@ class PostgresGameStateSnapshotCompatibilityTest extends PostgresIntegrationTest
     }
 
     @Test
-    @DisplayName("기존 production raw snapshot을 데이터 손실 없이 읽고 다음 write에서 최신 envelope로 저장한다")
+    @DisplayName("기존 production raw snapshot을 기본 typed stats로 읽고 다음 write에서 schema v2로 저장한다")
     void legacyRawSnapshot_IsReadAndRewrittenOnNextCanonicalWrite() throws Exception {
         GameSession session = gamePersistenceService.saveOpening(
                 OWNER_KEY, "세계관", "캐릭터", "첫 이야기", "[]", null
@@ -46,9 +47,11 @@ class PostgresGameStateSnapshotCompatibilityTest extends PostgresIntegrationTest
                 session.getId()
         );
         JsonNode openingSnapshot = objectMapper.readTree(openingSnapshotJson);
-        assertThat(openingSnapshot.get("schemaVersion").asInt()).isEqualTo(1);
+        assertThat(openingSnapshot.get("schemaVersion").asInt()).isEqualTo(2);
         assertThat(openingSnapshot.get("rulesetVersion").asInt()).isEqualTo(1);
         assertThat(openingSnapshot.get("state").get("turnNumber").asInt()).isEqualTo(1);
+        assertThat(openingSnapshot.get("state").get("playerCharacter").get("stats").get("might").asInt())
+                .isEqualTo(CharacterStats.DEFAULT_SCORE);
 
         GameState initialState = gamePersistenceService.loadLatestTurn(OWNER_KEY, session.getId(), 1).gameState();
         String legacyRawJson = legacyStateJson();
@@ -61,6 +64,7 @@ class PostgresGameStateSnapshotCompatibilityTest extends PostgresIntegrationTest
         GameState recovered = gamePersistenceService.loadLatestTurn(OWNER_KEY, session.getId(), 1).gameState();
 
         assertThat(recovered).isEqualTo(initialState);
+        assertThat(recovered.playerCharacter().stats()).isEqualTo(CharacterStats.defaults());
         assertThat(jdbcTemplate.queryForObject(
                 "select state_json from game_state_snapshot where session_id = ?",
                 String.class,
@@ -80,13 +84,15 @@ class PostgresGameStateSnapshotCompatibilityTest extends PostgresIntegrationTest
                 session.getId()
         );
         JsonNode rewritten = objectMapper.readTree(rewrittenJson);
-        assertThat(rewritten.get("schemaVersion").asInt()).isEqualTo(1);
+        assertThat(rewritten.get("schemaVersion").asInt()).isEqualTo(2);
         assertThat(rewritten.get("rulesetVersion").asInt()).isEqualTo(1);
         assertThat(rewritten.get("state").get("turnNumber").asInt()).isEqualTo(2);
+        assertThat(rewritten.get("state").get("playerCharacter").get("stats").get("presence").asInt())
+                .isEqualTo(CharacterStats.DEFAULT_SCORE);
     }
 
     @Test
-    @DisplayName("snapshot 없는 기존 session은 append-only GameLog 원장에서 현재 GameState를 복구한다")
+    @DisplayName("snapshot 없는 기존 session은 append-only GameLog 원장에서 현재 GameState와 기본 stats를 복구한다")
     void snapshotlessSession_RecoversFromCommittedTurnLedger() {
         GameSession session = gamePersistenceService.saveOpening(
                 OWNER_KEY, "세계관", "캐릭터", "첫 이야기", "[]", null
@@ -103,6 +109,7 @@ class PostgresGameStateSnapshotCompatibilityTest extends PostgresIntegrationTest
         GameState recovered = gamePersistenceService.loadLatestTurn(OWNER_KEY, session.getId(), 2).gameState();
 
         assertThat(recovered).isEqualTo(nextState);
+        assertThat(recovered.playerCharacter().stats()).isEqualTo(CharacterStats.defaults());
         assertThat(recovered.storyMemory().recentTurns().getLast().playerAction()).isEqualTo("진행");
     }
 

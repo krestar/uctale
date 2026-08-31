@@ -72,17 +72,34 @@ M3의 첫 선행 작업인 #33이 main에 반영되어 `AvailableAction`과 `Pla
 - `/progress`는 현재 turn의 서버 발급 action과 요청 payload가 일치하는지 검증합니다.
 - 변조되거나 만료된 action은 provider 호출 전에 거절됩니다.
 - 기존 `choiceId` 기반 요청은 compatibility 경로로 유지합니다.
-- 실제 전투, 아이템 사용, Skill Check 같은 규칙 행동은 후속 M3 작업에서 이 경계 위에 추가합니다.
+- #7에서 typed stats와 pure Skill Check 규칙은 추가되지만, 실제 action/turn pipeline 연결은 #34/#37 후속 범위입니다.
+
+### 타입 안전한 능력치와 Skill Check
+
+#7에서 서버 소유 게임 규칙의 첫 순수 도메인 기반을 추가했습니다.
+
+- `StatType`: `MIGHT`, `AGILITY`, `INTELLECT`, `WILL`, `PRESENCE`
+- 신규·legacy 캐릭터는 기본 능력치 10을 사용합니다.
+- `CharacterStats`는 1~30 범위를 검증하고 `floor((score - 10) / 2)` modifier를 계산합니다.
+- `Difficulty`, `DiceRoll`, situational modifier가 각 허용 범위를 검증합니다.
+- `SkillCheck`는 `rawRoll + statModifier + situationalModifier >= DC`만으로 성공/실패를 결정합니다.
+- natural 1/20 특수 규칙은 사용하지 않습니다.
+- `SkillCheckResult`는 raw roll, modifier, DC, total, outcome, ruleset version을 보존합니다.
+- production random adapter는 `SecureRandom`, 테스트는 fixed/sequence `RandomSource`를 사용합니다.
+- Skill Check는 pure domain operation이며 Narrative provider를 호출하지 않습니다.
+
+아직 이 판정을 실제 `/progress`, `GameResult`, NarrativeContext, DB roll 저장, frontend에 연결하지 않습니다.
 
 ### GameState와 Story Memory
 
 서버는 세션별 canonical `GameState`를 JSON snapshot으로 저장하고 Narrative Engine에는 필요한 문맥만 전달합니다.
 
+- `PlayerCharacter`는 typed `CharacterStats`를 소유합니다.
 - `canonicalFacts`: 서버가 유지하는 장기 사실
 - `rollingSummary`: 오래된 진행 내용을 제한된 크기로 압축한 기록
 - `recentTurns`: 최근 진행 기록
 
-snapshot JSON은 schema/ruleset version을 가지며 legacy production snapshot을 deterministic upgrader로 읽을 수 있습니다. read-time upgrade는 in-memory에서만 수행하고 다음 정상 canonical write에서 최신 형식으로 저장합니다.
+snapshot JSON은 schema/ruleset version을 가지며 legacy production snapshot을 deterministic upgrader로 읽을 수 있습니다. typed stats 도입으로 현재 snapshot schema는 v2이며, v0/v1 stats는 읽을 때 순수 변환합니다. read-time upgrade는 in-memory에서만 수행하고 다음 정상 canonical write에서 최신 형식으로 저장합니다.
 
 ### 신뢰 가능한 턴 파이프라인
 
@@ -288,6 +305,6 @@ GitHub Actions CI도 backend unit test → PostgreSQL integration test → backe
 
 진행 중.
 
-현재 #33 `AvailableAction` / `PlayerAction` 경계는 main에 반영되었습니다. 다음 핵심 작업은 타입 안전한 캐릭터 능력치와 pure Skill Check(#7), `ActionResolver` / `GameResult` 경계(#34), 확정 결과 기반 NarrativeContext(#36), 실제 turn 통합(#37) 순으로 확장하는 것입니다.
+현재 #33 `AvailableAction` / `PlayerAction` 경계와 #7 typed `CharacterStats` / pure Skill Check 규칙 기반이 반영되었습니다. 다음 핵심 작업은 `ActionResolver` / `GameResult` 경계(#34), 확정 결과 기반 NarrativeContext(#36), 실제 Skill Check turn 통합(#37) 순으로 확장하는 것입니다.
 
 아직 구현되지 않은 전투·인벤토리·퀘스트·NPC 관계 기능은 현재 기능처럼 문서에 표시하지 않습니다.
