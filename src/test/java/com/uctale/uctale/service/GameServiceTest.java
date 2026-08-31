@@ -202,7 +202,7 @@ class GameServiceTest {
         verify(narrativeGenerator, never()).createNextTurn(any(NarrativeContext.class));
         verify(imageAssetService, never()).issue(any(), any());
         verify(gamePersistenceService, never()).saveNextTurn(any(), any(), any(GameTurnCommit.class), any(), any());
-        verify(mutationRequestService).markFailed(100L);
+        verify(mutationRequestService).markFailed(100L, "lease-owner");
     }
 
     private GamePersistenceService.LoadedTurn loadedTurn(String choicesJson) {
