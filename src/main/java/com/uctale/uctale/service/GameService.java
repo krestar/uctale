@@ -15,6 +15,7 @@ import com.uctale.uctale.application.narrative.InvalidNarrativeResponseException
 import com.uctale.uctale.application.narrative.NarrativeContext;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
+import com.uctale.uctale.domain.action.PlayerAction;
 import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.dto.GameChoice;
 import com.uctale.uctale.dto.GameInitRequest;
@@ -69,7 +70,7 @@ public class GameService {
                     () -> narrativeGenerator.createOpening(request.worldSetting(), request.characterSetting())
             );
             validateNarrativeTurn(opening);
-            List<GameChoice> choices = toGameChoices(opening.choices());
+            List<GameChoice> choices = choiceCodec.issue(opening.choices(), 1);
 
             String imagePrompt = imagePromptComposer.compose(opening.visualAssets());
             if (imagePrompt == null || imagePrompt.isBlank()) {
@@ -111,7 +112,8 @@ public class GameService {
                     request.expectedTurn() + 1, costContext.idempotencyKey()
             );
 
-            String userChoiceText = choiceCodec.findText(loadedTurn.choicesJson(), request.choiceId());
+            PlayerAction playerAction = choiceCodec.resolve(loadedTurn.choicesJson(), request);
+            String userChoiceText = playerAction.displayText();
             NarrativeContext narrativeContext = NarrativeContext.from(loadedTurn.gameState(), userChoiceText);
             costRateLimiter.check(CostOperation.NARRATIVE, providerContext);
             NarrativeTurn nextTurn = providerCallTelemetry.observe(
@@ -119,7 +121,7 @@ public class GameService {
                     () -> narrativeGenerator.createNextTurn(narrativeContext)
             );
             validateNarrativeTurn(nextTurn);
-            List<GameChoice> choices = toGameChoices(nextTurn.choices());
+            List<GameChoice> choices = choiceCodec.issue(nextTurn.choices(), request.expectedTurn() + 1);
 
             ImageAssetService.AssetReference imageAsset = null;
             String imageUrl = loadedTurn.imageUrl();
@@ -135,7 +137,7 @@ public class GameService {
 
             GameState nextState = loadedTurn.gameState().advance(userChoiceText, nextTurn.storyText());
             GameTurnCommit commit = new GameTurnCommit(
-                    request.expectedTurn(), request.choiceId(), userChoiceText, loadedTurn.gameState(), nextState,
+                    request.expectedTurn(), playerAction.legacyChoiceId(), userChoiceText, loadedTurn.gameState(), nextState,
                     nextTurn.storyText(), choiceCodec.serialize(choices), imageAsset
             );
 
@@ -193,9 +195,5 @@ public class GameService {
 
     private GameResponse toResponse(Long sessionId, int turnNumber, NarrativeTurn turn, List<GameChoice> choices, String imageUrl) {
         return new GameResponse(sessionId, turnNumber, turn.title(), turn.storyText(), choices, imageUrl);
-    }
-
-    private List<GameChoice> toGameChoices(List<NarrativeTurn.Choice> choices) {
-        return choices.stream().map(choice -> new GameChoice(choice.id(), choice.text())).toList();
     }
 }
