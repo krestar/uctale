@@ -70,7 +70,7 @@ class GameServiceTest {
                 mutationRequestService
         );
         lenient().when(mutationRequestService.begin(anyString(), anyString(), anyString(), any(), any(), anyString()))
-                .thenReturn(new GameMutationRequestService.BeginResult(100L, false, null, null, null));
+                .thenReturn(new GameMutationRequestService.BeginResult(100L, false, null, null, null, "lease-owner"));
     }
 
     @Test
@@ -141,8 +141,9 @@ class GameServiceTest {
 
         given(gamePersistenceService.loadLatestTurn(OWNER_KEY, 42L, 1)).willReturn(loadedTurn);
         given(narrativeGenerator.createNextTurn(any(NarrativeContext.class))).willReturn(nextTurn);
-        given(gamePersistenceService.saveNextTurn(eq(OWNER_KEY), eq(42L), any(GameTurnCommit.class), eq(100L), eq("다음 장면")))
-                .willReturn(2);
+        given(gamePersistenceService.saveNextTurn(
+                eq(OWNER_KEY), eq(42L), any(GameTurnCommit.class), eq(100L), eq("다음 장면"), eq("lease-owner")
+        )).willReturn(2);
 
         GameResponse response = gameService.progressGame(OWNER_KEY, new GameProgressRequest(42L, 7, 1));
 
@@ -154,7 +155,9 @@ class GameServiceTest {
         assertThat(contextCaptor.getValue().playerAction()).isEqualTo("문을 잠근다");
 
         ArgumentCaptor<GameTurnCommit> commitCaptor = ArgumentCaptor.forClass(GameTurnCommit.class);
-        verify(gamePersistenceService).saveNextTurn(eq(OWNER_KEY), eq(42L), commitCaptor.capture(), eq(100L), eq("다음 장면"));
+        verify(gamePersistenceService).saveNextTurn(
+                eq(OWNER_KEY), eq(42L), commitCaptor.capture(), eq(100L), eq("다음 장면"), eq("lease-owner")
+        );
         GameTurnCommit commit = commitCaptor.getValue();
         assertThat(commit.inputChoiceId()).isEqualTo(7);
         assertThat(commit.inputChoiceText()).isEqualTo("문을 잠근다");
@@ -199,7 +202,7 @@ class GameServiceTest {
         verify(narrativeGenerator, never()).createNextTurn(any(NarrativeContext.class));
         verify(imageAssetService, never()).issue(any(), any());
         verify(gamePersistenceService, never()).saveNextTurn(any(), any(), any(GameTurnCommit.class), any(), any());
-        verify(mutationRequestService).markFailed(100L);
+        verify(mutationRequestService).markFailed(100L, "lease-owner");
     }
 
     private GamePersistenceService.LoadedTurn loadedTurn(String choicesJson) {
