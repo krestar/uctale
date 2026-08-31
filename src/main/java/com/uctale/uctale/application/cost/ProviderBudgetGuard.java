@@ -1,5 +1,6 @@
 package com.uctale.uctale.application.cost;
 
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -27,7 +28,12 @@ public class ProviderBudgetGuard {
         }
 
         long nextAttemptUnits = policy.unitsPerAttempt(operation);
-        Usage usage = currentUsage();
+        final Usage usage;
+        try {
+            usage = currentUsage();
+        } catch (DataAccessException exception) {
+            throw new ProviderBudgetExceededException("AI 비용 사용량을 확인할 수 없어 신규 provider 호출을 차단했습니다.");
+        }
         if (usage.dailyUnits() + nextAttemptUnits > policy.dailyCriticalUnits()
                 || usage.monthlyUnits() + nextAttemptUnits > policy.monthlyCriticalUnits()) {
             throw new ProviderBudgetExceededException("AI 전역 비용 예산을 초과해 신규 provider 호출을 차단했습니다.");
