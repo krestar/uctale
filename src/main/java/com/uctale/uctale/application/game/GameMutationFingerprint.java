@@ -18,6 +18,19 @@ public class GameMutationFingerprint {
     }
 
     public String progress(GameProgressRequest request) {
+        boolean legacyWireRequest = request.actionToken() == null
+                && request.actionType() == null
+                && request.sourceTurn() == null
+                && request.arguments() == null;
+        if (legacyWireRequest) {
+            return sha256(join(
+                    "progress",
+                    Long.toString(request.sessionId()),
+                    Integer.toString(request.choiceId()),
+                    Integer.toString(request.expectedTurn())
+            ));
+        }
+
         return sha256(join(
                 "progress",
                 Long.toString(request.sessionId()),
