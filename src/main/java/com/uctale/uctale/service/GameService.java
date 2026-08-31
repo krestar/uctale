@@ -46,7 +46,7 @@ public class GameService {
     private final ImageAssetService imageAssetService;
     private final GamePersistenceService gamePersistenceService;
     private final ChoiceCodec choiceCodec;
-    private final TurnProcessor turnProcessor;
+    private final TurnProcessor turnProcessor = new TurnProcessor();
     private final ImagePromptComposer imagePromptComposer;
     private final CostRateLimiter costRateLimiter;
     private final ProviderCallTelemetry providerCallTelemetry;

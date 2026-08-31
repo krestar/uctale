@@ -5,20 +5,10 @@ import com.uctale.uctale.domain.game.ActionResolver;
 import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.domain.game.StateTransition;
 import com.uctale.uctale.domain.game.TurnResolution;
-import org.springframework.stereotype.Component;
 
-@Component
-public class TurnProcessor {
+public final class TurnProcessor {
 
-    private final ActionResolver actionResolver;
-
-    public TurnProcessor() {
-        this(new ActionResolver());
-    }
-
-    TurnProcessor(ActionResolver actionResolver) {
-        this.actionResolver = actionResolver;
-    }
+    private final ActionResolver actionResolver = new ActionResolver();
 
     public TurnResolution resolve(GameState state, PlayerAction action) {
         return actionResolver.resolve(state, action);
