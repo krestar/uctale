@@ -12,6 +12,8 @@ public record CharacterStats(
     public static final int DEFAULT_SCORE = 10;
     public static final int MIN_SCORE = 1;
     public static final int MAX_SCORE = 30;
+    public static final int MIN_MODIFIER = Math.floorDiv(MIN_SCORE - 10, 2);
+    public static final int MAX_MODIFIER = Math.floorDiv(MAX_SCORE - 10, 2);
 
     public CharacterStats {
         validateScore("might", might);

@@ -67,11 +67,7 @@ public class GameStateUpgrader {
     }
 
     private VersionedState upgradeV0ToV1(VersionedState legacy) {
-        return new VersionedState(
-                1,
-                legacy.rulesetVersion(),
-                legacy.state()
-        );
+        return new VersionedState(1, legacy.rulesetVersion(), legacy.state());
     }
 
     private VersionedState upgradeV1ToV2(VersionedState source) {
@@ -113,11 +109,11 @@ public class GameStateUpgrader {
         if (!value.isIntegralNumber()) {
             throw new GameStateSnapshotException("snapshot 능력치 " + enumKey + "가 정수가 아닙니다.");
         }
-        int score = value.asInt();
+        long score = value.asLong();
         if (score < CharacterStats.MIN_SCORE || score > CharacterStats.MAX_SCORE) {
             throw new GameStateSnapshotException("snapshot 능력치 " + enumKey + "가 허용 범위를 벗어났습니다: " + score);
         }
-        return score;
+        return (int) score;
     }
 
     private boolean looksLikeLegacyState(JsonNode snapshotJson) {

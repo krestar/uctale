@@ -17,6 +17,9 @@ public record SkillCheckResult(
         Objects.requireNonNull(outcome, "outcome은 필수입니다.");
         new DiceRoll(rawRoll);
         new Difficulty(dc);
+        if (statModifier < CharacterStats.MIN_MODIFIER || statModifier > CharacterStats.MAX_MODIFIER) {
+            throw new IllegalArgumentException("stat modifier가 허용 범위를 벗어났습니다.");
+        }
         if (situationalModifier < SkillCheck.MIN_SITUATIONAL_MODIFIER
                 || situationalModifier > SkillCheck.MAX_SITUATIONAL_MODIFIER) {
             throw new IllegalArgumentException("상황 modifier가 허용 범위를 벗어났습니다.");
