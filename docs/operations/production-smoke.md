@@ -22,17 +22,17 @@ UCTale의 일반 CI는 테스트, lint, build를 검증하지만 실제 Vercel f
 
 ## 비용 정책
 
-자동 post-deploy smoke에서는 `/init`, `/progress`, image generation을 호출하지 않습니다. 이 경로들은 Gemini 또는 Pollinations provider 비용이 발생할 수 있으므로 코드 push마다 자동 반복하지 않습니다.
+자동 post-deploy smoke에서는 `/init`, `/progress`, image generation을 호출하지 않습니다. 이 경로들은 Gemini 또는 Pollinations provider 비용이 발생할 수 있으므로 code push마다 자동 반복하지 않습니다.
 
-따라서 자동 smoke의 provider 호출 수는 항상 0회입니다. 실제 narrative 생성, 턴 진행, image asset 생성은 기능 변경 또는 M2 종료 검증 시 수동 smoke 대상으로 유지합니다.
+따라서 자동 smoke의 provider 호출 수는 항상 0회입니다. 실제 narrative 생성, 턴 진행, image asset 생성은 해당 기능의 계약이 바뀌거나 milestone/release 종료 검증이 필요할 때 수동 smoke 대상으로 유지합니다.
 
 ## GitHub Actions secret
 
-Repository Actions secret에 다음 값을 한 번 등록해야 합니다.
+Repository Actions secret에 다음 값을 등록합니다.
 
-- `PRODUCTION_SMOKE_ACCESS_PASSWORD`: 현재 production `GAME_ACCESS_PASSWORD`와 같은 공유 베타 비밀번호
+- `PRODUCTION_SMOKE_ACCESS_PASSWORD`: production `GAME_ACCESS_PASSWORD`와 같은 공유 베타 비밀번호
 
-workflow와 스크립트는 secret 값을 출력하지 않습니다. 비밀번호 JSON과 cookie jar는 runner의 임시 디렉터리에만 만들고 종료 시 삭제합니다. response의 `Set-Cookie` header나 cookie 값도 로그에 출력하지 않습니다.
+workflow와 스크립트는 secret 값을 출력하지 않습니다. 비밀번호 JSON과 cookie jar는 runner 임시 디렉터리에만 만들고 종료 시 삭제합니다. response의 `Set-Cookie` header나 cookie 값도 로그에 출력하지 않습니다.
 
 ## 실행 조건
 
@@ -56,15 +56,15 @@ workflow와 스크립트는 secret 값을 출력하지 않습니다. 비밀번�
 
 ## 수동 smoke로 남기는 범위
 
-다음 항목은 #70 자동화 범위 밖에 둡니다.
+다음 항목은 자동화 범위 밖입니다.
 
-- 실제 `/init` narrative 생성
+- 실제 `/init` Narrative 생성
 - 실제 `/progress` 턴 진행
 - 실제 image asset provider fetch
 - 브라우저 UI interaction과 visual regression
 - production 실패 시 자동 rollback
 
-이 항목은 provider 비용 또는 브라우저 수준 검증이 필요합니다. 관련 기능을 변경했거나 milestone 종료 게이트를 확인할 때 수동으로 검증합니다.
+provider 비용 또는 browser 수준 검증이 필요한 항목입니다. 관련 기능을 변경했거나 release/milestone gate를 확인할 때 수동으로 검증합니다.
 
 ## 로컬 실행
 

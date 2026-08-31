@@ -60,9 +60,7 @@ The production family is **SUIT Variable 2.0.5**, installed from the official `@
 - Story line-height is approximately `1.82`.
 - A system sans-serif fallback remains available while the webfont is loading.
 
-SUIT is distributed under the SIL Open Font License 1.1. The repository keeps a third-party notice in `frontend/THIRD_PARTY_NOTICES.md`; the package's own license remains available in the installed dependency.
-
-Pretendard remains a reasonable alternative, but using both families would add payload and reopen a decision that does not currently solve an observed readability problem.
+SUIT is distributed under the SIL Open Font License 1.1. The repository keeps a third-party notice in `frontend/THIRD_PARTY_NOTICES.md`.
 
 ## Component boundary
 
@@ -76,7 +74,7 @@ Screen presentation is separated into:
 - `ThemeSelector`
 - `BrandHeader`
 
-`GameImage` continues to own authenticated image fetching/object URL lifecycle. `TypewriterText` continues to own typing behavior. Their visual styles live in CSS rather than JSX.
+`GameImage` owns authenticated image fetching/object URL lifecycle. `TypewriterText` owns typing behavior. Their visual styles live in CSS rather than JSX.
 
 Generic `Button`, `Field`, `Surface`, or atomic-design wrappers are not introduced until repeated APIs/variants justify them.
 
@@ -84,10 +82,19 @@ Generic `Button`, `Field`, `Surface`, or atomic-design wrappers are not introduc
 
 This foundation deliberately does **not** add Tailwind, shadcn/ui, Radix UI, Lucide, CSS-in-JS, or a full design-system package.
 
-Native controls and plain CSS are sufficient for the current screens. A headless primitive can be reconsidered when a real complex interaction such as Dialog/Popover/Select appears (for example during later Save/Resume work).
+Native controls and plain CSS are sufficient for the current screens. A headless primitive can be reconsidered when a real complex interaction such as Dialog/Popover/Select appears.
 
-## Scope boundary with #48
+## Interaction and accessibility status
 
-This foundation owns visual identity, typography, theme, semantic tokens, base responsive composition, screen-level presentation boundaries, and visual focus/contrast/zoom baseline.
+#48의 공유 베타 interaction/accessibility 마감은 완료되어 현재 main에 다음 behavior가 포함되어 있습니다.
 
-Issue #48 remains responsible for behavior-level polish such as inline API error/retry, consistent loading/disabled states, typewriter skip/reduced motion, image failure recovery, `aria-live`/`aria-busy`, focus movement, and end-to-end keyboard flow.
+- browser `alert()` 대신 화면 문맥의 inline error/retry
+- init/progress 요청 중 중복 submit 차단과 disabled/loading 상태
+- typewriter 진행 중 명시적 skip과 완료 callback 단일 실행
+- `prefers-reduced-motion`에서 typing animation 생략
+- image loading/failure 상태와 16:9 frame 유지
+- `aria-live`, `aria-busy` 등 상태 전달
+- request 완료 후 주요 content로의 focus 이동
+- 인증 만료와 일반 API failure의 UX 분리
+
+이 문서는 visual foundation과 interaction contract의 현재 기준을 기록합니다. 이후 Save/Resume, Skill Check 결과 UI처럼 새로운 화면 요구가 생기면 기존 semantic token과 narrative-first hierarchy를 우선 재사용합니다.
