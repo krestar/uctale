@@ -55,11 +55,7 @@ public class GameService {
 
     public GameResponse initGame(CostRequestContext costContext, GameInitRequest request) {
         GameMutationRequestService.BeginResult mutation = mutationRequestService.begin(
-                costContext.ownerKey(),
-                GameMutationRequestService.INIT,
-                costContext.idempotencyKey(),
-                null,
-                null,
+                costContext.ownerKey(), GameMutationRequestService.INIT, costContext.idempotencyKey(), null, null,
                 mutationFingerprint.init(request)
         );
         if (mutation.replay()) {
@@ -83,16 +79,9 @@ public class GameService {
             ImageAssetService.AssetReference imageAsset = imageAssetService.issue(imagePrompt, "16:9");
 
             var session = gamePersistenceService.saveOpening(
-                    costContext.ownerKey(),
-                    request.worldSetting(),
-                    request.characterSetting(),
-                    opening.storyText(),
-                    choiceCodec.serialize(choices),
-                    imageAsset,
-                    mutation.requestId(),
-                    opening.title()
+                    costContext.ownerKey(), request.worldSetting(), request.characterSetting(), opening.storyText(),
+                    choiceCodec.serialize(choices), imageAsset, mutation.requestId(), opening.title()
             );
-
             return toResponse(session.getId(), session.getCurrentTurn(), opening, choices, imageAsset.publicUrl());
         } catch (RuntimeException exception) {
             mutationRequestService.markFailed(mutation.requestId());
@@ -106,12 +95,8 @@ public class GameService {
 
     public GameResponse progressGame(CostRequestContext costContext, GameProgressRequest request) {
         GameMutationRequestService.BeginResult mutation = mutationRequestService.begin(
-                costContext.ownerKey(),
-                GameMutationRequestService.PROGRESS,
-                costContext.idempotencyKey(),
-                request.sessionId(),
-                request.expectedTurn(),
-                mutationFingerprint.progress(request)
+                costContext.ownerKey(), GameMutationRequestService.PROGRESS, costContext.idempotencyKey(),
+                request.sessionId(), request.expectedTurn(), mutationFingerprint.progress(request)
         );
         if (mutation.replay()) {
             return replay(costContext.ownerKey(), mutation);
@@ -121,10 +106,9 @@ public class GameService {
             GamePersistenceService.LoadedTurn loadedTurn = gamePersistenceService.loadLatestTurn(
                     costContext.ownerKey(), request.sessionId(), request.expectedTurn()
             );
-
             CostRequestContext providerContext = new CostRequestContext(
-                    costContext.requestId(), costContext.ownerKey(), costContext.clientIp(),
-                    loadedTurn.sessionId(), request.expectedTurn() + 1, costContext.idempotencyKey()
+                    costContext.requestId(), costContext.ownerKey(), costContext.clientIp(), loadedTurn.sessionId(),
+                    request.expectedTurn() + 1, costContext.idempotencyKey()
             );
 
             String userChoiceText = choiceCodec.findText(loadedTurn.choicesJson(), request.choiceId());
@@ -151,24 +135,14 @@ public class GameService {
 
             GameState nextState = loadedTurn.gameState().advance(userChoiceText, nextTurn.storyText());
             GameTurnCommit commit = new GameTurnCommit(
-                    request.expectedTurn(),
-                    request.choiceId(),
-                    userChoiceText,
-                    loadedTurn.gameState(),
-                    nextState,
-                    nextTurn.storyText(),
-                    choiceCodec.serialize(choices),
-                    imageAsset
+                    request.expectedTurn(), request.choiceId(), userChoiceText, loadedTurn.gameState(), nextState,
+                    nextTurn.storyText(), choiceCodec.serialize(choices), imageAsset
             );
 
             int savedTurn = gamePersistenceService.saveNextTurn(
-                    costContext.ownerKey(),
-                    loadedTurn.sessionId(),
-                    commit,
-                    mutation.requestId(),
-                    nextTurn.title()
+                    costContext.ownerKey(), loadedTurn.sessionId(), commit, mutation.requestId(), nextTurn.title(),
+                    mutation.reservationOwner()
             );
-
             return toResponse(loadedTurn.sessionId(), savedTurn, nextTurn, choices, imageUrl);
         } catch (RuntimeException exception) {
             mutationRequestService.markFailed(mutation.requestId());
@@ -184,12 +158,8 @@ public class GameService {
                 ownerKey, mutation.resultSessionId(), mutation.resultTurn()
         );
         return new GameResponse(
-                mutation.resultSessionId(),
-                mutation.resultTurn(),
-                mutation.resultTitle(),
-                turn.storyText(),
-                choiceCodec.deserialize(turn.choicesJson()),
-                turn.imageUrl()
+                mutation.resultSessionId(), mutation.resultTurn(), mutation.resultTitle(), turn.storyText(),
+                choiceCodec.deserialize(turn.choicesJson()), turn.imageUrl()
         );
     }
 
