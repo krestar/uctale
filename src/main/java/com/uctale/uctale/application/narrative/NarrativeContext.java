@@ -67,6 +67,10 @@ public record NarrativeContext(
         );
     }
 
+    public String playerAction() {
+        return resolvedAction.displayText();
+    }
+
     public record ResolvedAction(
             int legacyChoiceId,
             ActionType type,
