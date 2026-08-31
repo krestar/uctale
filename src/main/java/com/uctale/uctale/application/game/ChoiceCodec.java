@@ -60,11 +60,24 @@ public class ChoiceCodec {
                 .findFirst()
                 .orElseThrow(this::invalidAction);
 
+        boolean legacyWireRequest = request.actionToken() == null
+                && request.actionType() == null
+                && request.sourceTurn() == null
+                && request.arguments() == null;
+
         if (storedChoice.actionToken() == null || storedChoice.actionToken().isBlank()) {
-            return resolveLegacy(storedChoice, request);
+            if (!legacyWireRequest) throw invalidAction();
+            return legacyPlayerAction(storedChoice, request.expectedTurn());
         }
 
         AvailableAction available = toDomain(storedChoice);
+        if (available.sourceTurn() != request.expectedTurn()) {
+            throw invalidAction();
+        }
+        if (legacyWireRequest) {
+            return playerActionFrom(available);
+        }
+
         ActionType requestedType;
         try {
             requestedType = ActionType.valueOf(request.actionType());
@@ -72,24 +85,21 @@ public class ChoiceCodec {
             throw invalidAction();
         }
 
-        Map<String, String> requestedArguments = request.arguments() == null ? Map.of() : Map.copyOf(request.arguments());
+        Map<String, String> requestedArguments;
+        try {
+            requestedArguments = request.arguments() == null ? Map.of() : Map.copyOf(request.arguments());
+        } catch (RuntimeException exception) {
+            throw invalidAction();
+        }
         if (!available.token().equals(request.actionToken())
                 || available.type() != requestedType
-                || available.sourceTurn() != request.expectedTurn()
                 || request.sourceTurn() == null
                 || available.sourceTurn() != request.sourceTurn()
                 || !available.arguments().equals(requestedArguments)) {
             throw invalidAction();
         }
 
-        return new PlayerAction(
-                available.legacyChoiceId(),
-                available.token(),
-                available.type(),
-                available.sourceTurn(),
-                available.arguments(),
-                available.displayText()
-        );
+        return playerActionFrom(available);
     }
 
     public String findText(String json, int choiceId) {
@@ -100,17 +110,25 @@ public class ChoiceCodec {
                 .orElseThrow(this::invalidAction);
     }
 
-    private PlayerAction resolveLegacy(GameChoice storedChoice, GameProgressRequest request) {
-        if (request.actionToken() != null || request.actionType() != null || request.sourceTurn() != null || request.arguments() != null) {
-            throw invalidAction();
-        }
+    private PlayerAction legacyPlayerAction(GameChoice storedChoice, int expectedTurn) {
         return new PlayerAction(
                 storedChoice.id(),
                 null,
                 ActionType.NARRATIVE_CHOICE,
-                request.expectedTurn(),
+                expectedTurn,
                 Map.of("choiceId", Integer.toString(storedChoice.id())),
                 storedChoice.text()
+        );
+    }
+
+    private PlayerAction playerActionFrom(AvailableAction available) {
+        return new PlayerAction(
+                available.legacyChoiceId(),
+                available.token(),
+                available.type(),
+                available.sourceTurn(),
+                available.arguments(),
+                available.displayText()
         );
     }
 
