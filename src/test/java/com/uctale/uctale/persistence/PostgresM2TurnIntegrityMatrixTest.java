@@ -43,6 +43,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -54,6 +55,7 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
 
     private static final String OWNER_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     private static final int LEASE_SECONDS = 30;
+    private static final long ASYNC_TIMEOUT_SECONDS = 5;
 
     @Autowired private GamePersistenceService persistenceService;
     @Autowired private GameMutationRequestRepository mutationRequestRepository;
@@ -161,16 +163,19 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
                     ready, start, rejected, "matrix-concurrent-key-b", request
             ));
 
-            ready.await();
+            awaitLatch(ready, "동시 요청 준비");
             start.countDown();
             narrativeGenerator.awaitProgressEntry();
-            rejected.await();
+            awaitLatch(rejected, "reservation 경쟁 요청 거부");
 
             assertThat(narrativeGenerator.progressCalls()).as("provider calls while lease is active").isEqualTo(1);
             assertThat(reservationCount(opening.sessionId(), 1)).as("active reservation rows").isEqualTo(1);
 
             narrativeGenerator.releaseProgress();
-            List<ProgressAttempt> attempts = List.of(first.get(), second.get());
+            List<ProgressAttempt> attempts = List.of(
+                    first.get(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS),
+                    second.get(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            );
             List<ProgressAttempt> winners = attempts.stream().filter(ProgressAttempt::succeeded).toList();
             List<ProgressAttempt> losers = attempts.stream().filter(attempt -> !attempt.succeeded()).toList();
 
@@ -228,7 +233,11 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
             assertThat(jdbcTemplate.queryForObject(
                     "select attempt_count from game_turn_reservation where session_id = ? and expected_turn = ?",
                     Integer.class, opening.sessionId(), 1
-            )).as("reservation attempt_count session=%d turn=1", opening.sessionId()).isEqualTo(2);
+            )).as("legacy lease attempt_count session=%d turn=1", opening.sessionId()).isEqualTo(2);
+            assertThat(jdbcTemplate.queryForObject(
+                    "select provider_attempt_count from game_turn_reservation where session_id = ? and expected_turn = ?",
+                    Integer.class, opening.sessionId(), 1
+            )).as("provider attempt count session=%d turn=1", opening.sessionId()).isEqualTo(2);
 
             assertThatThrownBy(() -> commitWithReservation(
                     opening.sessionId(), crashedRequestId, staleOwner, "stale-owner-story"
@@ -237,7 +246,7 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
                     .hasMessageContaining("reservation");
 
             narrativeGenerator.releaseProgress();
-            GameResponse recovered = takeover.get();
+            GameResponse recovered = takeover.get(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
             assertThat(recovered.turnNumber()).isEqualTo(2);
             assertThat(narrativeGenerator.progressCalls())
@@ -260,7 +269,9 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
     ) {
         return () -> {
             ready.countDown();
-            start.await();
+            if (!start.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                return ProgressAttempt.failure(key, new IllegalStateException("동시 요청 시작 신호를 받지 못했습니다."));
+            }
             try {
                 GameResponse response = gameService.progressGame(
                         progressContext(key, request.sessionId()), request
@@ -273,6 +284,12 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
                 return ProgressAttempt.failure(key, exception);
             }
         };
+    }
+
+    private void awaitLatch(CountDownLatch latch, String phase) throws InterruptedException {
+        assertThat(latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                .as("%s latch가 제한 시간 안에 완료되어야 한다", phase)
+                .isTrue();
     }
 
     private GameResponse createOpening(String key) {
@@ -420,7 +437,9 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
             if (entered != null && release != null) {
                 entered.countDown();
                 try {
-                    release.await();
+                    if (!release.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("fake provider release 신호가 제한 시간 안에 오지 않았습니다.");
+                    }
                 } catch (InterruptedException exception) {
                     Thread.currentThread().interrupt();
                     throw new IllegalStateException("fake provider가 중단되었습니다.", exception);
@@ -437,7 +456,9 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
         void awaitProgressEntry() throws InterruptedException {
             CountDownLatch entered = progressEntered.get();
             if (entered != null) {
-                entered.await();
+                assertThat(entered.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                        .as("fake provider가 제한 시간 안에 진입해야 한다")
+                        .isTrue();
             }
         }
 
@@ -506,6 +527,21 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
                 throw outcome.blocked();
             }
             return outcome.result();
+        }
+
+        @Override
+        public void markProviderAttemptStarted(Long requestId, String reservationOwner) {
+            MutationInProgressException blocked = transactionTemplate.execute(status -> {
+                try {
+                    super.markProviderAttemptStarted(requestId, reservationOwner);
+                    return null;
+                } catch (MutationInProgressException exception) {
+                    return exception;
+                }
+            });
+            if (blocked != null) {
+                throw blocked;
+            }
         }
 
         @Override
