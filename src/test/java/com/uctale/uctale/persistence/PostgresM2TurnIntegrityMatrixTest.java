@@ -48,12 +48,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.spy;
 
 @SpringBootTest
 class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
@@ -201,16 +195,7 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
         GameProgressRequest request = new GameProgressRequest(opening.sessionId(), 1, 1);
         String crashedKey = "matrix-crash-key-a";
 
-        GamePersistenceService crashingPersistence = spy(persistenceService);
-        doThrow(new SimulatedCrash()).when(crashingPersistence).saveNextTurn(
-                eq(OWNER_KEY),
-                anyLong(),
-                any(GameTurnCommit.class),
-                anyLong(),
-                anyString(),
-                anyString()
-        );
-        GameService crashingService = newGameService(crashingPersistence);
+        GameService crashingService = newGameService(new CrashBeforeCommitPersistence(persistenceService));
 
         assertThatThrownBy(() -> crashingService.progressGame(
                 progressContext(crashedKey, opening.sessionId()), request
@@ -541,6 +526,32 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
             static BeginOutcome blocked(MutationInProgressException exception) {
                 return new BeginOutcome(null, exception);
             }
+        }
+    }
+
+    private static final class CrashBeforeCommitPersistence extends GamePersistenceService {
+        private final GamePersistenceService delegate;
+
+        CrashBeforeCommitPersistence(GamePersistenceService delegate) {
+            super(null, null, null, null, null, null, null);
+            this.delegate = delegate;
+        }
+
+        @Override
+        public LoadedTurn loadLatestTurn(String ownerKey, Long sessionId, int expectedTurn) {
+            return delegate.loadLatestTurn(ownerKey, sessionId, expectedTurn);
+        }
+
+        @Override
+        public int saveNextTurn(
+                String ownerKey,
+                Long sessionId,
+                GameTurnCommit commit,
+                Long mutationRequestId,
+                String resultTitle,
+                String reservationOwner
+        ) {
+            throw new SimulatedCrash();
         }
     }
 
