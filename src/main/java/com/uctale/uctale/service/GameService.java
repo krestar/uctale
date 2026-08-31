@@ -10,13 +10,15 @@ import com.uctale.uctale.application.game.GameMutationRequestService;
 import com.uctale.uctale.application.game.GamePersistenceService;
 import com.uctale.uctale.application.game.GameTurnCommit;
 import com.uctale.uctale.application.game.ImagePromptComposer;
+import com.uctale.uctale.application.game.TurnProcessor;
 import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.application.narrative.InvalidNarrativeResponseException;
 import com.uctale.uctale.application.narrative.NarrativeContext;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
 import com.uctale.uctale.domain.action.PlayerAction;
-import com.uctale.uctale.domain.game.GameState;
+import com.uctale.uctale.domain.game.StateTransition;
+import com.uctale.uctale.domain.game.TurnResolution;
 import com.uctale.uctale.dto.GameChoice;
 import com.uctale.uctale.dto.GameInitRequest;
 import com.uctale.uctale.dto.GameProgressRequest;
@@ -44,6 +46,7 @@ public class GameService {
     private final ImageAssetService imageAssetService;
     private final GamePersistenceService gamePersistenceService;
     private final ChoiceCodec choiceCodec;
+    private final TurnProcessor turnProcessor;
     private final ImagePromptComposer imagePromptComposer;
     private final CostRateLimiter costRateLimiter;
     private final ProviderCallTelemetry providerCallTelemetry;
@@ -113,7 +116,8 @@ public class GameService {
             );
 
             PlayerAction playerAction = choiceCodec.resolve(loadedTurn.choicesJson(), request);
-            String userChoiceText = playerAction.displayText();
+            TurnResolution resolution = turnProcessor.resolve(loadedTurn.gameState(), playerAction);
+            String userChoiceText = resolution.gameResult().resolvedAction().displayText();
             NarrativeContext narrativeContext = NarrativeContext.from(loadedTurn.gameState(), userChoiceText);
             costRateLimiter.check(CostOperation.NARRATIVE, providerContext);
             NarrativeTurn nextTurn = providerCallTelemetry.observe(
@@ -124,6 +128,7 @@ public class GameService {
                     () -> narrativeGenerator.createNextTurn(narrativeContext)
             );
             validateNarrativeTurn(nextTurn);
+            StateTransition committedTransition = turnProcessor.attachNarrative(resolution, nextTurn.storyText());
             List<GameChoice> choices = choiceCodec.issue(nextTurn.choices(), request.expectedTurn() + 1);
 
             ImageAssetService.AssetReference imageAsset = null;
@@ -138,10 +143,9 @@ public class GameService {
                 log.info("시각적 변화 없음 -> 이전 이미지 asset 재사용");
             }
 
-            GameState nextState = loadedTurn.gameState().advance(userChoiceText, nextTurn.storyText());
             GameTurnCommit commit = new GameTurnCommit(
-                    request.expectedTurn(), playerAction.legacyChoiceId(), userChoiceText, loadedTurn.gameState(), nextState,
-                    nextTurn.storyText(), choiceCodec.serialize(choices), imageAsset
+                    request.expectedTurn(), resolution.gameResult().resolvedAction().legacyChoiceId(), userChoiceText,
+                    committedTransition, nextTurn.storyText(), choiceCodec.serialize(choices), imageAsset
             );
 
             int savedTurn = gamePersistenceService.saveNextTurn(

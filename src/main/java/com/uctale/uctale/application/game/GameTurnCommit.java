@@ -2,13 +2,13 @@ package com.uctale.uctale.application.game;
 
 import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.domain.game.GameState;
+import com.uctale.uctale.domain.game.StateTransition;
 
 public record GameTurnCommit(
         int expectedTurn,
         int inputChoiceId,
         String inputChoiceText,
-        GameState previousState,
-        GameState nextState,
+        StateTransition stateTransition,
         String storyText,
         String choicesJson,
         ImageAssetService.AssetReference imageAsset
@@ -23,13 +23,13 @@ public record GameTurnCommit(
         if (inputChoiceText == null || inputChoiceText.isBlank()) {
             throw new IllegalArgumentException("inputChoiceText는 비어 있을 수 없습니다.");
         }
-        if (previousState == null || nextState == null) {
-            throw new IllegalArgumentException("state transition은 null일 수 없습니다.");
+        if (stateTransition == null) {
+            throw new IllegalArgumentException("stateTransition은 null일 수 없습니다.");
         }
-        if (previousState.turnNumber() != expectedTurn) {
+        if (stateTransition.previousState().turnNumber() != expectedTurn) {
             throw new IllegalArgumentException("previousState turn과 expectedTurn이 일치해야 합니다.");
         }
-        if (nextState.turnNumber() != expectedTurn + 1) {
+        if (stateTransition.nextState().turnNumber() != expectedTurn + 1) {
             throw new IllegalArgumentException("nextState는 expectedTurn의 다음 turn이어야 합니다.");
         }
         if (storyText == null || storyText.isBlank()) {
@@ -40,11 +40,33 @@ public record GameTurnCommit(
         }
     }
 
+    public GameTurnCommit(
+            int expectedTurn,
+            int inputChoiceId,
+            String inputChoiceText,
+            GameState previousState,
+            GameState nextState,
+            String storyText,
+            String choicesJson,
+            ImageAssetService.AssetReference imageAsset
+    ) {
+        this(expectedTurn, inputChoiceId, inputChoiceText, new StateTransition(previousState, nextState),
+                storyText, choicesJson, imageAsset);
+    }
+
+    public GameState previousState() {
+        return stateTransition.previousState();
+    }
+
+    public GameState nextState() {
+        return stateTransition.nextState();
+    }
+
     public int previousStateVersion() {
-        return previousState.turnNumber();
+        return previousState().turnNumber();
     }
 
     public int nextStateVersion() {
-        return nextState.turnNumber();
+        return nextState().turnNumber();
     }
 }
