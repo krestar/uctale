@@ -124,6 +124,7 @@ class PostgresGameLogMigrationTest extends PostgresIntegrationTestSupport {
         assertThat(latest.info().pending()).as("schema=%s pending migrations", schema).isEmpty();
         assertThat(latest.info().applied())
                 .as("schema=%s applied migration chain", schema)
+                .filteredOn(info -> info.getVersion() != null)
                 .extracting(info -> info.getVersion().getVersion())
                 .contains("1", "2", "3", "4", "5", "6", "7", "8");
 
