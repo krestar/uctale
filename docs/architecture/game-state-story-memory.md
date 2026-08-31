@@ -43,7 +43,7 @@ UCTale의 결정적 게임 상태는 서버가 소유하고, LLM은 그 상태�
 
 랜덤은 `RandomSource` port로 분리합니다. production adapter는 `SecureRandom`을 사용하고 테스트는 fixed/sequence source로 결정적으로 검증합니다. 이 pure domain 판정은 Narrative provider를 호출하지 않습니다.
 
-#7 범위에서는 이 규칙을 실제 `/progress` turn pipeline, `GameResult`, NarrativeContext, DB roll ledger, frontend에 아직 연결하지 않습니다. Skill Check의 실제 통합은 #37/#38에서 수행합니다.
+#7 범위에서는 이 규칙을 실제 `/progress` turn pipeline과 DB roll ledger에 아직 연결하지 않습니다. Skill Check의 실제 통합은 #37/#38에서 수행합니다.
 
 ## Story Memory
 
@@ -61,13 +61,13 @@ Story Memory는 세 계층으로 구분합니다.
    - 가장 최근 6턴
    - 플레이어 행동과 결과 본문 보관
 
-Narrative Engine에는 전체 `game_log` 대신 위 계층과 현재 요청에 필요한 행동 문맥만 전달합니다.
+Narrative Engine에는 전체 `game_log` 대신 read-only memory projection과 현재 요청에 필요한 canonical result/state 문맥만 전달합니다. Story Memory 자체의 canonical projection/token budget 재설계는 #46 범위입니다.
 
 ## 메모리 우선순위
 
 충돌 시 다음 순서를 따릅니다.
 
-`canonicalFacts > rollingSummary > recentTurns > LLM 생성 내용`
+`GameResult / canonical state > canonicalFacts > rollingSummary > recentTurns > LLM 생성 내용`
 
 LLM 응답 자체는 canonical rule state 변경 권한이 없습니다.
 
@@ -82,22 +82,24 @@ LLM 응답 자체는 canonical rule state 변경 권한이 없습니다.
 
 #34 이후 검증된 `PlayerAction`은 `ActionResolver`에서 `TurnResolution(GameResult, StateTransition)`으로 resolve됩니다. 현재 `ActionType`은 `NARRATIVE_CHOICE` 하나이므로 resolver registry는 두지 않습니다.
 
+#36 이후 Narrative provider에는 raw state/action 문자열 조합 대신 확정된 `GameResult`와 canonical next-state에서 만든 provider-safe `NarrativeContext`를 전달합니다. 서버 발급 `PlayerAction.token`은 provider context에 포함하지 않습니다.
+
 ## 현재 턴 처리 흐름
 
 1. idempotency와 `(session_id, expected_turn)` reservation을 확인합니다.
 2. `expectedTurn`으로 현재 세션과 `GameState.turnNumber`를 검증합니다.
 3. 제출된 `PlayerAction`을 현재 서버 발급 `AvailableAction`과 대조합니다.
 4. `ActionResolver`가 `GameResult`와 canonical next `StateTransition`을 pure domain operation으로 확정합니다.
-5. rate limit과 provider budget/attempt 경계를 확인합니다.
-6. 현재 #36 이전 compatibility 경로에서는 기존 state/action 문맥으로 `NarrativeContext`를 구성합니다.
-7. Narrative Engine이 이야기와 다음 choice 후보를 생성합니다.
+5. 확정 결과와 canonical next state에서 provider-safe `NarrativeContext`를 구성합니다.
+6. rate limit과 provider budget/attempt 경계를 확인합니다.
+7. Narrative Engine이 확정 결과를 재판정하지 않고 story와 다음 choice 후보를 생성합니다.
 8. 검증된 story prose는 확정된 rule transition을 변경하지 않고 `StoryMemory` transcript에만 부착합니다.
 9. 서버가 다음 server-issued available actions를 구성합니다.
-10. `GameTurnCommit`이 `StateTransition`을 소유한 채 canonical transaction에서 저장됩니다.
+10. `GameTurnCommit`이 `StateTransition`, `canonicalResultId`, `generatedStoryId`를 소유한 채 canonical transaction에서 저장됩니다.
 
-세부 책임과 provider/transaction 경계는 [action-resolution.md](./action-resolution.md)를 기준으로 합니다.
+세부 책임과 provider/transaction 경계는 [action-resolution.md](./action-resolution.md), prompt 계약과 retry/linkage 정책은 [narrative-context.md](./narrative-context.md)를 기준으로 합니다.
 
-#36에서는 `NarrativeContext`를 확정된 `GameResult`와 state projection 기반으로 전환해 provider가 성공/실패·roll·state change를 더 직접적으로 서술하도록 강화합니다. #37은 그 위에 Skill Check vertical slice를 연결합니다.
+#37은 이 경계 위에 실제 Skill Check vertical slice와 roll 결과를 연결합니다.
 
 ## 기존 세션 호환성
 
@@ -107,4 +109,6 @@ legacy stats가 없으면 기본값 10을 적용하고 canonical legacy stat 값
 
 `GameState.advance(playerAction, storyText)`는 legacy `GameLog` recovery에서 동일한 StoryMemory를 복원해야 하므로 compatibility method로 유지합니다. 새 turn pipeline은 규칙 단계의 `advanceTurn()`과 provider 이후의 `recordNarrativeTurn()`을 분리해 사용합니다.
 
-세부 내용은 [game-state-snapshot-evolution.md](./game-state-snapshot-evolution.md)를 기준으로 합니다.
+#36의 `game_log.canonical_result_id`와 `generated_story_id`는 legacy/opening 행에서 둘 다 `NULL`일 수 있도록 migration했습니다. 새 production progress commit은 두 linkage ID를 함께 기록하며 한쪽만 존재하는 상태는 DB CHECK constraint와 `GameTurnCommit`에서 거부합니다.
+
+세부 snapshot 내용은 [game-state-snapshot-evolution.md](./game-state-snapshot-evolution.md)를 기준으로 합니다.

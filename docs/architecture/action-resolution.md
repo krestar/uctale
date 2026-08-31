@@ -4,7 +4,7 @@
 
 UCTale의 결정적 게임 규칙은 Narrative provider가 아니라 서버가 소유한다. `/progress`는 서버가 발급한 `PlayerAction`을 먼저 규칙으로 해석하고, 그 결과와 canonical state transition을 확정한 뒤 Narrative provider를 호출한다.
 
-현재 #34에서는 첫 규칙 경계만 도입한다. 실제 action type은 `NARRATIVE_CHOICE` 하나이므로 resolver registry나 범용 Rule Engine은 만들지 않는다.
+현재 실제 action type은 `NARRATIVE_CHOICE` 하나이므로 resolver registry나 범용 Rule Engine은 만들지 않는다.
 
 ## 책임
 
@@ -46,11 +46,12 @@ application 단계에서 `ActionResolver` 호출과 resolved transition의 narra
 2. 현재 session/turn/canonical state 로드
 3. 서버 발급 action 검증
 4. `TurnProcessor.resolve()`로 `GameResult`와 canonical `StateTransition` 확정
-5. rate limit / provider attempt accounting 확인
-6. Narrative provider 호출
-7. provider 응답 검증
-8. 확정된 transition에 narrative transcript를 부착하고 다음 server-issued actions 구성
-9. `GameTurnCommit`으로 원자적 persistence 호출
+5. `GameResult`와 canonical next state에서 provider-safe `NarrativeContext` 구성
+6. rate limit / provider attempt accounting 확인
+7. Narrative provider 호출
+8. provider 응답 검증
+9. 확정된 transition에 narrative transcript를 부착하고 다음 server-issued actions 구성
+10. `GameTurnCommit`으로 원자적 persistence 호출
 
 `GameService`는 action type별 규칙 공식이나 상태 변경 세부 구현을 알지 않는다.
 
@@ -63,6 +64,7 @@ application 단계에서 `ActionResolver` 호출과 resolved transition의 narra
 - previous/next state version
 - DB의 canonical previous state와 transition의 previous state equality
 - optimistic lock / unique turn constraint
+- canonical result / generated story linkage pair
 
 Persistence는 user choice text나 story prose를 파싱해 규칙 결과를 계산하지 않는다.
 
@@ -76,29 +78,32 @@ Persistence는 user choice text나 story prose를 파싱해 규칙 결과를 계
 - 규칙이 만드는 state changes
 - canonical next turn/state transition
 - narrative cues
+- provider-safe `NarrativeContext`
 
-외부 provider 실패나 다른 prose가 위 값을 다시 판정하지 않는다.
+외부 provider 실패나 다른 prose가 위 값을 다시 판정하지 않는다. `PlayerAction.token`은 provider context에서 제외한다.
 
 ### Provider 호출 뒤 허용되는 것
 
 현재 `StoryMemory.recentTurns`는 기존 장기 narrative 호환을 위해 provider가 만든 story prose를 transcript로 보관한다. 이 단계는 이미 확정된 turn number, player/world state, canonical facts, `GameResult`를 변경하지 않는다.
 
-즉 #34에서는 **규칙 state transition**과 **narrative-memory transcript 완성**을 타입으로 분리했다. `StoryMemory`가 현재 `GameState` snapshot 안에 함께 저장되는 기존 schema는 유지한다. 이를 제거하거나 `NarrativeContext`를 `GameResult` projection으로 전환하는 작업은 #36/#46의 별도 범위다.
+`game_log`에는 새 progress turn부터 `canonical_result_id`와 `generated_story_id`를 함께 기록해 서버 결과와 최종 채택 prose의 연결을 남긴다. legacy/opening 행은 두 값이 모두 비어 있을 수 있다.
+
+Story Memory projection 자체의 전면 재설계와 token budget 개선은 #46 범위다. 세부 NarrativeContext 계약은 [narrative-context.md](./narrative-context.md)를 기준으로 한다.
 
 ## Transaction boundary
 
 Narrative/Image provider 네트워크 호출 동안 DB transaction을 열지 않는다.
 
 - load/reservation 검증: 짧은 DB transaction
-- action resolution: pure in-memory domain operation
+- action resolution/context projection: pure in-memory operation
 - Narrative/Image provider: DB transaction 밖
 - final commit: `GameTurnCommit`을 단일 persistence transaction으로 저장
 
-provider 호출 성공 후 commit 전 crash window에서 외부 provider가 재호출될 수 있다는 기존 bounded at-least-once 정책과 stale-owner fencing은 변경하지 않는다.
+provider 호출 성공 후 commit 전 crash window에서 외부 provider가 재호출될 수 있다는 bounded at-least-once 정책과 stale-owner fencing은 변경하지 않는다. 동일 idempotent mutation retry는 동일 canonical result link를 재구성하고, 완료된 mutation은 provider 없이 committed turn을 replay한다.
 
 ## 호환성
 
 - API wire contract와 기존 `NARRATIVE_CHOICE` 선택 흐름은 변경하지 않는다.
 - `GameState.advance(playerAction, storyText)`는 legacy log recovery와 기존 테스트 호환을 위해 남기되, 내부적으로 `advanceTurn()` + `recordNarrativeTurn()`을 사용한다.
-- snapshot schema/DB migration은 변경하지 않는다.
+- 기존 `game_log` 행은 신규 narrative linkage 컬럼이 `NULL`이어도 읽을 수 있다.
 - Skill Check 실제 turn 연결과 roll 감사 저장은 #37 범위다.

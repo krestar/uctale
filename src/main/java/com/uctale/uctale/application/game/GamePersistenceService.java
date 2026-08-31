@@ -120,8 +120,8 @@ public class GamePersistenceService {
                     : persistImageAsset(session, commit.nextStateVersion(), commit.imageAsset());
             gameSessionRepository.save(session);
             gameLogRepository.save(GameLog.committedTurn(session, commit.nextStateVersion(), commit.inputChoiceId(),
-                    commit.inputChoiceText(), commit.previousStateVersion(), commit.nextStateVersion(), commit.storyText(),
-                    commit.choicesJson(), imageUrl));
+                    commit.inputChoiceText(), commit.previousStateVersion(), commit.nextStateVersion(),
+                    commit.canonicalResultId(), commit.generatedStoryId(), commit.storyText(), commit.choicesJson(), imageUrl));
             GameStateSnapshot snapshot = gameStateSnapshotRepository.findById(sessionId)
                     .orElseGet(() -> new GameStateSnapshot(session, gameStateCodec.serialize(commit.previousState())));
             snapshot.updateStateJson(gameStateCodec.serialize(commit.nextState()));
