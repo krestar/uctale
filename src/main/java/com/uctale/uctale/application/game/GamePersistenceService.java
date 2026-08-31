@@ -103,7 +103,7 @@ public class GamePersistenceService {
     public int saveNextTurn(String ownerKey, Long sessionId, GameTurnCommit commit, Long mutationRequestId,
             String resultTitle, String reservationOwner) {
         try {
-            if (mutationRequestId != null) verifyReservation(sessionId, commit.expectedTurn(), reservationOwner);
+            if (reservationOwner != null) verifyReservation(sessionId, commit.expectedTurn(), reservationOwner);
             GameSession session = findOwnedSession(ownerKey, sessionId);
             validateCommitAgainstSession(session, commit);
             GameLog previousLog = gameLogRepository.findTopByGameSessionOrderByTurnNumberDesc(session)
@@ -127,7 +127,7 @@ public class GamePersistenceService {
             snapshot.updateStateJson(gameStateCodec.serialize(commit.nextState()));
             gameStateSnapshotRepository.save(snapshot);
             completeMutationRequest(mutationRequestId, session.getId(), session.getCurrentTurn(), resultTitle);
-            if (mutationRequestId != null) {
+            if (reservationOwner != null) {
                 int released = gameMutationRequestRepository.releaseReservation(sessionId, commit.expectedTurn(), mutationRequestId, reservationOwner);
                 if (released != 1) throw new TurnConflictException("턴 reservation 소유권이 변경되었습니다.");
             }
