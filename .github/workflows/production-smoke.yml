@@ -1,0 +1,62 @@
+name: Production Smoke
+
+on:
+  status:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-smoke
+  cancel-in-progress: true
+
+env:
+  UCTALE_SMOKE_FRONTEND_URL: https://uctale.vercel.app
+  UCTALE_SMOKE_BACKEND_URL: https://uctale.onrender.com/api/game
+  UCTALE_SMOKE_ORIGIN: https://uctale.vercel.app
+
+jobs:
+  production-smoke:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.context == 'Vercel' && github.event.state == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: 현재 main checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Vercel status가 현재 main 배포인지 확인
+        id: deployment
+        shell: bash
+        env:
+          STATUS_SHA: ${{ github.event.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "수동 production smoke를 실행합니다."
+            exit 0
+          fi
+
+          main_sha="$(git rev-parse HEAD)"
+          if [[ "$STATUS_SHA" != "$main_sha" ]]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Vercel status SHA가 현재 main HEAD와 달라 smoke를 건너뜁니다."
+            exit 0
+          fi
+
+          echo "run=true" >> "$GITHUB_OUTPUT"
+          echo "현재 main의 Vercel production 배포 완료를 확인했습니다."
+
+      - name: production smoke 실행
+        if: steps.deployment.outputs.run == 'true'
+        shell: bash
+        env:
+          UCTALE_SMOKE_ACCESS_PASSWORD: ${{ secrets.PRODUCTION_SMOKE_ACCESS_PASSWORD }}
+        run: bash scripts/production-smoke.sh
