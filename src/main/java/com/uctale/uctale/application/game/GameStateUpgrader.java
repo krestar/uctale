@@ -1,7 +1,10 @@
 package com.uctale.uctale.application.game;
 
+import com.uctale.uctale.domain.game.CharacterStats;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.JsonNodeFactory;
+import tools.jackson.databind.node.ObjectNode;
 
 @Component
 public class GameStateUpgrader {
@@ -56,6 +59,7 @@ public class GameStateUpgrader {
     private VersionedState upgradeOneVersion(VersionedState source) {
         return switch (source.schemaVersion()) {
             case GameStateSnapshotFormat.LEGACY_SCHEMA_VERSION -> upgradeV0ToV1(source);
+            case 1 -> upgradeV1ToV2(source);
             default -> throw new GameStateSnapshotException(
                     "snapshot schemaVersion " + source.schemaVersion() + "의 다음 upgrade 경로가 없습니다."
             );
@@ -68,6 +72,52 @@ public class GameStateUpgrader {
                 legacy.rulesetVersion(),
                 legacy.state()
         );
+    }
+
+    private VersionedState upgradeV1ToV2(VersionedState source) {
+        if (!(source.state().deepCopy() instanceof ObjectNode state)) {
+            throw new GameStateSnapshotException("snapshot state가 object가 아닙니다.");
+        }
+        JsonNode playerNode = state.get("playerCharacter");
+        if (!(playerNode instanceof ObjectNode playerCharacter)) {
+            throw new GameStateSnapshotException("snapshot playerCharacter가 누락되었거나 손상되었습니다.");
+        }
+
+        JsonNode legacyStats = playerCharacter.get("stats");
+        if (legacyStats != null && !legacyStats.isObject()) {
+            throw new GameStateSnapshotException("snapshot playerCharacter.stats가 object가 아닙니다.");
+        }
+
+        ObjectNode normalizedStats = JsonNodeFactory.instance.objectNode();
+        normalizedStats.put("might", legacyScore(legacyStats, "MIGHT", "might"));
+        normalizedStats.put("agility", legacyScore(legacyStats, "AGILITY", "agility"));
+        normalizedStats.put("intellect", legacyScore(legacyStats, "INTELLECT", "intellect"));
+        normalizedStats.put("will", legacyScore(legacyStats, "WILL", "will"));
+        normalizedStats.put("presence", legacyScore(legacyStats, "PRESENCE", "presence"));
+        playerCharacter.set("stats", normalizedStats);
+
+        return new VersionedState(2, source.rulesetVersion(), state);
+    }
+
+    private int legacyScore(JsonNode stats, String enumKey, String fieldKey) {
+        if (stats == null) {
+            return CharacterStats.DEFAULT_SCORE;
+        }
+        JsonNode value = stats.get(fieldKey);
+        if (value == null) {
+            value = stats.get(enumKey);
+        }
+        if (value == null) {
+            return CharacterStats.DEFAULT_SCORE;
+        }
+        if (!value.isIntegralNumber()) {
+            throw new GameStateSnapshotException("snapshot 능력치 " + enumKey + "가 정수가 아닙니다.");
+        }
+        int score = value.asInt();
+        if (score < CharacterStats.MIN_SCORE || score > CharacterStats.MAX_SCORE) {
+            throw new GameStateSnapshotException("snapshot 능력치 " + enumKey + "가 허용 범위를 벗어났습니다: " + score);
+        }
+        return score;
     }
 
     private boolean looksLikeLegacyState(JsonNode snapshotJson) {
