@@ -48,10 +48,7 @@ public class LoggingProviderCallEventSink implements ProviderCallEventSink {
         try {
             ProviderBudgetGuard.Usage before = budgetGuard.currentUsage();
             usageStore.record(clock.instant(), event, budgetUnits);
-            ProviderBudgetGuard.Usage after = new ProviderBudgetGuard.Usage(
-                    before.dailyUnits() + budgetUnits,
-                    before.monthlyUnits() + budgetUnits
-            );
+            ProviderBudgetGuard.Usage after = budgetGuard.currentUsage();
             alertIfThresholdCrossed(before, after, event);
         } catch (DataAccessException exception) {
             log.error(
