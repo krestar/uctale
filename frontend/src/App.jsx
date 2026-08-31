@@ -155,7 +155,7 @@ function App() {
     setProgressError(null)
 
     try {
-      const nextData = await progressGame(sessionId, choiceId, turnNumber, idempotencyKey)
+      const nextData = await progressGame(sessionId, choice, turnNumber, idempotencyKey)
       setGameData(nextData)
       setIsTypingComplete(false)
       setProgressError(null)
