@@ -1,6 +1,7 @@
 package com.uctale.uctale.application.cost;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -13,18 +14,26 @@ public class ProviderCallTelemetry {
     private final Clock clock;
     private final ProviderCallEventSink sink;
     private final ProviderBudgetGuard budgetGuard;
+    private final String imageModel;
 
     @Autowired
-    public ProviderCallTelemetry(Clock clock, ProviderCallEventSink sink, ProviderBudgetGuard budgetGuard) {
+    public ProviderCallTelemetry(
+            Clock clock,
+            ProviderCallEventSink sink,
+            ProviderBudgetGuard budgetGuard,
+            @Value("${game.image.model:flux}") String imageModel
+    ) {
         this.clock = clock;
         this.sink = sink;
         this.budgetGuard = budgetGuard;
+        this.imageModel = imageModel;
     }
 
     ProviderCallTelemetry(Clock clock, ProviderCallEventSink sink) {
         this.clock = clock;
         this.sink = sink;
         this.budgetGuard = null;
+        this.imageModel = "configured";
     }
 
     public <T> T observe(
@@ -122,6 +131,6 @@ public class ProviderCallTelemetry {
     }
 
     private String defaultModel(String provider) {
-        return "gemini".equals(provider) ? "gemini-2.5-flash" : "configured";
+        return "gemini".equals(provider) ? "gemini-2.5-flash" : imageModel;
     }
 }
