@@ -1,5 +1,6 @@
 package com.uctale.uctale.controller;
 
+import com.uctale.uctale.application.cost.ProviderBudgetExceededException;
 import com.uctale.uctale.application.cost.RateLimitExceededException;
 import com.uctale.uctale.application.game.GameSessionNotFoundException;
 import com.uctale.uctale.application.game.IdempotencyConflictException;
@@ -34,6 +35,10 @@ public class ApiExceptionHandler {
     @ExceptionHandler(RateLimitExceededException.class)
     public ResponseEntity<ApiError> handleRateLimit(RateLimitExceededException exception) {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).header(HttpHeaders.RETRY_AFTER, Long.toString(exception.retryAfterSeconds())).body(new ApiError("RATE_LIMIT_EXCEEDED", exception.getMessage()));
+    }
+    @ExceptionHandler(ProviderBudgetExceededException.class)
+    public ResponseEntity<ApiError> handleProviderBudgetExceeded(ProviderBudgetExceededException exception) {
+        return error(HttpStatus.SERVICE_UNAVAILABLE, "AI_BUDGET_EXCEEDED", exception.getMessage());
     }
     @ExceptionHandler(MutationInProgressException.class)
     public ResponseEntity<ApiError> handleMutationInProgress(MutationInProgressException exception) {

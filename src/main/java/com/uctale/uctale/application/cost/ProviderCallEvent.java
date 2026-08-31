@@ -2,6 +2,7 @@ package com.uctale.uctale.application.cost;
 
 public record ProviderCallEvent(
         String provider,
+        String model,
         String operation,
         Long sessionId,
         Integer turn,
@@ -10,4 +11,8 @@ public record ProviderCallEvent(
         long latencyMs,
         String outcome,
         int retryCount
-) {}
+) {
+    public int attemptCount() {
+        return retryCount + 1;
+    }
+}
