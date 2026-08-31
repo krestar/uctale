@@ -2,6 +2,7 @@ package com.uctale.uctale.application.game;
 
 import com.uctale.uctale.application.narrative.NarrativeTurn;
 import com.uctale.uctale.domain.action.ActionType;
+import com.uctale.uctale.domain.action.AvailableAction;
 import com.uctale.uctale.domain.action.PlayerAction;
 import com.uctale.uctale.dto.GameChoice;
 import com.uctale.uctale.dto.GameProgressRequest;
@@ -25,14 +26,15 @@ public class ChoiceCodec {
 
     public List<GameChoice> issue(List<NarrativeTurn.Choice> choices, int sourceTurn) {
         return choices.stream()
-                .map(choice -> new GameChoice(
+                .map(choice -> new AvailableAction(
                         choice.id(),
-                        choice.text(),
                         UUID.randomUUID().toString(),
-                        ActionType.NARRATIVE_CHOICE.name(),
+                        ActionType.NARRATIVE_CHOICE,
                         sourceTurn,
-                        Map.of("choiceId", Integer.toString(choice.id()))
+                        Map.of("choiceId", Integer.toString(choice.id())),
+                        choice.text()
                 ))
+                .map(this::toDto)
                 .toList();
     }
 
@@ -53,25 +55,16 @@ public class ChoiceCodec {
     }
 
     public PlayerAction resolve(String json, GameProgressRequest request) {
-        GameChoice available = deserialize(json).stream()
+        GameChoice storedChoice = deserialize(json).stream()
                 .filter(choice -> choice.id() == request.choiceId())
                 .findFirst()
-                .orElseThrow(() -> invalidAction());
+                .orElseThrow(this::invalidAction);
 
-        if (available.actionToken() == null || available.actionToken().isBlank()) {
-            if (request.actionToken() != null || request.actionType() != null || request.sourceTurn() != null || request.arguments() != null) {
-                throw invalidAction();
-            }
-            return new PlayerAction(
-                    available.id(),
-                    null,
-                    ActionType.NARRATIVE_CHOICE,
-                    request.expectedTurn(),
-                    Map.of("choiceId", Integer.toString(available.id())),
-                    available.text()
-            );
+        if (storedChoice.actionToken() == null || storedChoice.actionToken().isBlank()) {
+            return resolveLegacy(storedChoice, request);
         }
 
+        AvailableAction available = toDomain(storedChoice);
         ActionType requestedType;
         try {
             requestedType = ActionType.valueOf(request.actionType());
@@ -80,23 +73,22 @@ public class ChoiceCodec {
         }
 
         Map<String, String> requestedArguments = request.arguments() == null ? Map.of() : Map.copyOf(request.arguments());
-        Map<String, String> availableArguments = available.arguments() == null ? Map.of() : Map.copyOf(available.arguments());
-        if (!available.actionToken().equals(request.actionToken())
-                || !available.actionType().equals(requestedType.name())
-                || available.sourceTurn() == null
+        if (!available.token().equals(request.actionToken())
+                || available.type() != requestedType
                 || available.sourceTurn() != request.expectedTurn()
-                || !available.sourceTurn().equals(request.sourceTurn())
-                || !availableArguments.equals(requestedArguments)) {
+                || request.sourceTurn() == null
+                || available.sourceTurn() != request.sourceTurn()
+                || !available.arguments().equals(requestedArguments)) {
             throw invalidAction();
         }
 
         return new PlayerAction(
-                available.id(),
-                available.actionToken(),
-                requestedType,
+                available.legacyChoiceId(),
+                available.token(),
+                available.type(),
                 available.sourceTurn(),
-                availableArguments,
-                available.text()
+                available.arguments(),
+                available.displayText()
         );
     }
 
@@ -105,7 +97,47 @@ public class ChoiceCodec {
                 .filter(choice -> choice.id() == choiceId)
                 .findFirst()
                 .map(GameChoice::text)
-                .orElseThrow(() -> invalidAction());
+                .orElseThrow(this::invalidAction);
+    }
+
+    private PlayerAction resolveLegacy(GameChoice storedChoice, GameProgressRequest request) {
+        if (request.actionToken() != null || request.actionType() != null || request.sourceTurn() != null || request.arguments() != null) {
+            throw invalidAction();
+        }
+        return new PlayerAction(
+                storedChoice.id(),
+                null,
+                ActionType.NARRATIVE_CHOICE,
+                request.expectedTurn(),
+                Map.of("choiceId", Integer.toString(storedChoice.id())),
+                storedChoice.text()
+        );
+    }
+
+    private AvailableAction toDomain(GameChoice choice) {
+        try {
+            return new AvailableAction(
+                    choice.id(),
+                    choice.actionToken(),
+                    ActionType.valueOf(choice.actionType()),
+                    choice.sourceTurn() == null ? 0 : choice.sourceTurn(),
+                    choice.arguments(),
+                    choice.text()
+            );
+        } catch (RuntimeException exception) {
+            throw invalidAction();
+        }
+    }
+
+    private GameChoice toDto(AvailableAction action) {
+        return new GameChoice(
+                action.legacyChoiceId(),
+                action.displayText(),
+                action.token(),
+                action.type().name(),
+                action.sourceTurn(),
+                action.arguments()
+        );
     }
 
     private InvalidChoiceException invalidAction() {
