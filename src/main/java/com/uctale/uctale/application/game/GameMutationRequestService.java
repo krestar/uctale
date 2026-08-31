@@ -19,7 +19,7 @@ public class GameMutationRequestService {
 
     public static final String INIT = "INIT";
     public static final String PROGRESS = "PROGRESS";
-    private static final int MAX_RESERVATION_ATTEMPTS = 3;
+    private static final int MAX_PROVIDER_ATTEMPTS = 3;
     private static final Pattern IDEMPOTENCY_KEY_PATTERN = Pattern.compile("[A-Za-z0-9._:-]{8,128}");
 
     private final GameMutationRequestRepository repository;
@@ -95,9 +95,42 @@ public class GameMutationRequestService {
                 repository.save(request);
             }
             long retryAfter = currentRetryAfterSeconds(sessionId, expectedTurn, now);
-            throw new MutationInProgressException("같은 턴이 이미 처리 중이거나 재시도 한도에 도달했습니다.", retryAfter);
+            throw new MutationInProgressException("같은 턴이 이미 처리 중이거나 provider 재시도 한도에 도달했습니다.", retryAfter);
         }
         return BeginResult.process(request.getId(), leaseOwner);
+    }
+
+    @Transactional(noRollbackFor = MutationInProgressException.class)
+    public void markProviderAttemptStarted(Long requestId, String reservationOwner) {
+        if (reservationOwner == null) {
+            throw new IllegalArgumentException("provider attempt에는 reservationOwner가 필요합니다.");
+        }
+        LocalDateTime now = LocalDateTime.now(clock);
+        int updated = jdbcTemplate.update("""
+                UPDATE game_turn_reservation
+                SET provider_attempt_count = provider_attempt_count + 1, updated_at = CURRENT_TIMESTAMP
+                WHERE request_id = ?
+                  AND lease_owner = ?
+                  AND lease_expires_at > ?
+                  AND provider_attempt_count < ?
+                """, requestId, reservationOwner, now, MAX_PROVIDER_ATTEMPTS);
+        if (updated == 1) {
+            return;
+        }
+
+        Integer currentAttemptCount = jdbcTemplate.query(
+                """
+                        SELECT provider_attempt_count
+                        FROM game_turn_reservation
+                        WHERE request_id = ? AND lease_owner = ?
+                        """,
+                rs -> rs.next() ? rs.getInt(1) : null,
+                requestId, reservationOwner
+        );
+        if (currentAttemptCount != null && currentAttemptCount >= MAX_PROVIDER_ATTEMPTS) {
+            throw new MutationInProgressException("같은 턴의 provider 재시도 한도에 도달했습니다.", 1);
+        }
+        throw new MutationInProgressException("턴 reservation이 만료되었거나 회수되었습니다.", 1);
     }
 
     @Transactional
@@ -107,12 +140,13 @@ public class GameMutationRequestService {
 
     @Transactional
     public void markFailed(Long requestId, String reservationOwner) {
+        LocalDateTime now = LocalDateTime.now(clock);
         if (reservationOwner != null) {
             int expired = jdbcTemplate.update("""
                     UPDATE game_turn_reservation
-                    SET lease_expires_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                    SET lease_expires_at = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE request_id = ? AND lease_owner = ?
-                    """, requestId, reservationOwner);
+                    """, now, requestId, reservationOwner);
             if (expired == 0) {
                 return;
             }
@@ -123,9 +157,9 @@ public class GameMutationRequestService {
             if (reservationOwner == null) {
                 jdbcTemplate.update("""
                         UPDATE game_turn_reservation
-                        SET lease_expires_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                        SET lease_expires_at = ?, updated_at = CURRENT_TIMESTAMP
                         WHERE request_id = ?
-                        """, requestId);
+                        """, now, requestId);
             }
         });
     }
@@ -163,52 +197,54 @@ public class GameMutationRequestService {
         if (!isH2()) {
             return jdbcTemplate.update("""
                     INSERT INTO game_turn_reservation (
-                        session_id, expected_turn, request_id, lease_owner, lease_expires_at, attempt_count,
+                        session_id, expected_turn, request_id, lease_owner, lease_expires_at,
                         created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     ON CONFLICT (session_id, expected_turn) DO UPDATE SET
                         request_id = EXCLUDED.request_id,
                         lease_owner = EXCLUDED.lease_owner,
                         lease_expires_at = EXCLUDED.lease_expires_at,
-                        attempt_count = game_turn_reservation.attempt_count + 1,
+                        attempt_count = LEAST(game_turn_reservation.attempt_count + 1, 3),
                         updated_at = CURRENT_TIMESTAMP
                     WHERE game_turn_reservation.lease_expires_at <= ?
-                      AND game_turn_reservation.attempt_count < ?
-                    """, sessionId, expectedTurn, requestId, leaseOwner, expiresAt, now, MAX_RESERVATION_ATTEMPTS);
+                      AND game_turn_reservation.provider_attempt_count < ?
+                    """, sessionId, expectedTurn, requestId, leaseOwner, expiresAt, now, MAX_PROVIDER_ATTEMPTS);
         }
 
         List<ReservationState> reservations = jdbcTemplate.query(
                 """
-                        SELECT lease_expires_at, attempt_count
+                        SELECT lease_expires_at, provider_attempt_count
                         FROM game_turn_reservation
                         WHERE session_id = ? AND expected_turn = ?
                         """,
                 (rs, rowNum) -> new ReservationState(
                         rs.getTimestamp("lease_expires_at").toLocalDateTime(),
-                        rs.getInt("attempt_count")
+                        rs.getInt("provider_attempt_count")
                 ),
                 sessionId, expectedTurn
         );
         if (reservations.isEmpty()) {
             return jdbcTemplate.update("""
                     INSERT INTO game_turn_reservation (
-                        session_id, expected_turn, request_id, lease_owner, lease_expires_at, attempt_count,
+                        session_id, expected_turn, request_id, lease_owner, lease_expires_at,
                         created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     """, sessionId, expectedTurn, requestId, leaseOwner, expiresAt);
         }
 
         ReservationState reservation = reservations.getFirst();
-        if (reservation.leaseExpiresAt().isAfter(now) || reservation.attemptCount() >= MAX_RESERVATION_ATTEMPTS) {
+        if (reservation.leaseExpiresAt().isAfter(now)
+                || reservation.providerAttemptCount() >= MAX_PROVIDER_ATTEMPTS) {
             return 0;
         }
         return jdbcTemplate.update("""
                 UPDATE game_turn_reservation
                 SET request_id = ?, lease_owner = ?, lease_expires_at = ?,
-                    attempt_count = attempt_count + 1, updated_at = CURRENT_TIMESTAMP
+                    attempt_count = CASE WHEN attempt_count < 3 THEN attempt_count + 1 ELSE 3 END,
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE session_id = ? AND expected_turn = ?
-                  AND lease_expires_at <= ? AND attempt_count < ?
-                """, requestId, leaseOwner, expiresAt, sessionId, expectedTurn, now, MAX_RESERVATION_ATTEMPTS);
+                  AND lease_expires_at <= ? AND provider_attempt_count < ?
+                """, requestId, leaseOwner, expiresAt, sessionId, expectedTurn, now, MAX_PROVIDER_ATTEMPTS);
     }
 
     private long currentRetryAfterSeconds(Long sessionId, int expectedTurn, LocalDateTime now) {
@@ -233,7 +269,7 @@ public class GameMutationRequestService {
         }
     }
 
-    private record ReservationState(LocalDateTime leaseExpiresAt, int attemptCount) {}
+    private record ReservationState(LocalDateTime leaseExpiresAt, int providerAttemptCount) {}
 
     public record BeginResult(
             Long requestId,

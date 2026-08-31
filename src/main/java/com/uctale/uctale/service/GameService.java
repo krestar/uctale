@@ -118,6 +118,9 @@ public class GameService {
             costRateLimiter.check(CostOperation.NARRATIVE, providerContext);
             NarrativeTurn nextTurn = providerCallTelemetry.observe(
                     "gemini", "progress", providerContext, 0,
+                    () -> mutationRequestService.markProviderAttemptStarted(
+                            mutation.requestId(), mutation.reservationOwner()
+                    ),
                     () -> narrativeGenerator.createNextTurn(narrativeContext)
             );
             validateNarrativeTurn(nextTurn);

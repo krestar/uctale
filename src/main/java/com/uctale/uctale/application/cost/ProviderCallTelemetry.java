@@ -43,7 +43,18 @@ public class ProviderCallTelemetry {
             int retryCount,
             Supplier<T> invocation
     ) {
-        return observe(provider, defaultModel(provider), operation, context, retryCount, invocation);
+        return observe(provider, defaultModel(provider), operation, context, retryCount, () -> {}, invocation);
+    }
+
+    public <T> T observe(
+            String provider,
+            String operation,
+            CostRequestContext context,
+            int retryCount,
+            Runnable beforeInvocation,
+            Supplier<T> invocation
+    ) {
+        return observe(provider, defaultModel(provider), operation, context, retryCount, beforeInvocation, invocation);
     }
 
     public <T> T observe(
@@ -59,6 +70,7 @@ public class ProviderCallTelemetry {
                 defaultModel(provider),
                 operation,
                 context,
+                () -> {},
                 invocation,
                 successRetryCount,
                 failureRetryCount
@@ -73,11 +85,24 @@ public class ProviderCallTelemetry {
             int retryCount,
             Supplier<T> invocation
     ) {
+        return observe(provider, model, operation, context, retryCount, () -> {}, invocation);
+    }
+
+    public <T> T observe(
+            String provider,
+            String model,
+            String operation,
+            CostRequestContext context,
+            int retryCount,
+            Runnable beforeInvocation,
+            Supplier<T> invocation
+    ) {
         return observe(
                 provider,
                 model,
                 operation,
                 context,
+                beforeInvocation,
                 invocation,
                 ignored -> retryCount,
                 ignored -> retryCount
@@ -93,9 +118,32 @@ public class ProviderCallTelemetry {
             ToIntFunction<T> successRetryCount,
             ToIntFunction<RuntimeException> failureRetryCount
     ) {
+        return observe(
+                provider,
+                model,
+                operation,
+                context,
+                () -> {},
+                invocation,
+                successRetryCount,
+                failureRetryCount
+        );
+    }
+
+    public <T> T observe(
+            String provider,
+            String model,
+            String operation,
+            CostRequestContext context,
+            Runnable beforeInvocation,
+            Supplier<T> invocation,
+            ToIntFunction<T> successRetryCount,
+            ToIntFunction<RuntimeException> failureRetryCount
+    ) {
         if (budgetGuard != null) {
             budgetGuard.checkBeforeCall(operation);
         }
+        beforeInvocation.run();
         long startedAt = clock.millis();
         try {
             T result = invocation.get();

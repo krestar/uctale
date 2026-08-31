@@ -9,9 +9,13 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 
 class ProviderCallTelemetryTest {
 
@@ -83,6 +87,34 @@ class ProviderCallTelemetryTest {
 
         assertThat(result.value()).isEqualTo("ok");
         assertThat(events).singleElement().satisfies(event -> assertThat(event.retryCount()).isEqualTo(2));
+    }
+
+    @Test
+    @DisplayName("budget guard가 provider를 차단하면 호출 직전 훅도 실행하지 않는다")
+    void budgetGuardRejection_DoesNotRunBeforeInvocationHook() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-08-30T06:00:00Z"));
+        ProviderUsageStore usageStore = mock(ProviderUsageStore.class);
+        given(usageStore.totalUnits(any(), any())).willReturn(10L);
+        ProviderBudgetPolicy policy = new ProviderBudgetPolicy(1, 10, 1, 10, 1, 1, "FAIL_CLOSED");
+        ProviderBudgetGuard guard = new ProviderBudgetGuard(usageStore, policy, clock);
+        ProviderCallTelemetry telemetry = new ProviderCallTelemetry(clock, event -> {}, guard, "flux");
+        AtomicBoolean beforeInvocation = new AtomicBoolean(false);
+        AtomicBoolean invocation = new AtomicBoolean(false);
+
+        assertThatThrownBy(() -> telemetry.observe(
+                "gemini",
+                "progress",
+                CostRequestContext.internal("owner-a", 42L, 2),
+                0,
+                () -> beforeInvocation.set(true),
+                () -> {
+                    invocation.set(true);
+                    return "unexpected";
+                }
+        )).isInstanceOf(ProviderBudgetExceededException.class);
+
+        assertThat(beforeInvocation).isFalse();
+        assertThat(invocation).isFalse();
     }
 
     private record RetryAwareResult(String value, int retryCount) {}

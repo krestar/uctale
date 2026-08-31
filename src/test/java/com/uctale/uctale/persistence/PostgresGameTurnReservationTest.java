@@ -50,8 +50,110 @@ class PostgresGameTurnReservationTest extends PostgresIntegrationTestSupport {
                 SESSION_ID, EXPECTED_TURN, "b".repeat(64));
 
         assertThat(second.reservationOwner()).isNotEqualTo(first.reservationOwner());
+        assertThat(providerAttemptCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("provider 호출 전 실패는 여러 번 발생해도 provider attempt를 소비하지 않는다")
+    void preProviderFailures_DoNotConsumeProviderAttempts() {
+        for (int index = 1; index <= 4; index++) {
+            var reservation = service.begin(
+                    OWNER_KEY,
+                    GameMutationRequestService.PROGRESS,
+                    "precall-key-00" + index,
+                    SESSION_ID,
+                    EXPECTED_TURN,
+                    Integer.toString(index).repeat(64)
+            );
+            assertThat(providerAttemptCount()).isZero();
+            service.markFailed(reservation.requestId(), reservation.reservationOwner());
+        }
+
+        var valid = service.begin(
+                OWNER_KEY,
+                GameMutationRequestService.PROGRESS,
+                "precall-valid-01",
+                SESSION_ID,
+                EXPECTED_TURN,
+                "f".repeat(64)
+        );
+        service.markProviderAttemptStarted(valid.requestId(), valid.reservationOwner());
+
+        assertThat(providerAttemptCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("실제 provider 시작은 최대 세 번까지만 허용한다")
+    void providerAttempts_AreBoundedToThree() {
+        for (int index = 1; index <= 3; index++) {
+            var reservation = service.begin(
+                    OWNER_KEY,
+                    GameMutationRequestService.PROGRESS,
+                    "provider-key-00" + index,
+                    SESSION_ID,
+                    EXPECTED_TURN,
+                    Integer.toString(index).repeat(64)
+            );
+            service.markProviderAttemptStarted(reservation.requestId(), reservation.reservationOwner());
+            assertThat(providerAttemptCount()).isEqualTo(index);
+            service.markFailed(reservation.requestId(), reservation.reservationOwner());
+        }
+
+        assertThatThrownBy(() -> service.begin(
+                OWNER_KEY,
+                GameMutationRequestService.PROGRESS,
+                "provider-key-004",
+                SESSION_ID,
+                EXPECTED_TURN,
+                "4".repeat(64)
+        )).isInstanceOf(MutationInProgressException.class);
+
+        assertThat(providerAttemptCount()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("회수된 stale owner는 provider attempt를 시작할 수 없다")
+    void staleOwner_CannotStartProviderAttemptAfterTakeover() {
+        var first = service.begin(OWNER_KEY, GameMutationRequestService.PROGRESS, "stale-key-001",
+                SESSION_ID, EXPECTED_TURN, "a".repeat(64));
+        service.markFailed(first.requestId(), first.reservationOwner());
+
+        var second = service.begin(OWNER_KEY, GameMutationRequestService.PROGRESS, "stale-key-002",
+                SESSION_ID, EXPECTED_TURN, "b".repeat(64));
+
+        assertThatThrownBy(() -> service.markProviderAttemptStarted(first.requestId(), first.reservationOwner()))
+                .isInstanceOf(MutationInProgressException.class);
+        assertThat(providerAttemptCount()).isZero();
+
+        service.markProviderAttemptStarted(second.requestId(), second.reservationOwner());
+        assertThat(providerAttemptCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("기존 attempt_count 값은 새 provider attempt 한도를 오염시키지 않는다")
+    void legacyAttemptCount_DoesNotBlockProviderAttemptAccounting() {
+        var first = service.begin(OWNER_KEY, GameMutationRequestService.PROGRESS, "legacy-key-001",
+                SESSION_ID, EXPECTED_TURN, "a".repeat(64));
+        jdbcTemplate.update("""
+                UPDATE game_turn_reservation
+                SET attempt_count = 3, lease_expires_at = CURRENT_TIMESTAMP - INTERVAL '1 second'
+                WHERE request_id = ? AND lease_owner = ?
+                """, first.requestId(), first.reservationOwner());
+
+        var second = service.begin(OWNER_KEY, GameMutationRequestService.PROGRESS, "legacy-key-002",
+                SESSION_ID, EXPECTED_TURN, "b".repeat(64));
+        service.markProviderAttemptStarted(second.requestId(), second.reservationOwner());
+
+        assertThat(providerAttemptCount()).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT attempt_count FROM game_turn_reservation WHERE session_id = ? AND expected_turn = ?",
-                Integer.class, SESSION_ID, EXPECTED_TURN)).isEqualTo(2);
+                Integer.class, SESSION_ID, EXPECTED_TURN)).isEqualTo(3);
+    }
+
+    private int providerAttemptCount() {
+        return jdbcTemplate.queryForObject(
+                "SELECT provider_attempt_count FROM game_turn_reservation WHERE session_id = ? AND expected_turn = ?",
+                Integer.class, SESSION_ID, EXPECTED_TURN
+        );
     }
 }
