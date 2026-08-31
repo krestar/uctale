@@ -29,7 +29,7 @@ public class ProviderCallTelemetry {
         this.imageModel = imageModel;
     }
 
-    ProviderCallTelemetry(Clock clock, ProviderCallEventSink sink) {
+    public ProviderCallTelemetry(Clock clock, ProviderCallEventSink sink) {
         this.clock = clock;
         this.sink = sink;
         this.budgetGuard = null;
