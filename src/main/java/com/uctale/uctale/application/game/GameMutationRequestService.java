@@ -105,14 +105,15 @@ public class GameMutationRequestService {
         if (reservationOwner == null) {
             throw new IllegalArgumentException("provider attempt에는 reservationOwner가 필요합니다.");
         }
+        LocalDateTime now = LocalDateTime.now(clock);
         int updated = jdbcTemplate.update("""
                 UPDATE game_turn_reservation
                 SET provider_attempt_count = provider_attempt_count + 1, updated_at = CURRENT_TIMESTAMP
                 WHERE request_id = ?
                   AND lease_owner = ?
-                  AND lease_expires_at > CURRENT_TIMESTAMP
+                  AND lease_expires_at > ?
                   AND provider_attempt_count < ?
-                """, requestId, reservationOwner, MAX_PROVIDER_ATTEMPTS);
+                """, requestId, reservationOwner, now, MAX_PROVIDER_ATTEMPTS);
         if (updated == 1) {
             return;
         }
@@ -139,12 +140,13 @@ public class GameMutationRequestService {
 
     @Transactional
     public void markFailed(Long requestId, String reservationOwner) {
+        LocalDateTime now = LocalDateTime.now(clock);
         if (reservationOwner != null) {
             int expired = jdbcTemplate.update("""
                     UPDATE game_turn_reservation
-                    SET lease_expires_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                    SET lease_expires_at = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE request_id = ? AND lease_owner = ?
-                    """, requestId, reservationOwner);
+                    """, now, requestId, reservationOwner);
             if (expired == 0) {
                 return;
             }
@@ -155,9 +157,9 @@ public class GameMutationRequestService {
             if (reservationOwner == null) {
                 jdbcTemplate.update("""
                         UPDATE game_turn_reservation
-                        SET lease_expires_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                        SET lease_expires_at = ?, updated_at = CURRENT_TIMESTAMP
                         WHERE request_id = ?
-                        """, requestId);
+                        """, now, requestId);
             }
         });
     }
@@ -202,6 +204,7 @@ public class GameMutationRequestService {
                         request_id = EXCLUDED.request_id,
                         lease_owner = EXCLUDED.lease_owner,
                         lease_expires_at = EXCLUDED.lease_expires_at,
+                        attempt_count = LEAST(game_turn_reservation.attempt_count + 1, 3),
                         updated_at = CURRENT_TIMESTAMP
                     WHERE game_turn_reservation.lease_expires_at <= ?
                       AND game_turn_reservation.provider_attempt_count < ?
@@ -236,7 +239,9 @@ public class GameMutationRequestService {
         }
         return jdbcTemplate.update("""
                 UPDATE game_turn_reservation
-                SET request_id = ?, lease_owner = ?, lease_expires_at = ?, updated_at = CURRENT_TIMESTAMP
+                SET request_id = ?, lease_owner = ?, lease_expires_at = ?,
+                    attempt_count = CASE WHEN attempt_count < 3 THEN attempt_count + 1 ELSE 3 END,
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE session_id = ? AND expected_turn = ?
                   AND lease_expires_at <= ? AND provider_attempt_count < ?
                 """, requestId, leaseOwner, expiresAt, sessionId, expectedTurn, now, MAX_PROVIDER_ATTEMPTS);
