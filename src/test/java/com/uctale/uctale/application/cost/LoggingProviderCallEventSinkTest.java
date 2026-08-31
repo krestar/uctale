@@ -19,7 +19,10 @@ class LoggingProviderCallEventSinkTest {
         ProviderBudgetGuard guard = mock(ProviderBudgetGuard.class);
         ProviderBudgetPolicy policy = new ProviderBudgetPolicy(10, 20, 100, 200, 1, 1, "ALERT_ONLY");
         Clock clock = Clock.fixed(Instant.parse("2026-08-31T12:00:00Z"), ZoneOffset.UTC);
-        when(guard.currentUsage()).thenReturn(new ProviderBudgetGuard.Usage(0, 0));
+        when(guard.currentUsage()).thenReturn(
+                new ProviderBudgetGuard.Usage(0, 0),
+                new ProviderBudgetGuard.Usage(3, 3)
+        );
         LoggingProviderCallEventSink sink = new LoggingProviderCallEventSink(store, policy, guard, clock);
         ProviderCallEvent event = new ProviderCallEvent(
                 "pollinations", "flux", "image_generation", 1L, 2, "request-1", null, 42, "FAILURE", 2
