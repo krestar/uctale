@@ -67,7 +67,9 @@ public class GameMutationRequestService {
                     request.getId(), request.getResultSessionId(), request.getResultTurn(), request.getResultTitle()
             );
         }
-        if (inserted == 0 && request.getStatus() == GameMutationRequest.Status.PROCESSING) {
+
+        boolean existingProcessing = inserted == 0 && request.getStatus() == GameMutationRequest.Status.PROCESSING;
+        if (existingProcessing && !PROGRESS.equals(operation)) {
             throw new MutationInProgressException("동일한 idempotency 요청이 이미 처리 중입니다.", leaseSeconds);
         }
         if (request.getStatus() == GameMutationRequest.Status.FAILED) {
@@ -88,8 +90,10 @@ public class GameMutationRequestService {
         int acquired = acquireReservation(sessionId, expectedTurn, request.getId(), leaseOwner, now, expiresAt);
 
         if (acquired == 0) {
-            request.fail();
-            repository.save(request);
+            if (!existingProcessing) {
+                request.fail();
+                repository.save(request);
+            }
             long retryAfter = currentRetryAfterSeconds(sessionId, expectedTurn, now);
             throw new MutationInProgressException("같은 턴이 이미 처리 중이거나 재시도 한도에 도달했습니다.", retryAfter);
         }
@@ -98,14 +102,31 @@ public class GameMutationRequestService {
 
     @Transactional
     public void markFailed(Long requestId) {
+        markFailed(requestId, null);
+    }
+
+    @Transactional
+    public void markFailed(Long requestId, String reservationOwner) {
+        if (reservationOwner != null) {
+            int expired = jdbcTemplate.update("""
+                    UPDATE game_turn_reservation
+                    SET lease_expires_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                    WHERE request_id = ? AND lease_owner = ?
+                    """, requestId, reservationOwner);
+            if (expired == 0) {
+                return;
+            }
+        }
         repository.findById(requestId).ifPresent(request -> {
             request.fail();
             repository.save(request);
-            jdbcTemplate.update("""
-                    UPDATE game_turn_reservation
-                    SET lease_expires_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-                    WHERE request_id = ?
-                    """, requestId);
+            if (reservationOwner == null) {
+                jdbcTemplate.update("""
+                        UPDATE game_turn_reservation
+                        SET lease_expires_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                        WHERE request_id = ?
+                        """, requestId);
+            }
         });
     }
 
