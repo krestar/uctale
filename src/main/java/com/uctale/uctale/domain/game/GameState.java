@@ -24,13 +24,29 @@ public record GameState(
         );
     }
 
-    public GameState advance(String playerAction, String storyText) {
-        int nextTurn = turnNumber + 1;
+    public GameState advanceTurn() {
         return new GameState(
-                nextTurn,
+                turnNumber + 1,
                 playerCharacter,
                 worldState,
-                storyMemory.append(new GameTurn(nextTurn, playerAction, storyText))
+                storyMemory
         );
+    }
+
+    public GameState recordNarrativeTurn(String playerAction, String storyText) {
+        if (!storyMemory.recentTurns().isEmpty()
+                && storyMemory.recentTurns().getLast().turnNumber() >= turnNumber) {
+            throw new IllegalStateException("현재 turn의 narrative가 이미 기록되어 있습니다.");
+        }
+        return new GameState(
+                turnNumber,
+                playerCharacter,
+                worldState,
+                storyMemory.append(new GameTurn(turnNumber, playerAction, storyText))
+        );
+    }
+
+    public GameState advance(String playerAction, String storyText) {
+        return advanceTurn().recordNarrativeTurn(playerAction, storyText);
     }
 }

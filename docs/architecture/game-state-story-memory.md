@@ -43,7 +43,7 @@ UCTale의 결정적 게임 상태는 서버가 소유하고, LLM은 그 상태�
 
 랜덤은 `RandomSource` port로 분리합니다. production adapter는 `SecureRandom`을 사용하고 테스트는 fixed/sequence source로 결정적으로 검증합니다. 이 pure domain 판정은 Narrative provider를 호출하지 않습니다.
 
-#7 범위에서는 이 규칙을 실제 `/progress` turn pipeline, `GameResult`, NarrativeContext, DB roll ledger, frontend에 아직 연결하지 않습니다. 해당 통합은 #34/#36/#37/#38에서 수행합니다.
+#7 범위에서는 이 규칙을 실제 `/progress` turn pipeline, `GameResult`, NarrativeContext, DB roll ledger, frontend에 아직 연결하지 않습니다. Skill Check의 실제 통합은 #37/#38에서 수행합니다.
 
 ## Story Memory
 
@@ -69,7 +69,7 @@ Narrative Engine에는 전체 `game_log` 대신 위 계층과 현재 요청에 �
 
 `canonicalFacts > rollingSummary > recentTurns > LLM 생성 내용`
 
-LLM 응답 자체는 canonical state 변경 권한이 없습니다.
+LLM 응답 자체는 canonical rule state 변경 권한이 없습니다.
 
 ## 현재 행동 경계
 
@@ -77,28 +77,34 @@ LLM 응답 자체는 canonical state 변경 권한이 없습니다.
 
 - Narrative가 제안한 choice는 서버가 현재 turn에 속한 `AvailableAction`으로 발급합니다.
 - 다음 `/progress`에서 서버는 제출된 action이 현재 turn의 발급 action과 일치하는지 검증합니다.
-- 만료되거나 변조된 action은 Narrative provider 또는 향후 규칙 실행 전에 거절합니다.
+- 만료되거나 변조된 action은 Narrative provider 또는 규칙 실행 전에 거절합니다.
 - 기존 choice ID는 compatibility adapter 경로로 유지합니다.
 
-현재 `ActionType`은 향후 규칙 행동을 위한 경계이며 #7의 Skill Check가 실제 turn에 이미 연결됐다는 의미는 아닙니다.
+#34 이후 검증된 `PlayerAction`은 `ActionResolver`에서 `TurnResolution(GameResult, StateTransition)`으로 resolve됩니다. 현재 `ActionType`은 `NARRATIVE_CHOICE` 하나이므로 resolver registry는 두지 않습니다.
 
 ## 현재 턴 처리 흐름
 
 1. idempotency와 `(session_id, expected_turn)` reservation을 확인합니다.
 2. `expectedTurn`으로 현재 세션과 `GameState.turnNumber`를 검증합니다.
 3. 제출된 `PlayerAction`을 현재 서버 발급 `AvailableAction`과 대조합니다.
-4. rate limit과 provider budget guard를 확인합니다.
-5. 현재 단계에서는 `GameState`와 action 문맥으로 `NarrativeContext`를 구성합니다.
-6. Narrative Engine이 이야기와 다음 choice 후보를 생성합니다.
-7. 서버가 다음 `GameState`와 server-issued available actions를 구성합니다.
-8. canonical transaction에서 저장합니다.
+4. `ActionResolver`가 `GameResult`와 canonical next `StateTransition`을 pure domain operation으로 확정합니다.
+5. rate limit과 provider budget/attempt 경계를 확인합니다.
+6. 현재 #36 이전 compatibility 경로에서는 기존 state/action 문맥으로 `NarrativeContext`를 구성합니다.
+7. Narrative Engine이 이야기와 다음 choice 후보를 생성합니다.
+8. 검증된 story prose는 확정된 rule transition을 변경하지 않고 `StoryMemory` transcript에만 부착합니다.
+9. 서버가 다음 server-issued available actions를 구성합니다.
+10. `GameTurnCommit`이 `StateTransition`을 소유한 채 canonical transaction에서 저장됩니다.
 
-M3의 #34/#36/#37 이후에는 action을 서버 규칙으로 먼저 resolve하고 확정된 `GameResult`와 다음 state를 Narrative 호출 전에 만드는 구조로 강화합니다.
+세부 책임과 provider/transaction 경계는 [action-resolution.md](./action-resolution.md)를 기준으로 합니다.
+
+#36에서는 `NarrativeContext`를 확정된 `GameResult`와 state projection 기반으로 전환해 provider가 성공/실패·roll·state change를 더 직접적으로 서술하도록 강화합니다. #37은 그 위에 Skill Check vertical slice를 연결합니다.
 
 ## 기존 세션 호환성
 
 현재 snapshot schema는 v2입니다. #31 이전 raw `GameState`는 logical v0, typed stats 이전 envelope는 v1로 읽어 deterministic upgrader에서 v2로 승격합니다.
 
 legacy stats가 없으면 기본값 10을 적용하고 canonical legacy stat 값이 있으면 검증 후 보존합니다. read 자체는 DB를 다시 쓰지 않고 다음 정상 canonical commit에서 최신 snapshot 형식으로 저장합니다.
+
+`GameState.advance(playerAction, storyText)`는 legacy `GameLog` recovery에서 동일한 StoryMemory를 복원해야 하므로 compatibility method로 유지합니다. 새 turn pipeline은 규칙 단계의 `advanceTurn()`과 provider 이후의 `recordNarrativeTurn()`을 분리해 사용합니다.
 
 세부 내용은 [game-state-snapshot-evolution.md](./game-state-snapshot-evolution.md)를 기준으로 합니다.
