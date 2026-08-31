@@ -22,9 +22,11 @@ chmod 700 "$TMP_DIR"
 curl_common=(
   --silent
   --show-error
-  --location
   --connect-timeout 10
   --max-time 45
+)
+
+curl_retry=(
   --retry 3
   --retry-delay 5
   --retry-all-errors
@@ -38,7 +40,6 @@ fail() {
 header_value() {
   local name="$1"
   awk -v target="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')" '
-    BEGIN { IGNORECASE = 1 }
     {
       line = $0
       sub(/\r$/, "", line)
@@ -62,6 +63,27 @@ assert_cors_headers() {
   [[ "${allow_credentials,,}" == "true" ]] || fail "Access-Control-Allow-Credentials가 true가 아닙니다."
 }
 
+assert_cross_site_cookie() {
+  local cookie_name="$1"
+  local cookie_line
+  cookie_line="$(awk -v prefix="Set-Cookie: ${cookie_name}=" '
+    BEGIN { IGNORECASE = 1 }
+    index(tolower($0), tolower(prefix)) == 1 {
+      sub(/\r$/, "")
+      print
+      exit
+    }
+  ' "$RESPONSE_HEADERS")"
+
+  [[ -n "$cookie_line" ]] || fail "${cookie_name} Set-Cookie header가 없습니다."
+  local attributes="${cookie_line#*;}"
+  local normalized="${attributes,,}"
+  [[ "$normalized" == *"httponly"* ]] || fail "${cookie_name} 쿠키에 HttpOnly가 없습니다."
+  [[ "$normalized" == *"secure"* ]] || fail "${cookie_name} 쿠키에 Secure가 없습니다."
+  [[ "$normalized" == *"samesite=none"* ]] || fail "${cookie_name} 쿠키가 cross-site SameSite=None 계약을 만족하지 않습니다."
+  [[ "$normalized" == *"path=/api/game"* ]] || fail "${cookie_name} 쿠키 path가 /api/game이 아닙니다."
+}
+
 request() {
   : > "$RESPONSE_HEADERS"
   : > "$RESPONSE_BODY"
@@ -72,14 +94,24 @@ request() {
     "$@"
 }
 
+request_with_retry() {
+  : > "$RESPONSE_HEADERS"
+  : > "$RESPONSE_BODY"
+  curl "${curl_common[@]}" "${curl_retry[@]}" \
+    --dump-header "$RESPONSE_HEADERS" \
+    --output "$RESPONSE_BODY" \
+    --write-out '%{http_code}' \
+    "$@"
+}
+
 echo "[smoke] 1/4 production frontend 응답 확인"
-frontend_status="$(request "$FRONTEND_URL/")"
+frontend_status="$(request_with_retry "$FRONTEND_URL/")"
 [[ "$frontend_status" == "200" ]] || fail "frontend가 HTTP 200을 반환하지 않았습니다. (status=$frontend_status)"
 grep -Fq '<div id="root"></div>' "$RESPONSE_BODY" || fail "frontend root markup을 찾지 못했습니다."
 grep -Fq '<title>UCTale</title>' "$RESPONSE_BODY" || fail "frontend title을 찾지 못했습니다."
 
 echo "[smoke] 2/4 backend CORS preflight 확인"
-preflight_status="$(request \
+preflight_status="$(request_with_retry \
   --request OPTIONS \
   --header "Origin: $ORIGIN" \
   --header 'Access-Control-Request-Method: GET' \
@@ -102,12 +134,14 @@ verify_status="$(request \
   "$BACKEND_URL/verify-password")"
 [[ "$verify_status" == "204" ]] || fail "verify-password가 HTTP 204를 반환하지 않았습니다. (status=$verify_status)"
 assert_cors_headers
+assert_cross_site_cookie 'uctale_access'
+assert_cross_site_cookie 'uctale_owner'
 chmod 600 "$COOKIE_JAR"
-grep -q $'\tuctale_access\t' "$COOKIE_JAR" || fail "uctale_access 쿠키가 발급되지 않았습니다."
-grep -q $'\tuctale_owner\t' "$COOKIE_JAR" || fail "uctale_owner 쿠키가 발급되지 않았습니다."
+grep -q $'\tuctale_access\t' "$COOKIE_JAR" || fail "uctale_access 쿠키가 cookie jar에 저장되지 않았습니다."
+grep -q $'\tuctale_owner\t' "$COOKIE_JAR" || fail "uctale_owner 쿠키가 cookie jar에 저장되지 않았습니다."
 
 echo "[smoke] 4/4 발급된 credential 재사용 확인"
-session_status="$(request \
+session_status="$(request_with_retry \
   --request GET \
   --header "Origin: $ORIGIN" \
   --header 'X-UCTale-Client: web' \
