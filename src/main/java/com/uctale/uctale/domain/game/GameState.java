@@ -34,9 +34,6 @@ public record GameState(
     }
 
     public GameState recordNarrativeTurn(String playerAction, String storyText) {
-        if (storyText == null || storyText.isBlank()) {
-            throw new IllegalArgumentException("storyText는 비어 있을 수 없습니다.");
-        }
         if (!storyMemory.recentTurns().isEmpty()
                 && storyMemory.recentTurns().getLast().turnNumber() >= turnNumber) {
             throw new IllegalStateException("현재 turn의 narrative가 이미 기록되어 있습니다.");

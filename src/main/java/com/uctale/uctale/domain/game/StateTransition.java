@@ -16,6 +16,9 @@ public record StateTransition(GameState previousState, GameState nextState) {
 
     public StateTransition attachNarrative(PlayerAction resolvedAction, String storyText) {
         Objects.requireNonNull(resolvedAction, "resolvedAction은 필수입니다.");
+        if (storyText == null || storyText.isBlank()) {
+            throw new IllegalArgumentException("storyText는 비어 있을 수 없습니다.");
+        }
         if (resolvedAction.sourceTurn() != previousState.turnNumber()) {
             throw new IllegalArgumentException("resolvedAction source turn이 transition과 일치하지 않습니다.");
         }
