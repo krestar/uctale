@@ -40,6 +40,7 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class GameServiceRateLimitTest {
+
     private static final String OWNER_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     private static final String IDEMPOTENCY_KEY = "rate-limit-test-key";
 
@@ -56,14 +57,26 @@ class GameServiceRateLimitTest {
         ProviderCallTelemetry telemetry = new ProviderCallTelemetry(clock, event -> {});
         given(mutationRequestService.begin(anyString(), anyString(), anyString(), any(), any(), anyString()))
                 .willReturn(new GameMutationRequestService.BeginResult(100L, false, null, null, null));
-        GameService service = new GameService(narrativeGenerator, imageAssetService, gamePersistenceService,
-                new ChoiceCodec(new ObjectMapper()), new TurnProcessor(), new ImagePromptComposer(), limiter,
-                telemetry, new GameMutationFingerprint(), mutationRequestService);
-        CostRequestContext context = new CostRequestContext("request-1", OWNER_KEY, "1.2.3.4", null, 1, IDEMPOTENCY_KEY);
+        GameService service = new GameService(
+                narrativeGenerator,
+                imageAssetService,
+                gamePersistenceService,
+                new ChoiceCodec(new ObjectMapper()),
+                new TurnProcessor(),
+                new ImagePromptComposer(),
+                limiter,
+                telemetry,
+                new GameMutationFingerprint(),
+                mutationRequestService
+        );
+        CostRequestContext context = new CostRequestContext(
+                "request-1", OWNER_KEY, "1.2.3.4", null, 1, IDEMPOTENCY_KEY
+        );
         limiter.check(CostOperation.NARRATIVE, context);
 
         assertThatThrownBy(() -> service.initGame(context, new GameInitRequest("세계관", "캐릭터")))
                 .isInstanceOf(RateLimitExceededException.class);
+
         verify(narrativeGenerator, never()).createOpening(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
         verify(imageAssetService, never()).issue(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
         verify(mutationRequestService).markFailed(100L);
@@ -78,17 +91,32 @@ class GameServiceRateLimitTest {
         ChoiceCodec choiceCodec = new ChoiceCodec(new ObjectMapper());
         given(mutationRequestService.begin(anyString(), anyString(), anyString(), any(), any(), anyString()))
                 .willReturn(new GameMutationRequestService.BeginResult(100L, false, null, null, null));
-        GameService service = new GameService(narrativeGenerator, imageAssetService, gamePersistenceService,
-                choiceCodec, new TurnProcessor(), new ImagePromptComposer(), limiter, telemetry,
-                new GameMutationFingerprint(), mutationRequestService);
+        GameService service = new GameService(
+                narrativeGenerator,
+                imageAssetService,
+                gamePersistenceService,
+                choiceCodec,
+                new TurnProcessor(),
+                new ImagePromptComposer(),
+                limiter,
+                telemetry,
+                new GameMutationFingerprint(),
+                mutationRequestService
+        );
         GameState gameState = GameState.initial("세계관", "캐릭터", "첫 이야기");
         String choicesJson = choiceCodec.serialize(java.util.List.of(new com.uctale.uctale.dto.GameChoice(1, "유효한 선택")));
         when(gamePersistenceService.loadLatestTurn(OWNER_KEY, 10L, 1)).thenReturn(
-                new GamePersistenceService.LoadedTurn(10L, 1, "세계관", "캐릭터", "첫 이야기", choicesJson, "/image", gameState));
-        CostRequestContext context = new CostRequestContext("request-1", OWNER_KEY, "1.2.3.4", 10L, 2, IDEMPOTENCY_KEY);
+                new GamePersistenceService.LoadedTurn(
+                        10L, 1, "세계관", "캐릭터", "첫 이야기", choicesJson, "/image", gameState
+                )
+        );
+        CostRequestContext context = new CostRequestContext(
+                "request-1", OWNER_KEY, "1.2.3.4", 10L, 2, IDEMPOTENCY_KEY
+        );
 
         assertThatThrownBy(() -> service.progressGame(context, new GameProgressRequest(10L, 999, 1)))
                 .isInstanceOf(InvalidChoiceException.class);
+
         assertThatCode(() -> limiter.check(CostOperation.NARRATIVE, context)).doesNotThrowAnyException();
         verify(narrativeGenerator, never()).createNextTurn(org.mockito.ArgumentMatchers.any());
     }
