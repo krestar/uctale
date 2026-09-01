@@ -1,4 +1,5 @@
 alter table game_turn_reservation
+    add column skill_check_request_id bigint,
     add column skill_check_stat_type varchar(32),
     add column skill_check_raw_roll integer,
     add column skill_check_stat_modifier integer,
@@ -10,7 +11,8 @@ alter table game_turn_reservation
 
 alter table game_turn_reservation
     add constraint ck_game_turn_reservation_skill_check_complete check (
-        (skill_check_stat_type is null
+        (skill_check_request_id is null
+            and skill_check_stat_type is null
             and skill_check_raw_roll is null
             and skill_check_stat_modifier is null
             and skill_check_situational_modifier is null
@@ -19,7 +21,8 @@ alter table game_turn_reservation
             and skill_check_outcome is null
             and skill_check_ruleset_version is null)
         or
-        (skill_check_stat_type is not null
+        (skill_check_request_id is not null
+            and skill_check_stat_type is not null
             and skill_check_raw_roll is not null
             and skill_check_stat_modifier is not null
             and skill_check_situational_modifier is not null
