@@ -75,7 +75,7 @@ public final class GeminiProviderSettings {
     }
 
     private boolean supportsConfiguredThinkingContract() {
-        return (modelMajor == 2 && modelMinor == 5) || modelMajor >= 3;
+        return (modelMajor == 2 && modelMinor == 5) || modelMajor == 3;
     }
 
     private String requireNonBlank(String value, String label) {
