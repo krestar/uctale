@@ -67,12 +67,16 @@ class GeminiNarrativeAdapterTest {
     @DisplayName("Gemini usageMetadata의 prompt candidate thought total token을 관측값으로 읽는다")
     void readTokenUsage_UsesProviderUsageMetadata() {
         Object usage = ReflectionTestUtils.invokeMethod(adapter, "readTokenUsage", apiResponse(validNarrativeJson()));
+        Integer promptTokens = ReflectionTestUtils.invokeMethod(usage, "promptTokenCount");
+        Integer candidateTokens = ReflectionTestUtils.invokeMethod(usage, "candidatesTokenCount");
+        Integer thoughtTokens = ReflectionTestUtils.invokeMethod(usage, "thoughtsTokenCount");
+        Integer totalTokens = ReflectionTestUtils.invokeMethod(usage, "totalTokenCount");
 
         assertThat(usage).isNotNull();
-        assertThat(ReflectionTestUtils.invokeMethod(usage, "promptTokenCount")).isEqualTo(100);
-        assertThat(ReflectionTestUtils.invokeMethod(usage, "candidatesTokenCount")).isEqualTo(50);
-        assertThat(ReflectionTestUtils.invokeMethod(usage, "thoughtsTokenCount")).isEqualTo(25);
-        assertThat(ReflectionTestUtils.invokeMethod(usage, "totalTokenCount")).isEqualTo(175);
+        assertThat(promptTokens).isEqualTo(100);
+        assertThat(candidateTokens).isEqualTo(50);
+        assertThat(thoughtTokens).isEqualTo(25);
+        assertThat(totalTokens).isEqualTo(175);
     }
 
     @Test
