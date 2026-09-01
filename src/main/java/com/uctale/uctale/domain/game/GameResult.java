@@ -8,6 +8,7 @@ import java.util.Objects;
 public record GameResult(
         PlayerAction resolvedAction,
         Outcome outcome,
+        SkillCheckResult skillCheckResult,
         List<CanonicalFact> canonicalFacts,
         List<GameEvent> events,
         List<StateChange> stateChanges,
@@ -22,12 +23,24 @@ public record GameResult(
         narrativeCues = narrativeCues == null ? List.of() : List.copyOf(narrativeCues);
     }
 
+    public GameResult(
+            PlayerAction resolvedAction,
+            Outcome outcome,
+            List<CanonicalFact> canonicalFacts,
+            List<GameEvent> events,
+            List<StateChange> stateChanges,
+            List<String> narrativeCues
+    ) {
+        this(resolvedAction, outcome, null, canonicalFacts, events, stateChanges, narrativeCues);
+    }
+
     public enum Outcome {
         RESOLVED
     }
 
     public enum GameEvent {
-        ACTION_RESOLVED
+        ACTION_RESOLVED,
+        SKILL_CHECK_RESOLVED
     }
 
     public sealed interface StateChange permits TurnAdvanced {}
