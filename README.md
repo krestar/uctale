@@ -19,7 +19,7 @@ UCTale의 핵심 원칙은 **게임의 결정적 사실과 규칙은 서버가 �
 - 서버: 세션 소유권, 현재 턴, idempotency, reservation lease, canonical state, Skill Check 판정, `GameResult`, GameLog, provider attempt 상한을 검증합니다.
 - Narrative AI: 서버가 확정한 결과와 제한된 state/memory projection을 바탕으로 이야기와 다음 선택지 표현을 생성합니다.
 - Image AI: 브라우저의 임의 prompt가 아니라 서버가 발급한 image asset 계약만 실행합니다.
-- Frontend: 서버가 반환한 선택 행동과 상태를 표시하고, 규칙을 재계산하지 않습니다.
+- Frontend: 서버가 반환한 선택 행동, 캐릭터 능력치, Skill Check 결과를 표시하고 규칙을 재계산하지 않습니다.
 
 ---
 
@@ -80,7 +80,7 @@ UCTale의 핵심 원칙은 **게임의 결정적 사실과 규칙은 서버가 �
 
 ### 타입 안전한 능력치와 Skill Check
 
-#7의 순수 규칙 기반에 #37의 실제 turn 통합을 연결합니다.
+#7의 순수 규칙 기반에 #37의 실제 turn 통합과 #38의 frontend projection을 연결합니다.
 
 - `StatType`: `MIGHT`, `AGILITY`, `INTELLECT`, `WILL`, `PRESENCE`
 - 신규·legacy 캐릭터는 기본 능력치 10을 사용합니다.
@@ -92,7 +92,7 @@ UCTale의 핵심 원칙은 **게임의 결정적 사실과 규칙은 서버가 �
 - production random adapter는 `SecureRandom`, 테스트는 fixed/sequence `RandomSource`를 사용합니다.
 - 같은 idempotency mutation retry는 reservation에 보존된 동일 판정을 재사용하고, 다른 request가 만료 lease를 takeover하면 새 판정을 확정합니다.
 - canonical commit은 Skill Check 결과와 state transition을 같은 transaction에서 `GameLog`에 기록합니다.
-- frontend의 능력치/판정 결과 표시는 #38 범위입니다.
+- frontend는 서버가 반환한 능력치와 Skill Check projection을 한국어로 표시하며 modifier/outcome을 재계산하지 않습니다.
 
 ### GameState와 Story Memory
 
@@ -158,6 +158,7 @@ M2의 턴 무결성·복구 구현 범위와 완료 조건은 main에 반영되�
 - Charcoal Folio 기반 narrative-first single-column UI를 사용합니다.
 - React 19, Vite 8, plain CSS, SUIT Variable을 사용합니다.
 - `system | light | dark` 테마를 지원합니다.
+- 캐릭터 능력치와 최근 Skill Check roll/modifier/DC/total/outcome을 story 아래의 읽기 흐름에서 표시합니다.
 - API 오류는 화면 문맥 안에서 표시하고 가능한 경우 retry를 제공합니다.
 - 진행 중 중복 요청을 막고 typewriter skip 및 `prefers-reduced-motion`을 지원합니다.
 - image loading/failure, keyboard focus 이동, live-region 등 공유 베타 accessibility behavior를 포함합니다.
@@ -328,8 +329,6 @@ GitHub Actions CI도 backend unit test → PostgreSQL integration test → backe
 
 진행 중.
 
-현재 #33 `AvailableAction` / `PlayerAction`, #34 `ActionResolver` / `GameResult`, #36 확정 결과 기반 `NarrativeContext`, #7 typed `CharacterStats` / pure Skill Check 규칙에 더해 #37 Skill Check turn 통합과 감사 저장이 반영됩니다.
+현재 #33 `AvailableAction` / `PlayerAction`, #34 `ActionResolver` / `GameResult`, #36 확정 결과 기반 `NarrativeContext`, #7 typed `CharacterStats` / pure Skill Check 규칙에 더해 #37 Skill Check turn 통합·감사 저장과 #38 능력치·Skill Check 결과 frontend projection이 반영됩니다.
 
-다음 UI 단계는 #38 능력치·Skill Check 결과 표시입니다. Gemini structured output 검증과 bounded recovery는 #35의 별도 P1 작업입니다.
-
-아직 구현되지 않은 전투·인벤토리·퀘스트·NPC 관계 기능은 현재 기능처럼 문서에 표시하지 않습니다.
+Gemini structured output 검증과 bounded recovery는 #35의 별도 P1 작업입니다. 아직 구현되지 않은 전투·인벤토리·퀘스트·NPC 관계 기능은 현재 기능처럼 문서에 표시하지 않습니다.

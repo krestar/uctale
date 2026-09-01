@@ -86,7 +86,14 @@ public class GamePersistenceService {
         GameSession session = findOwnedSession(ownerKey, sessionId);
         GameLog log = gameLogRepository.findByGameSessionAndTurnNumber(session, turnNumber)
                 .orElseThrow(() -> new IllegalStateException("완료된 게임 로그를 찾을 수 없습니다."));
-        return new CommittedTurn(log.getStoryText(), log.getChoicesJson(), log.getImageUrl());
+        GameState gameState = loadOrRecoverState(session);
+        return new CommittedTurn(
+                log.getStoryText(),
+                log.getChoicesJson(),
+                log.getImageUrl(),
+                gameState,
+                SkillCheckAudit.from(log)
+        );
     }
 
     @Transactional
@@ -200,5 +207,41 @@ public class GamePersistenceService {
 
     public record LoadedTurn(Long sessionId, int turnNumber, String worldSetting, String characterSetting,
             String storyText, String choicesJson, String imageUrl, GameState gameState) {}
-    public record CommittedTurn(String storyText, String choicesJson, String imageUrl) {}
+
+    public record CommittedTurn(
+            String storyText,
+            String choicesJson,
+            String imageUrl,
+            GameState gameState,
+            SkillCheckAudit skillCheckAudit
+    ) {
+        public CommittedTurn(String storyText, String choicesJson, String imageUrl) {
+            this(storyText, choicesJson, imageUrl, null, null);
+        }
+    }
+
+    public record SkillCheckAudit(
+            String statType,
+            Integer rawRoll,
+            Integer statModifier,
+            Integer situationalModifier,
+            Integer dc,
+            Integer total,
+            String outcome,
+            Integer rulesetVersion
+    ) {
+        static SkillCheckAudit from(GameLog log) {
+            if (log.getSkillCheckStatType() == null) return null;
+            return new SkillCheckAudit(
+                    log.getSkillCheckStatType(),
+                    log.getSkillCheckRawRoll(),
+                    log.getSkillCheckStatModifier(),
+                    log.getSkillCheckSituationalModifier(),
+                    log.getSkillCheckDc(),
+                    log.getSkillCheckTotal(),
+                    log.getSkillCheckOutcome(),
+                    log.getSkillCheckRulesetVersion()
+            );
+        }
+    }
 }

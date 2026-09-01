@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { mapGameResponse } from './gameResponseMapper.js';
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/game';
 const API_ORIGIN = new URL(BASE_URL).origin;
@@ -16,7 +17,7 @@ export const initGame = async (worldSetting, characterSetting, idempotencyKey) =
     }, {
         headers: { 'Idempotency-Key': idempotencyKey }
     });
-    return response.data;
+    return mapGameResponse(response.data);
 };
 
 export const progressGame = async (sessionId, choice, expectedTurn, idempotencyKey) => {
@@ -31,7 +32,7 @@ export const progressGame = async (sessionId, choice, expectedTurn, idempotencyK
     }, {
         headers: { 'Idempotency-Key': idempotencyKey }
     });
-    return response.data;
+    return mapGameResponse(response.data);
 };
 
 export const resolveGameAssetUrl = (assetUrl) => {
