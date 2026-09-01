@@ -37,7 +37,9 @@ public record NarrativeContext(
     );
 
     public NarrativeContext {
-        if (canonicalResultId == null || canonicalResultId.isBlank()) throw new IllegalArgumentException("canonicalResultId는 필수입니다.");
+        if (canonicalResultId == null || canonicalResultId.isBlank()) {
+            throw new IllegalArgumentException("canonicalResultId는 필수입니다.");
+        }
         Objects.requireNonNull(resolvedAction, "resolvedAction은 필수입니다.");
         Objects.requireNonNull(outcome, "outcome은 필수입니다.");
         resultCanonicalFacts = resultCanonicalFacts == null ? List.of() : List.copyOf(resultCanonicalFacts);
@@ -46,7 +48,9 @@ public record NarrativeContext(
         Objects.requireNonNull(state, "state projection은 필수입니다.");
         Objects.requireNonNull(memory, "memory projection은 필수입니다.");
         narrativeCues = narrativeCues == null ? List.of() : List.copyOf(narrativeCues);
-        forbiddenCanonicalMutations = forbiddenCanonicalMutations == null ? CANONICAL_MUTATION_GUARDRAILS : List.copyOf(forbiddenCanonicalMutations);
+        forbiddenCanonicalMutations = forbiddenCanonicalMutations == null
+                ? CANONICAL_MUTATION_GUARDRAILS
+                : List.copyOf(forbiddenCanonicalMutations);
     }
 
     public static NarrativeContext from(String canonicalResultId, TurnResolution resolution) {
@@ -68,31 +72,69 @@ public record NarrativeContext(
         );
     }
 
-    public String playerAction() { return resolvedAction.displayText(); }
+    public String playerAction() {
+        return resolvedAction.displayText();
+    }
 
-    public record ResolvedAction(int legacyChoiceId, ActionType type, int sourceTurn, Map<String, String> arguments, String displayText) {
+    public record ResolvedAction(
+            int legacyChoiceId,
+            ActionType type,
+            int sourceTurn,
+            Map<String, String> arguments,
+            String displayText
+    ) {
         public ResolvedAction {
-            if (legacyChoiceId < 1 || sourceTurn < 1) throw new IllegalArgumentException("resolved action 식별자가 올바르지 않습니다.");
+            if (legacyChoiceId < 1 || sourceTurn < 1) {
+                throw new IllegalArgumentException("resolved action 식별자가 올바르지 않습니다.");
+            }
             Objects.requireNonNull(type, "action type은 필수입니다.");
             arguments = arguments == null ? Map.of() : Map.copyOf(arguments);
             displayText = displayText == null ? "" : displayText;
         }
+
         private static ResolvedAction from(PlayerAction action) {
-            return new ResolvedAction(action.legacyChoiceId(), action.type(), action.sourceTurn(), action.arguments(), action.displayText());
+            return new ResolvedAction(
+                    action.legacyChoiceId(),
+                    action.type(),
+                    action.sourceTurn(),
+                    action.arguments(),
+                    action.displayText()
+            );
         }
     }
 
-    public record SkillCheckProjection(StatType statType, int rawRoll, int statModifier, int situationalModifier,
-            int dc, int total, SkillCheckOutcome outcome, int rulesetVersion) {
+    public record SkillCheckProjection(
+            StatType statType,
+            int rawRoll,
+            int statModifier,
+            int situationalModifier,
+            int dc,
+            int total,
+            SkillCheckOutcome outcome,
+            int rulesetVersion
+    ) {
         private static SkillCheckProjection from(SkillCheckResult result) {
             if (result == null) return null;
-            return new SkillCheckProjection(result.statType(), result.rawRoll(), result.statModifier(),
-                    result.situationalModifier(), result.dc(), result.total(), result.outcome(), result.rulesetVersion());
+            return new SkillCheckProjection(
+                    result.statType(),
+                    result.rawRoll(),
+                    result.statModifier(),
+                    result.situationalModifier(),
+                    result.dc(),
+                    result.total(),
+                    result.outcome(),
+                    result.rulesetVersion()
+            );
         }
     }
 
-    public record StateProjection(int turnNumber, String worldPremise, String playerDescription,
-            CharacterStats playerStats, Map<String, String> worldFlags) {
+    public record StateProjection(
+            int turnNumber,
+            String worldPremise,
+            String playerDescription,
+            CharacterStats playerStats,
+            Map<String, String> worldFlags
+    ) {
         public StateProjection {
             if (turnNumber < 1) throw new IllegalArgumentException("turnNumber는 1 이상이어야 합니다.");
             worldPremise = worldPremise == null ? "" : worldPremise;
@@ -100,20 +142,35 @@ public record NarrativeContext(
             Objects.requireNonNull(playerStats, "playerStats는 필수입니다.");
             worldFlags = worldFlags == null ? Map.of() : Map.copyOf(worldFlags);
         }
+
         private static StateProjection from(GameState state) {
-            return new StateProjection(state.turnNumber(), state.worldState().premise(),
-                    state.playerCharacter().description(), state.playerCharacter().stats(), state.worldState().flags());
+            return new StateProjection(
+                    state.turnNumber(),
+                    state.worldState().premise(),
+                    state.playerCharacter().description(),
+                    state.playerCharacter().stats(),
+                    state.worldState().flags()
+            );
         }
     }
 
-    public record MemoryProjection(List<CanonicalFact> canonicalFacts, String rollingSummary, List<GameTurn> recentTurns) {
+    public record MemoryProjection(
+            List<CanonicalFact> canonicalFacts,
+            String rollingSummary,
+            List<GameTurn> recentTurns
+    ) {
         public MemoryProjection {
             canonicalFacts = canonicalFacts == null ? List.of() : List.copyOf(canonicalFacts);
             rollingSummary = rollingSummary == null ? "" : rollingSummary;
             recentTurns = recentTurns == null ? List.of() : List.copyOf(recentTurns);
         }
+
         private static MemoryProjection from(GameState state) {
-            return new MemoryProjection(state.storyMemory().canonicalFacts(), state.storyMemory().rollingSummary(), state.storyMemory().recentTurns());
+            return new MemoryProjection(
+                    state.storyMemory().canonicalFacts(),
+                    state.storyMemory().rollingSummary(),
+                    state.storyMemory().recentTurns()
+            );
         }
     }
 }
