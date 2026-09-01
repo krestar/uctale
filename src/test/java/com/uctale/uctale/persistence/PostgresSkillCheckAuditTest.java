@@ -27,10 +27,10 @@ class PostgresSkillCheckAuditTest extends PostgresIntegrationTestSupport {
 
     @BeforeEach
     void cleanUp() {
-        jdbcTemplate.update("DELETE FROM game_turn_reservation");
-        jdbcTemplate.update("DELETE FROM game_mutation_request");
-        logRepository.deleteAll();
-        sessionRepository.deleteAll();
+        jdbcTemplate.execute("""
+                truncate table game_turn_reservation, game_mutation_request, image_asset,
+                    game_state_snapshot, game_log, game_session restart identity
+                """);
     }
 
     @Test
