@@ -54,6 +54,31 @@ public class GameService {
     private final GameMutationFingerprint mutationFingerprint;
     private final GameMutationRequestService mutationRequestService;
 
+    public GameService(
+            NarrativeGenerator narrativeGenerator,
+            ImageAssetService imageAssetService,
+            GamePersistenceService gamePersistenceService,
+            ChoiceCodec choiceCodec,
+            ImagePromptComposer imagePromptComposer,
+            CostRateLimiter costRateLimiter,
+            ProviderCallTelemetry providerCallTelemetry,
+            GameMutationFingerprint mutationFingerprint,
+            GameMutationRequestService mutationRequestService
+    ) {
+        this(
+                narrativeGenerator,
+                imageAssetService,
+                gamePersistenceService,
+                choiceCodec,
+                new TurnProcessor(),
+                imagePromptComposer,
+                costRateLimiter,
+                providerCallTelemetry,
+                mutationFingerprint,
+                mutationRequestService
+        );
+    }
+
     public GameResponse initGame(String ownerKey, GameInitRequest request) {
         return initGame(CostRequestContext.internal(ownerKey, null, 1), request);
     }
