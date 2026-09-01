@@ -51,7 +51,7 @@ class GeminiNarrativeAdapterTest {
     @Test
     @DisplayName("누락 choice text를 기본값으로 보정하지 않고 recoverable 오류로 거부한다")
     void parseResponse_DoesNotDefaultMissingChoiceText() {
-        String narrative = """{"title":"첫날 밤","story_text":"좀비가 나타났다!","choices":[{"id":1}]}""";
+        String narrative = "{\"title\":\"첫날 밤\",\"story_text\":\"좀비가 나타났다!\",\"choices\":[{\"id\":1}]}";
 
         assertThatThrownBy(() -> adapter.parseResponse(apiResponse(narrative)))
                 .isInstanceOfSatisfying(RecoverableNarrativeResponseException.class, exception ->
@@ -61,7 +61,7 @@ class GeminiNarrativeAdapterTest {
     @Test
     @DisplayName("중복 choice id를 recoverable 오류로 거부한다")
     void parseResponse_RejectsDuplicateChoiceIds() {
-        String narrative = """{"title":"첫날 밤","story_text":"좀비가 나타났다!","choices":[{"id":1,"text":"도망간다"},{"id":1,"text":"숨는다"}]}""";
+        String narrative = "{\"title\":\"첫날 밤\",\"story_text\":\"좀비가 나타났다!\",\"choices\":[{\"id\":1,\"text\":\"도망간다\"},{\"id\":1,\"text\":\"숨는다\"}]}";
 
         assertThatThrownBy(() -> adapter.parseResponse(apiResponse(narrative)))
                 .isInstanceOfSatisfying(RecoverableNarrativeResponseException.class, exception ->
@@ -96,13 +96,13 @@ class GeminiNarrativeAdapterTest {
     }
 
     private String validNarrativeJson() {
-        return """{"title":"첫날 밤","story_text":"좀비가 나타났다!","choices":[{"id":1,"text":"도망간다"}],"visual_assets":{"background":"dark subway","characters":[],"assets":[]}}""";
+        return "{\"title\":\"첫날 밤\",\"story_text\":\"좀비가 나타났다!\",\"choices\":[{\"id\":1,\"text\":\"도망간다\"}],\"visual_assets\":{\"background\":\"dark subway\",\"characters\":[],\"assets\":[]}}";
     }
 
     private String apiResponse(String narrativeJson) {
         try {
             String escaped = new ObjectMapper().writeValueAsString(narrativeJson);
-            return """{"candidates":[{"content":{"parts":[{"text":%s}]}}]}""".formatted(escaped);
+            return "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":" + escaped + "}]}}]}";
         } catch (Exception exception) {
             throw new AssertionError(exception);
         }
