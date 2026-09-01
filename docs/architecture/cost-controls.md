@@ -109,7 +109,9 @@ provider 호출마다 다음 항목을 구조화 로그로 기록합니다.
 
 사용자 world/character/action, provider prompt/응답 전문, access/owner token, API key는 로그에 기록하지 않습니다.
 
-Narrative는 현재 provider 내부 retry가 없어 `retryCount=0`입니다. Image는 Pollinations bounded retry의 실제 횟수를 성공 결과 또는 최종 실패에서 추출해 같은 `provider_call` event에 기록합니다. 이미지별 model/size/seed/status 등 상세 진단은 `image_provider_result` event를 사용합니다.
+Narrative bounded recovery는 같은 logical call 안의 실제 Gemini provider attempt 수를 `retryCount`/`attemptCount`에 반영합니다. `provider_call.model`은 `GOOGLE_AI_MODEL` 설정과 동일한 model ID를 기록합니다. Gemini adapter는 각 provider attempt의 별도 `gemini_provider_result` 로그에 model, thinking level, latency, outcome과 provider가 반환한 prompt/candidate/thought/total token usage를 기록합니다. 토큰 메타데이터가 없거나 provider 호출 자체가 실패한 경우 해당 token 값은 비어 있을 수 있습니다. prompt/story 전문은 기록하지 않습니다.
+
+Image는 Pollinations bounded retry의 실제 횟수를 성공 결과 또는 최종 실패에서 추출해 같은 `provider_call` event에 기록합니다. 이미지별 model/size/seed/status 등 상세 진단은 `image_provider_result` event를 사용합니다.
 
 ## 책임 경계
 
@@ -118,5 +120,6 @@ Narrative는 현재 provider 내부 retry가 없어 `retryCount=0`입니다. Ima
 - Global budget guard: PostgreSQL usage ledger를 기준으로 UTC 일/월 provider 사용량과 warning/critical 정책을 관리합니다.
 - Turn provider attempt: `game_turn_reservation.provider_attempt_count`가 같은 canonical turn의 실제 Narrative provider 시작을 최대 3회로 제한합니다. 이는 전역 budget ledger와 별개의 무결성 경계입니다.
 - Narrative: `GameService`가 소유권/turn/action/rate limit을 확인하고 budget guard와 provider attempt 시작 경계를 통과한 호출만 Gemini telemetry로 감쌉니다.
+- Gemini adapter: model/thinking compatibility와 provider usage metadata 관측만 소유하며 canonical game state를 변경하지 않습니다.
 - Image: `ImageAssetService`가 asset 소유권과 기존 생성 결과를 먼저 확인하고 미생성 asset에 대해서만 rate limit과 provider 호출을 수행합니다.
 - DB에 저장된 이미지 재조회는 provider를 호출하지 않으므로 Image quota와 global budget unit을 소비하지 않습니다.
