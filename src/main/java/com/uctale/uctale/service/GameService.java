@@ -16,6 +16,9 @@ import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.application.narrative.InvalidNarrativeResponseException;
 import com.uctale.uctale.application.narrative.NarrativeContext;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
+import com.uctale.uctale.application.narrative.NarrativeRecoveryExhaustedException;
+import com.uctale.uctale.application.narrative.NarrativeRecoveryExecutor;
+import com.uctale.uctale.application.narrative.NarrativeRecoveryInterruptedException;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
 import com.uctale.uctale.domain.action.PlayerAction;
 import com.uctale.uctale.domain.game.GameState;
@@ -54,6 +57,7 @@ public class GameService {
     private final ProviderCallTelemetry providerCallTelemetry;
     private final GameMutationFingerprint mutationFingerprint;
     private final GameMutationRequestService mutationRequestService;
+    private final NarrativeRecoveryExecutor narrativeRecoveryExecutor = NarrativeRecoveryExecutor.production();
 
     @Autowired
     public GameService(
@@ -120,10 +124,7 @@ public class GameService {
 
         try {
             costRateLimiter.check(CostOperation.NARRATIVE, costContext);
-            NarrativeTurn opening = providerCallTelemetry.observe(
-                    "gemini", "opening", costContext, 0,
-                    () -> narrativeGenerator.createOpening(request.worldSetting(), request.characterSetting())
-            );
+            NarrativeTurn opening = observeOpening(costContext, request).turn();
             validateNarrativeTurn(opening);
             List<GameChoice> choices = choiceCodec.issue(opening.choices(), 1);
 
@@ -180,13 +181,7 @@ public class GameService {
                     resolution.stateTransition().nextState().turnNumber());
             NarrativeContext narrativeContext = NarrativeContext.from(canonicalResultId, resolution);
             costRateLimiter.check(CostOperation.NARRATIVE, providerContext);
-            NarrativeTurn nextTurn = providerCallTelemetry.observe(
-                    "gemini", "progress", providerContext, 0,
-                    () -> mutationRequestService.markProviderAttemptStarted(
-                            mutation.requestId(), mutation.reservationOwner()
-                    ),
-                    () -> narrativeGenerator.createNextTurn(narrativeContext)
-            );
+            NarrativeTurn nextTurn = observeProgress(providerContext, mutation, narrativeContext).turn();
             validateNarrativeTurn(nextTurn);
             String generatedStoryId = "story:" + UUID.randomUUID();
             StateTransition committedTransition = turnProcessor.attachNarrative(resolution, nextTurn.storyText());
@@ -222,6 +217,66 @@ public class GameService {
             mutationRequestService.markFailed(mutation.requestId(), mutation.reservationOwner());
             throw exception;
         }
+    }
+
+    private NarrativeRecoveryExecutor.Result observeOpening(
+            CostRequestContext costContext,
+            GameInitRequest request
+    ) {
+        try {
+            return providerCallTelemetry.observe(
+                    "gemini", "opening", costContext,
+                    () -> narrativeRecoveryExecutor.execute(
+                            () -> narrativeGenerator.createOpening(
+                                    request.worldSetting(), request.characterSetting()
+                            ),
+                            reasonCode -> narrativeGenerator.repairOpening(
+                                    request.worldSetting(), request.characterSetting(), reasonCode
+                            ),
+                            () -> {}
+                    ),
+                    NarrativeRecoveryExecutor.Result::retryCount,
+                    this::narrativeRetryCountFromFailure
+            );
+        } catch (NarrativeRecoveryInterruptedException exception) {
+            throw exception.originalCause();
+        }
+    }
+
+    private NarrativeRecoveryExecutor.Result observeProgress(
+            CostRequestContext providerContext,
+            GameMutationRequestService.BeginResult mutation,
+            NarrativeContext narrativeContext
+    ) {
+        try {
+            return providerCallTelemetry.observe(
+                    "gemini", "progress", providerContext,
+                    () -> mutationRequestService.markProviderAttemptStarted(
+                            mutation.requestId(), mutation.reservationOwner()
+                    ),
+                    () -> narrativeRecoveryExecutor.execute(
+                            () -> narrativeGenerator.createNextTurn(narrativeContext),
+                            reasonCode -> narrativeGenerator.repairNextTurn(narrativeContext, reasonCode),
+                            () -> mutationRequestService.markProviderAttemptStarted(
+                                    mutation.requestId(), mutation.reservationOwner()
+                            )
+                    ),
+                    NarrativeRecoveryExecutor.Result::retryCount,
+                    this::narrativeRetryCountFromFailure
+            );
+        } catch (NarrativeRecoveryInterruptedException exception) {
+            throw exception.originalCause();
+        }
+    }
+
+    private int narrativeRetryCountFromFailure(RuntimeException exception) {
+        if (exception instanceof NarrativeRecoveryExhaustedException exhausted) {
+            return exhausted.retryCount();
+        }
+        if (exception instanceof NarrativeRecoveryInterruptedException interrupted) {
+            return interrupted.retryCount();
+        }
+        return 0;
     }
 
     private GameResponse replay(String ownerKey, GameMutationRequestService.BeginResult mutation) {

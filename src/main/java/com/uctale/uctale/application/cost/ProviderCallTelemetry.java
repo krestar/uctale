@@ -79,6 +79,27 @@ public class ProviderCallTelemetry {
 
     public <T> T observe(
             String provider,
+            String operation,
+            CostRequestContext context,
+            Runnable beforeInvocation,
+            Supplier<T> invocation,
+            ToIntFunction<T> successRetryCount,
+            ToIntFunction<RuntimeException> failureRetryCount
+    ) {
+        return observe(
+                provider,
+                defaultModel(provider),
+                operation,
+                context,
+                beforeInvocation,
+                invocation,
+                successRetryCount,
+                failureRetryCount
+        );
+    }
+
+    public <T> T observe(
+            String provider,
             String model,
             String operation,
             CostRequestContext context,
