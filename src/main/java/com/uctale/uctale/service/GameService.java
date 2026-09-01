@@ -23,8 +23,8 @@ import com.uctale.uctale.dto.GameChoice;
 import com.uctale.uctale.dto.GameInitRequest;
 import com.uctale.uctale.dto.GameProgressRequest;
 import com.uctale.uctale.dto.GameResponse;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.HashSet;
@@ -34,7 +34,6 @@ import java.util.UUID;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class GameService {
 
     private static final int MAX_TITLE_LENGTH = 200;
@@ -53,6 +52,31 @@ public class GameService {
     private final ProviderCallTelemetry providerCallTelemetry;
     private final GameMutationFingerprint mutationFingerprint;
     private final GameMutationRequestService mutationRequestService;
+
+    @Autowired
+    public GameService(
+            NarrativeGenerator narrativeGenerator,
+            ImageAssetService imageAssetService,
+            GamePersistenceService gamePersistenceService,
+            ChoiceCodec choiceCodec,
+            TurnProcessor turnProcessor,
+            ImagePromptComposer imagePromptComposer,
+            CostRateLimiter costRateLimiter,
+            ProviderCallTelemetry providerCallTelemetry,
+            GameMutationFingerprint mutationFingerprint,
+            GameMutationRequestService mutationRequestService
+    ) {
+        this.narrativeGenerator = narrativeGenerator;
+        this.imageAssetService = imageAssetService;
+        this.gamePersistenceService = gamePersistenceService;
+        this.choiceCodec = choiceCodec;
+        this.turnProcessor = turnProcessor;
+        this.imagePromptComposer = imagePromptComposer;
+        this.costRateLimiter = costRateLimiter;
+        this.providerCallTelemetry = providerCallTelemetry;
+        this.mutationFingerprint = mutationFingerprint;
+        this.mutationRequestService = mutationRequestService;
+    }
 
     public GameService(
             NarrativeGenerator narrativeGenerator,
