@@ -47,7 +47,7 @@ public class GameService {
     private final ImageAssetService imageAssetService;
     private final GamePersistenceService gamePersistenceService;
     private final ChoiceCodec choiceCodec;
-    private final TurnProcessor turnProcessor = new TurnProcessor();
+    private final TurnProcessor turnProcessor;
     private final ImagePromptComposer imagePromptComposer;
     private final CostRateLimiter costRateLimiter;
     private final ProviderCallTelemetry providerCallTelemetry;
@@ -63,9 +63,7 @@ public class GameService {
                 costContext.ownerKey(), GameMutationRequestService.INIT, costContext.idempotencyKey(), null, null,
                 mutationFingerprint.init(request)
         );
-        if (mutation.replay()) {
-            return replay(costContext.ownerKey(), mutation);
-        }
+        if (mutation.replay()) return replay(costContext.ownerKey(), mutation);
 
         try {
             costRateLimiter.check(CostOperation.NARRATIVE, costContext);
@@ -77,9 +75,7 @@ public class GameService {
             List<GameChoice> choices = choiceCodec.issue(opening.choices(), 1);
 
             String imagePrompt = imagePromptComposer.compose(opening.visualAssets());
-            if (imagePrompt == null || imagePrompt.isBlank()) {
-                imagePrompt = imagePromptComposer.composeFallback(request.worldSetting());
-            }
+            if (imagePrompt == null || imagePrompt.isBlank()) imagePrompt = imagePromptComposer.composeFallback(request.worldSetting());
             validateImagePrompt(imagePrompt);
             ImageAssetService.AssetReference imageAsset = imageAssetService.issue(imagePrompt, "16:9");
 
@@ -103,9 +99,7 @@ public class GameService {
                 costContext.ownerKey(), GameMutationRequestService.PROGRESS, costContext.idempotencyKey(),
                 request.sessionId(), request.expectedTurn(), mutationFingerprint.progress(request)
         );
-        if (mutation.replay()) {
-            return replay(costContext.ownerKey(), mutation);
-        }
+        if (mutation.replay()) return replay(costContext.ownerKey(), mutation);
 
         try {
             GamePersistenceService.LoadedTurn loadedTurn = gamePersistenceService.loadLatestTurn(
@@ -117,7 +111,9 @@ public class GameService {
             );
 
             PlayerAction playerAction = choiceCodec.resolve(loadedTurn.choicesJson(), request);
-            TurnResolution resolution = turnProcessor.resolve(loadedTurn.gameState(), playerAction);
+            TurnResolution resolution = turnProcessor.resolve(
+                    loadedTurn.gameState(), playerAction, mutation.requestId(), mutation.reservationOwner()
+            );
             String userChoiceText = resolution.gameResult().resolvedAction().displayText();
             String canonicalResultId = canonicalResultId(mutation.requestId(), loadedTurn.sessionId(),
                     resolution.stateTransition().nextState().turnNumber());
@@ -125,9 +121,7 @@ public class GameService {
             costRateLimiter.check(CostOperation.NARRATIVE, providerContext);
             NarrativeTurn nextTurn = providerCallTelemetry.observe(
                     "gemini", "progress", providerContext, 0,
-                    () -> mutationRequestService.markProviderAttemptStarted(
-                            mutation.requestId(), mutation.reservationOwner()
-                    ),
+                    () -> mutationRequestService.markProviderAttemptStarted(mutation.requestId(), mutation.reservationOwner()),
                     () -> narrativeGenerator.createNextTurn(narrativeContext)
             );
             validateNarrativeTurn(nextTurn);
@@ -150,7 +144,7 @@ public class GameService {
             GameTurnCommit commit = new GameTurnCommit(
                     request.expectedTurn(), resolution.gameResult().resolvedAction().legacyChoiceId(), userChoiceText,
                     committedTransition, nextTurn.storyText(), choiceCodec.serialize(choices),
-                    canonicalResultId, generatedStoryId, imageAsset
+                    canonicalResultId, generatedStoryId, resolution.gameResult().skillCheckResult(), imageAsset
             );
 
             int savedTurn = gamePersistenceService.saveNextTurn(
@@ -171,45 +165,29 @@ public class GameService {
         GamePersistenceService.CommittedTurn turn = gamePersistenceService.loadCommittedTurn(
                 ownerKey, mutation.resultSessionId(), mutation.resultTurn()
         );
-        return new GameResponse(
-                mutation.resultSessionId(), mutation.resultTurn(), mutation.resultTitle(), turn.storyText(),
-                choiceCodec.deserialize(turn.choicesJson()), turn.imageUrl()
-        );
+        return new GameResponse(mutation.resultSessionId(), mutation.resultTurn(), mutation.resultTitle(),
+                turn.storyText(), choiceCodec.deserialize(turn.choicesJson()), turn.imageUrl());
     }
 
     private String canonicalResultId(Long mutationRequestId, Long sessionId, int nextTurn) {
-        if (mutationRequestId == null || sessionId == null || nextTurn < 2) {
-            throw new IllegalArgumentException("canonical result link를 만들 수 없습니다.");
-        }
+        if (mutationRequestId == null || sessionId == null || nextTurn < 2) throw new IllegalArgumentException("canonical result link를 만들 수 없습니다.");
         return "game-result:%d:%d:%d".formatted(sessionId, nextTurn, mutationRequestId);
     }
 
     private void validateNarrativeTurn(NarrativeTurn turn) {
         if (turn == null) throw new InvalidNarrativeResponseException("Narrative 응답이 없습니다.");
-        if (turn.title() == null || turn.title().isBlank() || turn.title().length() > MAX_TITLE_LENGTH) {
-            throw new InvalidNarrativeResponseException("Narrative 제목이 올바르지 않습니다.");
-        }
-        if (turn.storyText() == null || turn.storyText().isBlank() || turn.storyText().length() > MAX_STORY_LENGTH) {
-            throw new InvalidNarrativeResponseException("Narrative 본문이 올바르지 않습니다.");
-        }
-        if (turn.choices() == null || turn.choices().isEmpty() || turn.choices().size() > MAX_CHOICES) {
-            throw new InvalidNarrativeResponseException("Narrative 선택지 수가 올바르지 않습니다.");
-        }
+        if (turn.title() == null || turn.title().isBlank() || turn.title().length() > MAX_TITLE_LENGTH) throw new InvalidNarrativeResponseException("Narrative 제목이 올바르지 않습니다.");
+        if (turn.storyText() == null || turn.storyText().isBlank() || turn.storyText().length() > MAX_STORY_LENGTH) throw new InvalidNarrativeResponseException("Narrative 본문이 올바르지 않습니다.");
+        if (turn.choices() == null || turn.choices().isEmpty() || turn.choices().size() > MAX_CHOICES) throw new InvalidNarrativeResponseException("Narrative 선택지 수가 올바르지 않습니다.");
         Set<Integer> choiceIds = new HashSet<>();
         for (NarrativeTurn.Choice choice : turn.choices()) {
-            if (choice == null || choice.id() <= 0 || !choiceIds.add(choice.id())) {
-                throw new InvalidNarrativeResponseException("Narrative 선택지 ID가 올바르지 않습니다.");
-            }
-            if (choice.text() == null || choice.text().isBlank() || choice.text().length() > MAX_CHOICE_TEXT_LENGTH) {
-                throw new InvalidNarrativeResponseException("Narrative 선택지 문구가 올바르지 않습니다.");
-            }
+            if (choice == null || choice.id() <= 0 || !choiceIds.add(choice.id())) throw new InvalidNarrativeResponseException("Narrative 선택지 ID가 올바르지 않습니다.");
+            if (choice.text() == null || choice.text().isBlank() || choice.text().length() > MAX_CHOICE_TEXT_LENGTH) throw new InvalidNarrativeResponseException("Narrative 선택지 문구가 올바르지 않습니다.");
         }
     }
 
     private void validateImagePrompt(String imagePrompt) {
-        if (imagePrompt != null && imagePrompt.length() > MAX_IMAGE_PROMPT_LENGTH) {
-            throw new InvalidNarrativeResponseException("이미지 prompt가 너무 깁니다.");
-        }
+        if (imagePrompt != null && imagePrompt.length() > MAX_IMAGE_PROMPT_LENGTH) throw new InvalidNarrativeResponseException("이미지 prompt가 너무 깁니다.");
     }
 
     private GameResponse toResponse(Long sessionId, int turnNumber, NarrativeTurn turn, List<GameChoice> choices, String imageUrl) {
