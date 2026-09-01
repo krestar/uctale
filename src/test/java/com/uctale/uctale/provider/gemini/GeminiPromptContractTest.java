@@ -21,7 +21,7 @@ class GeminiPromptContractTest {
     @Test
     @DisplayName("progress prompt는 확정 결과/상태/금지 mutation/cues를 분리하고 action token을 노출하지 않는다")
     void buildProgressPrompt_UsesCanonicalContractWithoutActionToken() throws Exception {
-        GeminiNarrativeAdapter adapter = new GeminiNarrativeAdapter(new ObjectMapper(), RestClient.builder());
+        GeminiNarrativeAdapter adapter = adapter();
         GameState state = GameState.initial("폐허 도시", "정찰자", "오프닝");
         PlayerAction action = new PlayerAction(
                 7,
@@ -49,7 +49,7 @@ class GeminiPromptContractTest {
     @Test
     @DisplayName("Skill Check prompt는 서버가 확정한 roll modifier DC total outcome을 그대로 전달한다")
     void buildProgressPrompt_IncludesCanonicalSkillCheckResult() throws Exception {
-        GeminiNarrativeAdapter adapter = new GeminiNarrativeAdapter(new ObjectMapper(), RestClient.builder());
+        GeminiNarrativeAdapter adapter = adapter();
         GameState state = GameState.initial("폐허 도시", "정찰자", "오프닝");
         PlayerAction action = new PlayerAction(
                 7,
@@ -83,5 +83,13 @@ class GeminiPromptContractTest {
                 .contains("\"total\":10")
                 .contains("\"outcome\":\"SUCCESS\"")
                 .doesNotContain("SERVER_ONLY_SKILL_TOKEN");
+    }
+
+    private GeminiNarrativeAdapter adapter() {
+        return new GeminiNarrativeAdapter(
+                new ObjectMapper(),
+                RestClient.builder(),
+                new GeminiProviderSettings("TEST_API_KEY", "gemini-3.7-flash", "medium", "low")
+        );
     }
 }
