@@ -6,6 +6,7 @@ import tools.jackson.databind.ObjectMapper;
 import com.uctale.uctale.application.narrative.NarrativeContext;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
+import com.uctale.uctale.application.narrative.RecoverableNarrativeResponseException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -13,14 +14,23 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Slf4j
 @Component
 public class GeminiNarrativeAdapter implements NarrativeGenerator {
 
     private static final String GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+    private static final int MAX_TITLE_LENGTH = 200;
+    private static final int MAX_STORY_LENGTH = 50_000;
+    private static final int MAX_CHOICE_TEXT_LENGTH = 255;
+    private static final int MAX_CHOICES = 8;
+    private static final int MAX_VISUAL_ITEMS = 8;
+    private static final int MAX_VISUAL_TEXT_LENGTH = 1_000;
+
     private static final String SYSTEM_INSTRUCTION = """
             당신은 UCTale의 Narrative Engine입니다.
             게임의 결정적 상태와 사실은 서버가 소유하며, 당신은 전달받은 확정 결과를 서사로 표현합니다.
@@ -43,21 +53,46 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
                - `assets`: 현재 상호작용 중인 핵심 사물
                - 모든 묘사는 **영어(English)**로 작성해야 합니다.
 
-            [JSON 응답 형식]
-            {
-              "title": "string (한국어)",
-              "story_text": "string (한국어, 3~5문장)",
-              "choices": [
-                { "id": 1, "text": "행동 1" },
-                { "id": 2, "text": "행동 2" }
-              ],
-              "visual_assets": {
-                "background": "string (English or empty)",
-                "characters": ["string (English or empty)"],
-                "assets": ["string (English or empty)"]
-              }
-            }
+            JSON 구조는 API의 response schema를 반드시 따르세요.
             """;
+
+    private static final Map<String, Object> RESPONSE_SCHEMA = Map.of(
+            "type", "OBJECT",
+            "required", List.of("title", "story_text", "choices"),
+            "properties", Map.of(
+                    "title", Map.of("type", "STRING"),
+                    "story_text", Map.of("type", "STRING"),
+                    "choices", Map.of(
+                            "type", "ARRAY",
+                            "minItems", 1,
+                            "maxItems", MAX_CHOICES,
+                            "items", Map.of(
+                                    "type", "OBJECT",
+                                    "required", List.of("id", "text"),
+                                    "properties", Map.of(
+                                            "id", Map.of("type", "INTEGER", "minimum", 1),
+                                            "text", Map.of("type", "STRING")
+                                    )
+                            )
+                    ),
+                    "visual_assets", Map.of(
+                            "type", "OBJECT",
+                            "properties", Map.of(
+                                    "background", Map.of("type", "STRING"),
+                                    "characters", Map.of(
+                                            "type", "ARRAY",
+                                            "maxItems", MAX_VISUAL_ITEMS,
+                                            "items", Map.of("type", "STRING")
+                                    ),
+                                    "assets", Map.of(
+                                            "type", "ARRAY",
+                                            "maxItems", MAX_VISUAL_ITEMS,
+                                            "items", Map.of("type", "STRING")
+                                    )
+                            )
+                    )
+            )
+    );
 
     @Value("${google.ai.api-key}")
     private String apiKey;
@@ -72,29 +107,50 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
 
     @Override
     public NarrativeTurn createOpening(String worldSetting, String characterSetting) {
-        try {
-            String prompt = String.format("""
-                    [세계관 설정]: %s
-                    [캐릭터 설정]: %s
+        return generate(openingPrompt(worldSetting, characterSetting), "opening");
+    }
 
-                    위 설정을 바탕으로 게임의 오프닝을 생성하세요.
-                    첫 장면이므로 visual_assets(배경, 분위기 등)를 반드시 상세하게 채워주세요.
-                    """, worldSetting, characterSetting);
-            return generate(prompt, "Gemini API Error");
-        } catch (Exception e) {
-            log.error("Gemini 오프닝 생성 실패: {}", e.getClass().getSimpleName());
-            throw new RuntimeException("AI 서버 연결 실패: 잠시 후 다시 시도해주세요.", e);
-        }
+    @Override
+    public NarrativeTurn repairOpening(String worldSetting, String characterSetting, String reasonCode) {
+        return generate(openingPrompt(worldSetting, characterSetting) + recoveryInstruction(reasonCode), "opening_repair");
     }
 
     @Override
     public NarrativeTurn createNextTurn(NarrativeContext context) {
         try {
-            return generate(buildProgressPrompt(context), "Gemini API Progress Error");
-        } catch (Exception e) {
-            log.error("Gemini 다음 턴 생성 실패: {}", e.getClass().getSimpleName());
-            throw new RuntimeException("AI 서버 연결 실패 (진행 중): 잠시 후 다시 시도해주세요.", e);
+            return generate(buildProgressPrompt(context), "progress");
+        } catch (JacksonException exception) {
+            throw new IllegalStateException("Narrative progress prompt 직렬화에 실패했습니다.", exception);
         }
+    }
+
+    @Override
+    public NarrativeTurn repairNextTurn(NarrativeContext context, String reasonCode) {
+        try {
+            return generate(buildProgressPrompt(context) + recoveryInstruction(reasonCode), "progress_repair");
+        } catch (JacksonException exception) {
+            throw new IllegalStateException("Narrative recovery prompt 직렬화에 실패했습니다.", exception);
+        }
+    }
+
+    private String openingPrompt(String worldSetting, String characterSetting) {
+        return String.format("""
+                [세계관 설정]: %s
+                [캐릭터 설정]: %s
+
+                위 설정을 바탕으로 게임의 오프닝을 생성하세요.
+                첫 장면이므로 visual_assets(배경, 분위기 등)를 반드시 상세하게 채워주세요.
+                """, worldSetting, characterSetting);
+    }
+
+    private String recoveryInstruction(String reasonCode) {
+        return """
+
+                [응답 수정 요청]
+                직전 provider 응답이 구조 계약을 만족하지 않았습니다.
+                실패 분류: %s
+                원래 게임 결과나 사실을 바꾸지 말고, 동일 요청을 response schema에 맞는 JSON으로 다시 작성하세요.
+                """.formatted(safeReasonCode(reasonCode));
     }
 
     String buildProgressPrompt(NarrativeContext context) throws JacksonException {
@@ -152,74 +208,182 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
         );
     }
 
-    private NarrativeTurn generate(String prompt, String errorContext) throws JacksonException {
-        String requestBody = createRequestBody(prompt);
-        String response = restClient.post()
-                .uri(GEMINI_API_URL + "?key=" + apiKey)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(requestBody)
-                .retrieve()
-                .body(String.class);
-        if (response == null || response.isBlank()) throw new IllegalStateException(errorContext + ": empty response");
-        return parseResponse(response);
+    private NarrativeTurn generate(String prompt, String errorContext) {
+        try {
+            String requestBody = createRequestBody(prompt);
+            String response = restClient.post()
+                    .uri(GEMINI_API_URL + "?key=" + apiKey)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(requestBody)
+                    .retrieve()
+                    .body(String.class);
+            if (response == null || response.isBlank()) {
+                throw recoverable("EMPTY_RESPONSE", "Gemini 응답 body가 비어 있습니다.", null);
+            }
+            return parseResponse(response);
+        } catch (RecoverableNarrativeResponseException exception) {
+            log.warn("gemini_response_invalid context={} reason={}", errorContext, exception.reasonCode());
+            throw exception;
+        } catch (JacksonException exception) {
+            throw new IllegalStateException("Gemini 요청 직렬화에 실패했습니다.", exception);
+        } catch (RuntimeException exception) {
+            log.error("Gemini provider 호출 실패 context={} error={}", errorContext, exception.getClass().getSimpleName());
+            throw exception;
+        }
     }
 
-    private String createRequestBody(String userPrompt) throws JacksonException {
+    String createRequestBody(String userPrompt) throws JacksonException {
         Map<String, Object> requestMap = Map.of(
                 "contents", List.of(Map.of("parts", List.of(Map.of("text", SYSTEM_INSTRUCTION + "\n\n" + userPrompt)))),
-                "generationConfig", Map.of("response_mime_type", "application/json")
+                "generationConfig", Map.of(
+                        "response_mime_type", "application/json",
+                        "response_schema", RESPONSE_SCHEMA
+                )
         );
         return objectMapper.writeValueAsString(requestMap);
     }
 
-    private NarrativeTurn parseResponse(String rawResponse) throws JacksonException {
-        GeminiApiResponse apiResponse = objectMapper.readValue(rawResponse, GeminiApiResponse.class);
-        if (apiResponse.candidates() == null || apiResponse.candidates().isEmpty()) throw new IllegalStateException("AI 응답이 비어있습니다.");
-
-        String jsonText = apiResponse.candidates().get(0).content().parts().get(0).text();
-        JsonNode rootNode = objectMapper.readTree(jsonText);
-        List<NarrativeTurn.Choice> choices = new ArrayList<>();
-        JsonNode choicesNode = rootNode.path("choices");
-        if (choicesNode.isArray()) {
-            int index = 1;
-            for (JsonNode node : choicesNode) {
-                if (node.isString()) {
-                    choices.add(new NarrativeTurn.Choice(index++, node.asString()));
-                } else if (node.isObject()) {
-                    int id = node.has("id") ? node.get("id").asInt() : index++;
-                    String text = node.has("text") ? node.get("text").asString() : "내용 없음";
-                    choices.add(new NarrativeTurn.Choice(id, text));
-                }
+    NarrativeTurn parseResponse(String rawResponse) {
+        try {
+            GeminiApiResponse apiResponse = objectMapper.readValue(rawResponse, GeminiApiResponse.class);
+            if (apiResponse.candidates() == null || apiResponse.candidates().isEmpty()) {
+                throw recoverable("MISSING_CANDIDATE", "Gemini candidate가 없습니다.", null);
             }
+            Candidate candidate = apiResponse.candidates().getFirst();
+            if (candidate == null || candidate.content() == null || candidate.content().parts() == null || candidate.content().parts().isEmpty()) {
+                throw recoverable("MISSING_CONTENT", "Gemini content part가 없습니다.", null);
+            }
+            Part part = candidate.content().parts().getFirst();
+            if (part == null || part.text() == null || part.text().isBlank()) {
+                throw recoverable("MISSING_TEXT", "Gemini content text가 없습니다.", null);
+            }
+
+            JsonNode rootNode = objectMapper.readTree(part.text());
+            return mapNarrative(rootNode);
+        } catch (RecoverableNarrativeResponseException exception) {
+            throw exception;
+        } catch (JacksonException exception) {
+            throw recoverable("MALFORMED_JSON", "Gemini JSON을 파싱할 수 없습니다.", exception);
+        }
+    }
+
+    private NarrativeTurn mapNarrative(JsonNode rootNode) {
+        if (rootNode == null || !rootNode.isObject()) {
+            throw recoverable("ROOT_NOT_OBJECT", "Narrative root는 object여야 합니다.", null);
         }
 
-        JsonNode visualNode = rootNode.path("visual_assets");
-        return new NarrativeTurn(
-                rootNode.path("title").asString("제목 없음"),
-                rootNode.path("story_text").asString("스토리가 없습니다."),
-                choices,
-                new NarrativeTurn.VisualAssets(
-                        visualNode.path("background").asString(""),
-                        readNonBlankStrings(visualNode.path("characters")),
-                        readNonBlankStrings(visualNode.path("assets"))
-                )
+        String title = requiredText(rootNode, "title", MAX_TITLE_LENGTH, false, "INVALID_TITLE");
+        String storyText = requiredText(rootNode, "story_text", MAX_STORY_LENGTH, true, "INVALID_STORY");
+
+        JsonNode choicesNode = rootNode.get("choices");
+        if (choicesNode == null || !choicesNode.isArray() || choicesNode.size() == 0 || choicesNode.size() > MAX_CHOICES) {
+            throw recoverable("INVALID_CHOICES", "Narrative choices 배열이 올바르지 않습니다.", null);
+        }
+
+        List<NarrativeTurn.Choice> choices = new ArrayList<>();
+        Set<Integer> ids = new HashSet<>();
+        for (JsonNode choiceNode : choicesNode) {
+            if (choiceNode == null || !choiceNode.isObject()) {
+                throw recoverable("INVALID_CHOICE", "Narrative choice는 object여야 합니다.", null);
+            }
+            JsonNode idNode = choiceNode.get("id");
+            if (idNode == null || !idNode.isIntegralNumber() || !idNode.canConvertToInt()) {
+                throw recoverable("INVALID_CHOICE_ID", "Narrative choice id가 정수가 아닙니다.", null);
+            }
+            int id = idNode.intValue();
+            if (id <= 0 || !ids.add(id)) {
+                throw recoverable("INVALID_CHOICE_ID", "Narrative choice id가 중복되었거나 범위를 벗어났습니다.", null);
+            }
+            String text = requiredText(choiceNode, "text", MAX_CHOICE_TEXT_LENGTH, false, "INVALID_CHOICE_TEXT");
+            choices.add(new NarrativeTurn.Choice(id, text));
+        }
+
+        JsonNode visualNode = rootNode.get("visual_assets");
+        NarrativeTurn.VisualAssets visualAssets = visualNode == null || visualNode.isNull()
+                ? new NarrativeTurn.VisualAssets("", List.of(), List.of())
+                : parseVisualAssets(visualNode);
+
+        return new NarrativeTurn(title, storyText, List.copyOf(choices), visualAssets);
+    }
+
+    private NarrativeTurn.VisualAssets parseVisualAssets(JsonNode visualNode) {
+        if (!visualNode.isObject()) {
+            throw recoverable("INVALID_VISUAL_ASSETS", "visual_assets는 object여야 합니다.", null);
+        }
+        String background = optionalText(visualNode.get("background"), MAX_VISUAL_TEXT_LENGTH, "INVALID_VISUAL_ASSETS");
+        return new NarrativeTurn.VisualAssets(
+                background,
+                readStringArray(visualNode.get("characters"), "INVALID_VISUAL_CHARACTERS"),
+                readStringArray(visualNode.get("assets"), "INVALID_VISUAL_ASSETS_LIST")
         );
     }
 
-    private List<String> readNonBlankStrings(JsonNode node) {
-        List<String> values = new ArrayList<>();
-        if (node.isArray()) {
-            for (JsonNode item : node) {
-                String value = item.asString();
-                if (value != null && !value.isBlank()) values.add(value);
-            }
+    private List<String> readStringArray(JsonNode node, String reasonCode) {
+        if (node == null || node.isNull()) return List.of();
+        if (!node.isArray() || node.size() > MAX_VISUAL_ITEMS) {
+            throw recoverable(reasonCode, "visual asset 배열이 올바르지 않습니다.", null);
         }
-        return values;
+        List<String> values = new ArrayList<>();
+        for (JsonNode item : node) {
+            if (item == null || !item.isTextual()) {
+                throw recoverable(reasonCode, "visual asset 항목은 문자열이어야 합니다.", null);
+            }
+            String value = item.asString();
+            if (value.length() > MAX_VISUAL_TEXT_LENGTH || containsDisallowedControl(value, true)) {
+                throw recoverable(reasonCode, "visual asset 문자열이 허용 범위를 벗어났습니다.", null);
+            }
+            if (!value.isBlank()) values.add(value);
+        }
+        return List.copyOf(values);
     }
 
-    private record GeminiApiResponse(List<Candidate> candidates) {
-        record Candidate(Content content) {}
-        record Content(List<Part> parts) {}
-        record Part(String text) {}
+    private String requiredText(JsonNode parent, String field, int maxLength, boolean allowFormattingControls, String reasonCode) {
+        JsonNode node = parent.get(field);
+        if (node == null || !node.isTextual()) {
+            throw recoverable(reasonCode, "필수 문자열 필드가 누락되었습니다: " + field, null);
+        }
+        String value = node.asString();
+        if (value.isBlank() || value.length() > maxLength || containsDisallowedControl(value, allowFormattingControls)) {
+            throw recoverable(reasonCode, "문자열 필드가 허용 범위를 벗어났습니다: " + field, null);
+        }
+        return value;
     }
+
+    private String optionalText(JsonNode node, int maxLength, String reasonCode) {
+        if (node == null || node.isNull()) return "";
+        if (!node.isTextual()) {
+            throw recoverable(reasonCode, "선택 문자열 필드의 타입이 올바르지 않습니다.", null);
+        }
+        String value = node.asString();
+        if (value.length() > maxLength || containsDisallowedControl(value, true)) {
+            throw recoverable(reasonCode, "선택 문자열 필드가 허용 범위를 벗어났습니다.", null);
+        }
+        return value;
+    }
+
+    private boolean containsDisallowedControl(String value, boolean allowFormattingControls) {
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (!Character.isISOControl(ch)) continue;
+            if (allowFormattingControls && (ch == '\n' || ch == '\r' || ch == '\t')) continue;
+            return true;
+        }
+        return false;
+    }
+
+    private RecoverableNarrativeResponseException recoverable(String reasonCode, String message, Throwable cause) {
+        return cause == null
+                ? new RecoverableNarrativeResponseException(reasonCode, message)
+                : new RecoverableNarrativeResponseException(reasonCode, message, cause);
+    }
+
+    private String safeReasonCode(String reasonCode) {
+        if (reasonCode == null || reasonCode.isBlank()) return "UNKNOWN";
+        return reasonCode.replaceAll("[^A-Z0-9_]", "_");
+    }
+
+    private record GeminiApiResponse(List<Candidate> candidates) {}
+    private record Candidate(Content content) {}
+    private record Content(List<Part> parts) {}
+    private record Part(String text) {}
 }
