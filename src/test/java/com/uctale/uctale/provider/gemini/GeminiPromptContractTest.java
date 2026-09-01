@@ -6,6 +6,7 @@ import com.uctale.uctale.domain.action.ActionType;
 import com.uctale.uctale.domain.action.PlayerAction;
 import com.uctale.uctale.domain.game.ActionResolver;
 import com.uctale.uctale.domain.game.GameState;
+import com.uctale.uctale.domain.game.SkillCheckResult;
 import com.uctale.uctale.domain.game.TurnResolution;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -43,5 +44,44 @@ class GeminiPromptContractTest {
                 .contains("[narrative cues]", "문을 잠근다")
                 .contains("[금지 canonical mutation]", "HP", "roll")
                 .doesNotContain("SERVER_ONLY_SECRET_TOKEN");
+    }
+
+    @Test
+    @DisplayName("Skill Check prompt는 서버가 확정한 roll modifier DC total outcome을 그대로 전달한다")
+    void buildProgressPrompt_IncludesCanonicalSkillCheckResult() throws Exception {
+        GeminiNarrativeAdapter adapter = new GeminiNarrativeAdapter(new ObjectMapper(), RestClient.builder());
+        GameState state = GameState.initial("폐허 도시", "정찰자", "오프닝");
+        PlayerAction action = new PlayerAction(
+                7,
+                "SERVER_ONLY_SKILL_TOKEN",
+                ActionType.SKILL_CHECK,
+                1,
+                Map.of(
+                        "choiceId", "7",
+                        "statType", "WILL",
+                        "dc", "10",
+                        "situationalModifier", "0"
+                ),
+                "문을 연다"
+        );
+        ActionResolver resolver = new ActionResolver();
+        SkillCheckResult skillCheck = resolver.rollSkillCheck(state, action, (min, max) -> 10);
+        NarrativeContext context = NarrativeContext.from(
+                "game-result:42:2:101",
+                resolver.resolve(state, action, skillCheck)
+        );
+
+        String prompt = adapter.buildProgressPrompt(context);
+
+        assertThat(prompt)
+                .contains("skill check:")
+                .contains("\"statType\":\"WILL\"")
+                .contains("\"rawRoll\":10")
+                .contains("\"statModifier\":0")
+                .contains("\"situationalModifier\":0")
+                .contains("\"dc\":10")
+                .contains("\"total\":10")
+                .contains("\"outcome\":\"SUCCESS\"")
+                .doesNotContain("SERVER_ONLY_SKILL_TOKEN");
     }
 }
