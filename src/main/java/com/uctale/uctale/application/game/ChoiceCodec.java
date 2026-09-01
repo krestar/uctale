@@ -4,6 +4,7 @@ import com.uctale.uctale.application.narrative.NarrativeTurn;
 import com.uctale.uctale.domain.action.ActionType;
 import com.uctale.uctale.domain.action.AvailableAction;
 import com.uctale.uctale.domain.action.PlayerAction;
+import com.uctale.uctale.domain.game.StatType;
 import com.uctale.uctale.dto.GameChoice;
 import com.uctale.uctale.dto.GameProgressRequest;
 import org.springframework.stereotype.Component;
@@ -18,6 +19,10 @@ import java.util.UUID;
 @Component
 public class ChoiceCodec {
 
+    static final StatType DEFAULT_SKILL_STAT = StatType.WILL;
+    static final int DEFAULT_SKILL_DC = 10;
+    static final int DEFAULT_SITUATIONAL_MODIFIER = 0;
+
     private final ObjectMapper objectMapper;
 
     public ChoiceCodec(ObjectMapper objectMapper) {
@@ -29,9 +34,14 @@ public class ChoiceCodec {
                 .map(choice -> new AvailableAction(
                         choice.id(),
                         UUID.randomUUID().toString(),
-                        ActionType.NARRATIVE_CHOICE,
+                        ActionType.SKILL_CHECK,
                         sourceTurn,
-                        Map.of("choiceId", Integer.toString(choice.id())),
+                        Map.of(
+                                "choiceId", Integer.toString(choice.id()),
+                                "statType", DEFAULT_SKILL_STAT.name(),
+                                "dc", Integer.toString(DEFAULT_SKILL_DC),
+                                "situationalModifier", Integer.toString(DEFAULT_SITUATIONAL_MODIFIER)
+                        ),
                         choice.text()
                 ))
                 .map(this::toDto)
