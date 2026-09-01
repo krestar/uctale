@@ -1,3 +1,5 @@
+import './GameRulesPanel.css'
+
 function GameRulesPanel({ rules, isProgressing }) {
   const stats = rules?.stats
   const skillCheck = rules?.skillCheck
