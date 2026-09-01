@@ -212,7 +212,8 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
         try {
             String requestBody = createRequestBody(prompt);
             String response = restClient.post()
-                    .uri(GEMINI_API_URL + "?key=" + apiKey)
+                    .uri(GEMINI_API_URL)
+                    .header("x-goog-api-key", apiKey)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(requestBody)
                     .retrieve()
@@ -236,8 +237,8 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
         Map<String, Object> requestMap = Map.of(
                 "contents", List.of(Map.of("parts", List.of(Map.of("text", SYSTEM_INSTRUCTION + "\n\n" + userPrompt)))),
                 "generationConfig", Map.of(
-                        "response_mime_type", "application/json",
-                        "response_schema", RESPONSE_SCHEMA
+                        "responseMimeType", "application/json",
+                        "responseSchema", RESPONSE_SCHEMA
                 )
         );
         return objectMapper.writeValueAsString(requestMap);
