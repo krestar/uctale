@@ -75,7 +75,7 @@ public final class GeminiProviderSettings {
     }
 
     private boolean supportsConfiguredThinkingContract() {
-        return (modelMajor == 2 && modelMinor == 5) || modelMajor == 3;
+        return (modelMajor == 2 && modelMinor == 5) || modelMajor >= 3;
     }
 
     private String requireNonBlank(String value, String label) {
@@ -88,7 +88,7 @@ public final class GeminiProviderSettings {
 
     enum ThinkingLevel {
         LOW("low", 1_024),
-        MEDIUM("medium", 8_192),
+        MEDIUM("medium", -1),
         HIGH("high", 24_576);
 
         private final String apiValue;
