@@ -11,9 +11,7 @@ import com.uctale.uctale.application.game.GameTurnCommit;
 import com.uctale.uctale.application.game.IdempotencyConflictException;
 import com.uctale.uctale.application.game.ImagePromptComposer;
 import com.uctale.uctale.application.game.MutationInProgressException;
-import com.uctale.uctale.application.game.SkillCheckDecisionService;
 import com.uctale.uctale.application.game.TurnConflictException;
-import com.uctale.uctale.application.game.TurnProcessor;
 import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.application.narrative.NarrativeContext;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
@@ -83,7 +81,12 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
                 """);
         clock = new MutableClock(Instant.parse("2026-08-31T04:00:00Z"));
         mutationService = new TransactionalMutationService(
-                mutationRequestRepository, jdbcTemplate, clock, LEASE_SECONDS, transactionManager);
+                mutationRequestRepository,
+                jdbcTemplate,
+                clock,
+                LEASE_SECONDS,
+                transactionManager
+        );
         narrativeGenerator = new FakeNarrativeGenerator();
         gameService = newGameService(persistenceService);
     }
@@ -93,17 +96,25 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
     void completedInitRetry_ReusesCanonicalOpeningExactlyOnce() {
         String key = "matrix-init-key-001";
         GameInitRequest request = new GameInitRequest("matrix-world", "matrix-character");
+
         GameResponse first = gameService.initGame(initContext(key), request);
         GameResponse retry = gameService.initGame(initContext(key), request);
+
         assertThat(retry.sessionId()).isEqualTo(first.sessionId());
         assertThat(retry.turnNumber()).isEqualTo(1);
         assertThat(retry.storyText()).isEqualTo(first.storyText());
-        assertThat(narrativeGenerator.openingCalls()).isEqualTo(1);
-        assertThat(jdbcTemplate.queryForObject("select count(*) from game_session", Integer.class)).isEqualTo(1);
-        assertThatThrownBy(() -> gameService.initGame(initContext(key),
-                new GameInitRequest("different-world", "matrix-character")))
+        assertThat(narrativeGenerator.openingCalls()).as("NarrativeGenerator opening calls").isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("select count(*) from game_session", Integer.class))
+                .as("canonical session count after init retry")
+                .isEqualTo(1);
+
+        assertThatThrownBy(() -> gameService.initGame(
+                initContext(key),
+                new GameInitRequest("different-world", "matrix-character")
+        )).as("phase=init-fingerprint-conflict request=%s", key)
                 .isInstanceOf(IdempotencyConflictException.class);
-        assertThat(narrativeGenerator.openingCalls()).isEqualTo(1);
+        assertThat(narrativeGenerator.openingCalls()).as("provider calls after init fingerprint conflict").isEqualTo(1);
+
         assertCanonicalTurn(first.sessionId(), key, 1, 1);
     }
 
@@ -113,16 +124,22 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
         GameResponse opening = createOpening("matrix-opening-progress");
         String key = "matrix-progress-key-001";
         GameProgressRequest request = new GameProgressRequest(opening.sessionId(), 1, 1);
+
         GameResponse first = gameService.progressGame(progressContext(key, opening.sessionId()), request);
         GameResponse retry = gameService.progressGame(progressContext(key, opening.sessionId()), request);
+
         assertThat(retry.sessionId()).isEqualTo(first.sessionId());
         assertThat(retry.turnNumber()).isEqualTo(2);
         assertThat(retry.storyText()).isEqualTo(first.storyText());
-        assertThat(narrativeGenerator.progressCalls()).isEqualTo(1);
-        assertThatThrownBy(() -> gameService.progressGame(progressContext(key, opening.sessionId()),
-                new GameProgressRequest(opening.sessionId(), 2, 1)))
+        assertThat(narrativeGenerator.progressCalls()).as("NarrativeGenerator progress calls").isEqualTo(1);
+
+        assertThatThrownBy(() -> gameService.progressGame(
+                progressContext(key, opening.sessionId()),
+                new GameProgressRequest(opening.sessionId(), 2, 1)
+        )).as(context("progress-fingerprint-conflict", key, opening.sessionId(), 1))
                 .isInstanceOf(IdempotencyConflictException.class);
-        assertThat(narrativeGenerator.progressCalls()).isEqualTo(1);
+        assertThat(narrativeGenerator.progressCalls()).as("provider calls after progress fingerprint conflict").isEqualTo(1);
+
         assertCanonicalTurn(opening.sessionId(), key, 2, 2);
     }
 
@@ -132,29 +149,43 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
         GameResponse opening = createOpening("matrix-opening-concurrency");
         GameProgressRequest request = new GameProgressRequest(opening.sessionId(), 1, 1);
         narrativeGenerator.blockNextProgress();
+
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
         CountDownLatch rejected = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);
+
         try {
-            Future<ProgressAttempt> first = executor.submit(concurrentProgressAttempt(ready, start, rejected, "matrix-concurrent-key-a", request));
-            Future<ProgressAttempt> second = executor.submit(concurrentProgressAttempt(ready, start, rejected, "matrix-concurrent-key-b", request));
+            Future<ProgressAttempt> first = executor.submit(concurrentProgressAttempt(
+                    ready, start, rejected, "matrix-concurrent-key-a", request
+            ));
+            Future<ProgressAttempt> second = executor.submit(concurrentProgressAttempt(
+                    ready, start, rejected, "matrix-concurrent-key-b", request
+            ));
+
             awaitLatch(ready, "동시 요청 준비");
             start.countDown();
             narrativeGenerator.awaitProgressEntry();
             awaitLatch(rejected, "reservation 경쟁 요청 거부");
-            assertThat(narrativeGenerator.progressCalls()).isEqualTo(1);
-            assertThat(reservationCount(opening.sessionId(), 1)).isEqualTo(1);
+
+            assertThat(narrativeGenerator.progressCalls()).as("provider calls while lease is active").isEqualTo(1);
+            assertThat(reservationCount(opening.sessionId(), 1)).as("active reservation rows").isEqualTo(1);
+
             narrativeGenerator.releaseProgress();
-            List<ProgressAttempt> attempts = List.of(first.get(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS),
-                    second.get(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            List<ProgressAttempt> attempts = List.of(
+                    first.get(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS),
+                    second.get(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            );
             List<ProgressAttempt> winners = attempts.stream().filter(ProgressAttempt::succeeded).toList();
             List<ProgressAttempt> losers = attempts.stream().filter(attempt -> !attempt.succeeded()).toList();
-            assertThat(winners).hasSize(1);
-            assertThat(losers).hasSize(1);
+
+            assertThat(winners).as("canonical winner session=%d turn=1", opening.sessionId()).hasSize(1);
+            assertThat(losers).as("reservation loser session=%d turn=1", opening.sessionId()).hasSize(1);
             assertThat(losers.getFirst().error()).isInstanceOf(MutationInProgressException.class);
             assertThat(narrativeGenerator.progressCalls()).isEqualTo(1);
-            assertCanonicalTurn(opening.sessionId(), winners.getFirst().key(), 2, 2);
+
+            String winnerKey = winners.getFirst().key();
+            assertCanonicalTurn(opening.sessionId(), winnerKey, 2, 2);
             assertThat(reservationCount(opening.sessionId(), 1)).isZero();
         } finally {
             narrativeGenerator.releaseProgress();
@@ -168,36 +199,59 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
         GameResponse opening = createOpening("matrix-opening-crash");
         GameProgressRequest request = new GameProgressRequest(opening.sessionId(), 1, 1);
         String crashedKey = "matrix-crash-key-a";
+
         GameService crashingService = newGameService(new CrashBeforeCommitPersistence(persistenceService));
-        assertThatThrownBy(() -> crashingService.progressGame(progressContext(crashedKey, opening.sessionId()), request))
+
+        assertThatThrownBy(() -> crashingService.progressGame(
+                progressContext(crashedKey, opening.sessionId()), request
+        )).as(context("provider-success-before-crash", crashedKey, opening.sessionId(), 1))
                 .isInstanceOf(SimulatedCrash.class);
+
         Long crashedRequestId = requestId(crashedKey);
         String staleOwner = reservationOwner(opening.sessionId(), 1);
-        assertThat(narrativeGenerator.progressCalls()).isEqualTo(1);
-        assertThat(requestStatus(crashedKey)).isEqualTo("PROCESSING");
-        assertThat(reservationCount(opening.sessionId(), 1)).isEqualTo(1);
+        assertThat(narrativeGenerator.progressCalls()).as("provider calls before simulated crash").isEqualTo(1);
+        assertThat(requestStatus(crashedKey)).as("crashed request remains in-flight").isEqualTo("PROCESSING");
+        assertThat(reservationCount(opening.sessionId(), 1)).as("crashed active reservation").isEqualTo(1);
+
         clock.advance(Duration.ofSeconds(LEASE_SECONDS + 1));
         narrativeGenerator.blockNextProgress();
+
         String takeoverKey = "matrix-crash-key-b";
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             Future<GameResponse> takeover = executor.submit(() -> gameService.progressGame(
-                    progressContext(takeoverKey, opening.sessionId()), request));
+                    progressContext(takeoverKey, opening.sessionId()), request
+            ));
             narrativeGenerator.awaitProgressEntry();
-            assertThat(narrativeGenerator.progressCalls()).isEqualTo(2);
-            assertThat(reservationOwner(opening.sessionId(), 1)).isNotEqualTo(staleOwner);
+
+            assertThat(narrativeGenerator.progressCalls())
+                    .as("provider retry after deterministic lease expiry")
+                    .isEqualTo(2);
+            assertThat(reservationOwner(opening.sessionId(), 1))
+                    .as("reservation owner after takeover")
+                    .isNotEqualTo(staleOwner);
             assertThat(jdbcTemplate.queryForObject(
                     "select attempt_count from game_turn_reservation where session_id = ? and expected_turn = ?",
-                    Integer.class, opening.sessionId(), 1)).isEqualTo(2);
+                    Integer.class, opening.sessionId(), 1
+            )).as("legacy lease attempt_count session=%d turn=1", opening.sessionId()).isEqualTo(2);
             assertThat(jdbcTemplate.queryForObject(
                     "select provider_attempt_count from game_turn_reservation where session_id = ? and expected_turn = ?",
-                    Integer.class, opening.sessionId(), 1)).isEqualTo(2);
-            assertThatThrownBy(() -> commitWithReservation(opening.sessionId(), crashedRequestId, staleOwner, "stale-owner-story"))
-                    .isInstanceOf(TurnConflictException.class).hasMessageContaining("reservation");
+                    Integer.class, opening.sessionId(), 1
+            )).as("provider attempt count session=%d turn=1", opening.sessionId()).isEqualTo(2);
+
+            assertThatThrownBy(() -> commitWithReservation(
+                    opening.sessionId(), crashedRequestId, staleOwner, "stale-owner-story"
+            )).as(context("stale-owner-commit", crashedKey, opening.sessionId(), 1))
+                    .isInstanceOf(TurnConflictException.class)
+                    .hasMessageContaining("reservation");
+
             narrativeGenerator.releaseProgress();
             GameResponse recovered = takeover.get(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
             assertThat(recovered.turnNumber()).isEqualTo(2);
-            assertThat(narrativeGenerator.progressCalls()).isEqualTo(2);
+            assertThat(narrativeGenerator.progressCalls())
+                    .as("external provider strict exactly-once is intentionally not guaranteed after lease expiry")
+                    .isEqualTo(2);
             assertCanonicalTurn(opening.sessionId(), takeoverKey, 2, 2);
             assertThat(reservationCount(opening.sessionId(), 1)).isZero();
         } finally {
@@ -206,35 +260,57 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
         }
     }
 
-    private Callable<ProgressAttempt> concurrentProgressAttempt(CountDownLatch ready, CountDownLatch start,
-            CountDownLatch rejected, String key, GameProgressRequest request) {
+    private Callable<ProgressAttempt> concurrentProgressAttempt(
+            CountDownLatch ready,
+            CountDownLatch start,
+            CountDownLatch rejected,
+            String key,
+            GameProgressRequest request
+    ) {
         return () -> {
             ready.countDown();
             if (!start.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 return ProgressAttempt.failure(key, new IllegalStateException("동시 요청 시작 신호를 받지 못했습니다."));
             }
             try {
-                return ProgressAttempt.success(key, gameService.progressGame(progressContext(key, request.sessionId()), request));
+                GameResponse response = gameService.progressGame(
+                        progressContext(key, request.sessionId()), request
+                );
+                return ProgressAttempt.success(key, response);
             } catch (RuntimeException exception) {
-                if (exception instanceof MutationInProgressException) rejected.countDown();
+                if (exception instanceof MutationInProgressException) {
+                    rejected.countDown();
+                }
                 return ProgressAttempt.failure(key, exception);
             }
         };
     }
 
     private void awaitLatch(CountDownLatch latch, String phase) throws InterruptedException {
-        assertThat(latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)).as(phase).isTrue();
+        assertThat(latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                .as("%s latch가 제한 시간 안에 완료되어야 한다", phase)
+                .isTrue();
     }
 
     private GameResponse createOpening(String key) {
-        return gameService.initGame(initContext(key), new GameInitRequest("matrix-world", "matrix-character"));
+        return gameService.initGame(
+                initContext(key),
+                new GameInitRequest("matrix-world", "matrix-character")
+        );
     }
 
     private GameService newGameService(GamePersistenceService persistence) {
-        SkillCheckDecisionService skillDecisions = new SkillCheckDecisionService(jdbcTemplate, clock);
-        TurnProcessor turnProcessor = new TurnProcessor(skillDecisions, (min, max) -> 10);
-        return new GameService(narrativeGenerator, imageAssetService, persistence, choiceCodec, turnProcessor,
-                imagePromptComposer, costRateLimiter, providerCallTelemetry, mutationFingerprint, mutationService);
+        return new GameService(
+                narrativeGenerator,
+                imageAssetService,
+                persistence,
+                choiceCodec,
+                imagePromptComposer,
+                costRateLimiter,
+                providerCallTelemetry,
+                mutationFingerprint,
+                mutationService
+        );
     }
 
     private CostRequestContext initContext(String key) {
@@ -248,53 +324,97 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
     private void commitWithReservation(Long sessionId, Long requestId, String reservationOwner, String story) {
         GamePersistenceService.LoadedTurn loaded = persistenceService.loadLatestTurn(OWNER_KEY, sessionId, 1);
         var nextState = loaded.gameState().advance("문을 연다", story);
-        GameTurnCommit commit = new GameTurnCommit(1, 1, "문을 연다", loaded.gameState(), nextState,
-                story, loaded.choicesJson(), null);
-        persistenceService.saveNextTurn(OWNER_KEY, sessionId, commit, requestId, "stale-owner-title", reservationOwner);
+        GameTurnCommit commit = new GameTurnCommit(
+                1,
+                1,
+                "문을 연다",
+                loaded.gameState(),
+                nextState,
+                story,
+                loaded.choicesJson(),
+                null
+        );
+        persistenceService.saveNextTurn(
+                OWNER_KEY,
+                sessionId,
+                commit,
+                requestId,
+                "stale-owner-title",
+                reservationOwner
+        );
     }
 
     private void assertCanonicalTurn(Long sessionId, String completedKey, int expectedTurn, int expectedLogCount) {
-        Integer sessionTurn = jdbcTemplate.queryForObject("select current_turn from game_session where id = ?", Integer.class, sessionId);
-        Integer logCount = jdbcTemplate.queryForObject("select count(*) from game_log where session_id = ?", Integer.class, sessionId);
-        Integer latestStateVersion = jdbcTemplate.queryForObject("select max(state_version) from game_log where session_id = ?", Integer.class, sessionId);
-        Integer snapshotTurn = persistenceService.loadLatestTurn(OWNER_KEY, sessionId, expectedTurn).gameState().turnNumber();
+        Integer sessionTurn = jdbcTemplate.queryForObject(
+                "select current_turn from game_session where id = ?", Integer.class, sessionId
+        );
+        Integer logCount = jdbcTemplate.queryForObject(
+                "select count(*) from game_log where session_id = ?", Integer.class, sessionId
+        );
+        Integer latestStateVersion = jdbcTemplate.queryForObject(
+                "select max(state_version) from game_log where session_id = ?", Integer.class, sessionId
+        );
+        Integer snapshotTurn = persistenceService.loadLatestTurn(OWNER_KEY, sessionId, expectedTurn)
+                .gameState()
+                .turnNumber();
         Integer requestResultTurn = jdbcTemplate.queryForObject(
                 "select result_turn from game_mutation_request where owner_key = ? and idempotency_key = ?",
-                Integer.class, OWNER_KEY, completedKey);
-        assertThat(sessionTurn).isEqualTo(expectedTurn);
-        assertThat(logCount).isEqualTo(expectedLogCount);
-        assertThat(latestStateVersion).isEqualTo(expectedTurn);
-        assertThat(snapshotTurn).isEqualTo(expectedTurn);
-        assertThat(requestStatus(completedKey)).isEqualTo("COMPLETED");
-        assertThat(requestResultTurn).isEqualTo(expectedTurn);
+                Integer.class, OWNER_KEY, completedKey
+        );
+
+        assertThat(sessionTurn).as("session=%d current_turn", sessionId).isEqualTo(expectedTurn);
+        assertThat(logCount).as("session=%d committed GameLog rows", sessionId).isEqualTo(expectedLogCount);
+        assertThat(latestStateVersion).as("session=%d latest GameLog state_version", sessionId).isEqualTo(expectedTurn);
+        assertThat(snapshotTurn).as("session=%d snapshot/currentTurn", sessionId).isEqualTo(expectedTurn);
+        assertThat(requestStatus(completedKey)).as("request=%s status", completedKey).isEqualTo("COMPLETED");
+        assertThat(requestResultTurn).as("request=%s result_turn", completedKey).isEqualTo(expectedTurn);
     }
 
     private Long requestId(String key) {
-        return jdbcTemplate.queryForObject("select id from game_mutation_request where owner_key = ? and idempotency_key = ?",
-                Long.class, OWNER_KEY, key);
+        return jdbcTemplate.queryForObject(
+                "select id from game_mutation_request where owner_key = ? and idempotency_key = ?",
+                Long.class, OWNER_KEY, key
+        );
     }
 
     private String requestStatus(String key) {
-        return jdbcTemplate.queryForObject("select status from game_mutation_request where owner_key = ? and idempotency_key = ?",
-                String.class, OWNER_KEY, key);
+        return jdbcTemplate.queryForObject(
+                "select status from game_mutation_request where owner_key = ? and idempotency_key = ?",
+                String.class, OWNER_KEY, key
+        );
     }
 
     private String reservationOwner(Long sessionId, int expectedTurn) {
-        return jdbcTemplate.queryForObject("select lease_owner from game_turn_reservation where session_id = ? and expected_turn = ?",
-                String.class, sessionId, expectedTurn);
+        return jdbcTemplate.queryForObject(
+                "select lease_owner from game_turn_reservation where session_id = ? and expected_turn = ?",
+                String.class, sessionId, expectedTurn
+        );
     }
 
     private int reservationCount(Long sessionId, int expectedTurn) {
         Integer count = jdbcTemplate.queryForObject(
                 "select count(*) from game_turn_reservation where session_id = ? and expected_turn = ?",
-                Integer.class, sessionId, expectedTurn);
+                Integer.class, sessionId, expectedTurn
+        );
         return count == null ? 0 : count;
     }
 
+    private String context(String phase, String key, Long sessionId, int turn) {
+        return "phase=%s request=%s session=%d turn=%d".formatted(phase, key, sessionId, turn);
+    }
+
     private record ProgressAttempt(String key, GameResponse response, RuntimeException error) {
-        static ProgressAttempt success(String key, GameResponse response) { return new ProgressAttempt(key, response, null); }
-        static ProgressAttempt failure(String key, RuntimeException error) { return new ProgressAttempt(key, null, error); }
-        boolean succeeded() { return response != null; }
+        static ProgressAttempt success(String key, GameResponse response) {
+            return new ProgressAttempt(key, response, null);
+        }
+
+        static ProgressAttempt failure(String key, RuntimeException error) {
+            return new ProgressAttempt(key, null, error);
+        }
+
+        boolean succeeded() {
+            return response != null;
+        }
     }
 
     private static final class FakeNarrativeGenerator implements NarrativeGenerator {
@@ -302,103 +422,205 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
         private final AtomicInteger progressCalls = new AtomicInteger();
         private final AtomicReference<CountDownLatch> progressEntered = new AtomicReference<>();
         private final AtomicReference<CountDownLatch> progressRelease = new AtomicReference<>();
-        @Override public NarrativeTurn createOpening(String worldSetting, String characterSetting) {
-            return turn("opening-title", "opening-story-" + openingCalls.incrementAndGet());
+
+        @Override
+        public NarrativeTurn createOpening(String worldSetting, String characterSetting) {
+            int call = openingCalls.incrementAndGet();
+            return turn("opening-title", "opening-story-" + call);
         }
-        @Override public NarrativeTurn createNextTurn(NarrativeContext context) {
+
+        @Override
+        public NarrativeTurn createNextTurn(NarrativeContext context) {
             int call = progressCalls.incrementAndGet();
             CountDownLatch entered = progressEntered.get();
             CountDownLatch release = progressRelease.get();
             if (entered != null && release != null) {
                 entered.countDown();
                 try {
-                    if (!release.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)) throw new IllegalStateException("fake provider timeout");
+                    if (!release.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("fake provider release 신호가 제한 시간 안에 오지 않았습니다.");
+                    }
                 } catch (InterruptedException exception) {
                     Thread.currentThread().interrupt();
-                    throw new IllegalStateException("fake provider interrupted", exception);
+                    throw new IllegalStateException("fake provider가 중단되었습니다.", exception);
                 }
             }
             return turn("progress-title", "progress-story-" + call);
         }
-        void blockNextProgress() { progressEntered.set(new CountDownLatch(1)); progressRelease.set(new CountDownLatch(1)); }
+
+        void blockNextProgress() {
+            progressEntered.set(new CountDownLatch(1));
+            progressRelease.set(new CountDownLatch(1));
+        }
+
         void awaitProgressEntry() throws InterruptedException {
             CountDownLatch entered = progressEntered.get();
-            if (entered != null) assertThat(entered.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+            if (entered != null) {
+                assertThat(entered.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                        .as("fake provider가 제한 시간 안에 진입해야 한다")
+                        .isTrue();
+            }
         }
+
         void releaseProgress() {
             CountDownLatch release = progressRelease.getAndSet(null);
-            if (release != null) release.countDown();
+            if (release != null) {
+                release.countDown();
+            }
             progressEntered.set(null);
         }
-        int openingCalls() { return openingCalls.get(); }
-        int progressCalls() { return progressCalls.get(); }
+
+        int openingCalls() {
+            return openingCalls.get();
+        }
+
+        int progressCalls() {
+            return progressCalls.get();
+        }
+
         private NarrativeTurn turn(String title, String story) {
-            return new NarrativeTurn(title, story, List.of(new NarrativeTurn.Choice(1, "문을 연다")),
-                    new NarrativeTurn.VisualAssets(null, List.of(), List.of()));
+            return new NarrativeTurn(
+                    title,
+                    story,
+                    List.of(new NarrativeTurn.Choice(1, "문을 연다")),
+                    new NarrativeTurn.VisualAssets(null, List.of(), List.of())
+            );
         }
     }
 
     private static final class TransactionalMutationService extends GameMutationRequestService {
         private final TransactionTemplate transactionTemplate;
-        TransactionalMutationService(GameMutationRequestRepository repository, JdbcTemplate jdbcTemplate, Clock clock,
-                long leaseSeconds, PlatformTransactionManager transactionManager) {
+
+        TransactionalMutationService(
+                GameMutationRequestRepository repository,
+                JdbcTemplate jdbcTemplate,
+                Clock clock,
+                long leaseSeconds,
+                PlatformTransactionManager transactionManager
+        ) {
             super(repository, jdbcTemplate, clock, leaseSeconds);
             this.transactionTemplate = new TransactionTemplate(transactionManager);
         }
-        @Override public BeginResult begin(String ownerKey, String operation, String idempotencyKey, Long sessionId,
-                Integer expectedTurn, String fingerprint) {
+
+        @Override
+        public BeginResult begin(
+                String ownerKey,
+                String operation,
+                String idempotencyKey,
+                Long sessionId,
+                Integer expectedTurn,
+                String fingerprint
+        ) {
             BeginOutcome outcome = transactionTemplate.execute(status -> {
-                try { return BeginOutcome.success(super.begin(ownerKey, operation, idempotencyKey, sessionId, expectedTurn, fingerprint)); }
-                catch (MutationInProgressException exception) { return BeginOutcome.blocked(exception); }
+                try {
+                    return BeginOutcome.success(super.begin(
+                            ownerKey, operation, idempotencyKey, sessionId, expectedTurn, fingerprint
+                    ));
+                } catch (MutationInProgressException exception) {
+                    return BeginOutcome.blocked(exception);
+                }
             });
-            if (outcome == null) throw new IllegalStateException("mutation begin transaction 결과가 없습니다.");
-            if (outcome.blocked() != null) throw outcome.blocked();
+            if (outcome == null) {
+                throw new IllegalStateException("mutation begin transaction 결과가 없습니다.");
+            }
+            if (outcome.blocked() != null) {
+                throw outcome.blocked();
+            }
             return outcome.result();
         }
-        @Override public void markProviderAttemptStarted(Long requestId, String reservationOwner) {
+
+        @Override
+        public void markProviderAttemptStarted(Long requestId, String reservationOwner) {
             MutationInProgressException blocked = transactionTemplate.execute(status -> {
-                try { super.markProviderAttemptStarted(requestId, reservationOwner); return null; }
-                catch (MutationInProgressException exception) { return exception; }
+                try {
+                    super.markProviderAttemptStarted(requestId, reservationOwner);
+                    return null;
+                } catch (MutationInProgressException exception) {
+                    return exception;
+                }
             });
-            if (blocked != null) throw blocked;
+            if (blocked != null) {
+                throw blocked;
+            }
         }
-        @Override public void markFailed(Long requestId) {
+
+        @Override
+        public void markFailed(Long requestId) {
             transactionTemplate.executeWithoutResult(status -> super.markFailed(requestId, null));
         }
-        @Override public void markFailed(Long requestId, String reservationOwner) {
+
+        @Override
+        public void markFailed(Long requestId, String reservationOwner) {
             transactionTemplate.executeWithoutResult(status -> super.markFailed(requestId, reservationOwner));
         }
+
         private record BeginOutcome(BeginResult result, MutationInProgressException blocked) {
-            static BeginOutcome success(BeginResult result) { return new BeginOutcome(result, null); }
-            static BeginOutcome blocked(MutationInProgressException exception) { return new BeginOutcome(null, exception); }
+            static BeginOutcome success(BeginResult result) {
+                return new BeginOutcome(result, null);
+            }
+
+            static BeginOutcome blocked(MutationInProgressException exception) {
+                return new BeginOutcome(null, exception);
+            }
         }
     }
 
     private static final class CrashBeforeCommitPersistence extends GamePersistenceService {
         private final GamePersistenceService delegate;
+
         CrashBeforeCommitPersistence(GamePersistenceService delegate) {
             super(null, null, null, null, null, null, null);
             this.delegate = delegate;
         }
-        @Override public LoadedTurn loadLatestTurn(String ownerKey, Long sessionId, int expectedTurn) {
+
+        @Override
+        public LoadedTurn loadLatestTurn(String ownerKey, Long sessionId, int expectedTurn) {
             return delegate.loadLatestTurn(ownerKey, sessionId, expectedTurn);
         }
-        @Override public int saveNextTurn(String ownerKey, Long sessionId, GameTurnCommit commit,
-                Long mutationRequestId, String resultTitle, String reservationOwner) {
+
+        @Override
+        public int saveNextTurn(
+                String ownerKey,
+                Long sessionId,
+                GameTurnCommit commit,
+                Long mutationRequestId,
+                String resultTitle,
+                String reservationOwner
+        ) {
             throw new SimulatedCrash();
         }
     }
 
     private static final class MutableClock extends Clock {
         private final AtomicReference<Instant> instant;
-        MutableClock(Instant initialInstant) { this.instant = new AtomicReference<>(initialInstant); }
-        void advance(Duration duration) { instant.updateAndGet(current -> current.plus(duration)); }
-        @Override public ZoneId getZone() { return ZoneOffset.UTC; }
-        @Override public Clock withZone(ZoneId zone) { return this; }
-        @Override public Instant instant() { return instant.get(); }
+
+        MutableClock(Instant initialInstant) {
+            this.instant = new AtomicReference<>(initialInstant);
+        }
+
+        void advance(Duration duration) {
+            instant.updateAndGet(current -> current.plus(duration));
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return instant.get();
+        }
     }
 
     private static final class SimulatedCrash extends Error {
-        SimulatedCrash() { super("simulated process crash after provider success"); }
+        SimulatedCrash() {
+            super("simulated process crash after provider success");
+        }
     }
 }
