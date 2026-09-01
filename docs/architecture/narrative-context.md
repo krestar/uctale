@@ -46,7 +46,20 @@ provider는 다음을 할 수 없다.
 - state changes에 없는 HP, 능력치, 아이템, 레벨, 위치, 생사 변경 확정
 - state projection/canonical facts 변경
 
-현재 adapter의 provider-specific structured output 강화와 bounded repair/retry는 #35 범위로 남긴다.
+## Gemini structured output 경계
+
+#35 이후 Gemini `generateContent` 요청은 JSON MIME과 response schema를 함께 사용하고, provider 응답은 adapter 내부에서 다시 검증한다.
+
+- 필수 `title`, `story_text`, `choices`가 누락되거나 잘못된 타입이면 기본값으로 보정하지 않는다.
+- choice는 1~8개, 양의 정수 ID, unique ID, non-blank text와 저장 한계에 맞는 길이를 검증한다.
+- story/title/visual field의 길이와 제어 문자를 검증한다.
+- optional `visual_assets`가 없으면 canonical 사실을 추측하지 않고 빈 visual projection으로 취급한다.
+- malformed JSON, missing field, duplicate ID 같은 복구 가능한 구조 오류는 raw 응답 대신 bounded reason code로 분류한다.
+- transport/provider HTTP 오류와 같은 hard failure는 response repair 대상으로 바꾸지 않는다.
+- 로그에는 raw provider 응답 전문을 남기지 않고 `context`와 bounded reason code만 남긴다.
+- Gemini API key는 query string이 아니라 `x-goog-api-key` header로 전달한다.
+
+JSON parsing, Gemini response wrapper, response schema 같은 provider-specific 처리는 `provider/gemini` adapter 경계에 남기고 application/domain은 `NarrativeTurn`과 일반적인 recoverable/hard failure 의미만 다룬다.
 
 ## GameLog narrative linkage
 
@@ -65,7 +78,12 @@ legacy/opening row는 두 값이 모두 `NULL`일 수 있다. DB CHECK constrain
 
 provider 호출 전에 `TurnResolution`과 canonical next state는 이미 결정되어 있지만 DB에는 아직 commit하지 않는다.
 
-- provider 실패: mutation을 failed 처리하고 reservation lease를 만료시키며 GameLog/GameState turn은 진행하지 않는다.
+- Gemini 구조 오류 recovery는 최대 3 provider attempt로 제한한다. 첫 실패 뒤 50ms, 두 번째 실패 뒤 150ms의 bounded backoff를 사용한다.
+- recovery prompt에는 실패한 raw 응답을 다시 주입하지 않고 bounded reason code와 동일 요청/확정 결과를 사용한다.
+- progress의 첫 provider attempt와 각 recovery attempt는 현재 reservation owner에 대해 `provider_attempt_count`를 다시 검증·증가시킨다. stale owner 또는 attempt 상한에 도달한 요청은 다음 provider 호출 전에 중단된다.
+- telemetry는 하나의 logical narrative operation에 실제 retry count와 attempt count를 기록해 비용 ledger가 내부 recovery 횟수를 반영하도록 한다.
+- provider/transport hard failure는 추가 response repair 없이 실패 처리한다.
+- provider 실패 또는 recovery 소진: mutation을 failed 처리하고 reservation lease를 만료시키며 GameLog/GameState turn은 진행하지 않는다.
 - 같은 idempotent 요청 재시도: unchanged canonical previous state와 같은 action으로 pure resolution을 다시 계산하고 동일 `canonicalResultId`를 재사용한다.
 - provider 성공 후 commit 실패/stale owner: stale owner는 canonical commit할 수 없다. 이후 재시도에서 provider가 다시 호출될 수 있다는 bounded at-least-once 정책은 유지한다.
 - 완료된 mutation retry: 기존 committed turn을 replay하고 provider를 재호출하지 않는다.

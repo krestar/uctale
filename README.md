@@ -117,8 +117,9 @@ snapshot JSON은 schema/ruleset version을 가지며 legacy production snapshot�
 - provider story는 canonical state를 직접 변경하지 않고 기존 StoryMemory transcript만 완성합니다.
 - `game_log`는 progress turn의 `canonical_result_id` / `generated_story_id`와 선택적 Skill Check audit 필드를 기록합니다. legacy/opening 행은 Skill Check 필드가 모두 비어 있을 수 있습니다.
 - provider failure 시 canonical turn은 진행하지 않으며 같은 idempotent 요청은 reservation에 저장된 Skill Check 판정과 동일 canonical result link를 재사용합니다.
+- Gemini `generateContent`는 JSON response schema를 사용하고 adapter가 필수 필드, 길이, choice 수/ID를 다시 검증합니다. 구조 오류는 최대 3 provider attempt의 bounded recovery를 거치며 raw 응답 전문은 진단 로그에 남기지 않습니다.
 
-Gemini structured output의 provider-specific schema validation과 bounded repair/retry 강화는 #35의 별도 범위입니다. Story Memory projection/token budget 전면 개선은 #46 범위입니다.
+Story Memory projection/token budget 전면 개선은 #46 범위입니다.
 
 ### 신뢰 가능한 턴 파이프라인
 
@@ -130,6 +131,7 @@ M2의 턴 무결성·복구 구현 범위와 완료 조건은 main에 반영되�
 - `(session_id, expected_turn)` reservation lease로 유효 lease 동안 중복 provider 진입을 억제합니다.
 - Skill Check가 필요한 typed action은 provider 호출 전에 현재 reservation owner가 판정을 한 번 저장합니다.
 - provider attempt는 reservation 획득 횟수와 분리된 `provider_attempt_count`로 관리하며 turn당 최대 3회로 제한합니다.
+- Gemini response repair의 각 progress provider retry도 같은 reservation owner와 attempt 상한을 다시 검증합니다.
 - validation, rate limit, budget guard 같은 pre-provider 실패는 provider attempt를 소비하지 않습니다.
 - stale lease owner는 takeover 이후 canonical commit을 수행할 수 없습니다.
 - `GameLog`는 append-only committed-turn ledger이고 `GameStateSnapshot`은 최신 상태 복구용 materialized snapshot입니다.
@@ -329,6 +331,6 @@ GitHub Actions CI도 backend unit test → PostgreSQL integration test → backe
 
 진행 중.
 
-현재 #33 `AvailableAction` / `PlayerAction`, #34 `ActionResolver` / `GameResult`, #36 확정 결과 기반 `NarrativeContext`, #7 typed `CharacterStats` / pure Skill Check 규칙에 더해 #37 Skill Check turn 통합·감사 저장과 #38 능력치·Skill Check 결과 frontend projection이 반영됩니다.
+현재 #33 `AvailableAction` / `PlayerAction`, #34 `ActionResolver` / `GameResult`, #36 확정 결과 기반 `NarrativeContext`, #7 typed `CharacterStats` / pure Skill Check 규칙에 더해 #37 Skill Check turn 통합·감사 저장과 #38 능력치·Skill Check 결과 frontend projection, #35 Gemini structured output 검증과 bounded recovery가 반영됩니다.
 
-Gemini structured output 검증과 bounded recovery는 #35의 별도 P1 작업입니다. 아직 구현되지 않은 전투·인벤토리·퀘스트·NPC 관계 기능은 현재 기능처럼 문서에 표시하지 않습니다.
+아직 구현되지 않은 전투·인벤토리·퀘스트·NPC 관계 기능은 현재 기능처럼 문서에 표시하지 않습니다.
