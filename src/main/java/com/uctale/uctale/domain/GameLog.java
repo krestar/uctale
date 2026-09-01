@@ -1,5 +1,6 @@
 package com.uctale.uctale.domain;
 
+import com.uctale.uctale.domain.game.SkillCheckResult;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -59,6 +60,30 @@ public class GameLog {
     @Column(name = "generated_story_id", length = 128)
     private String generatedStoryId;
 
+    @Column(name = "skill_check_stat_type", length = 32)
+    private String skillCheckStatType;
+
+    @Column(name = "skill_check_raw_roll")
+    private Integer skillCheckRawRoll;
+
+    @Column(name = "skill_check_stat_modifier")
+    private Integer skillCheckStatModifier;
+
+    @Column(name = "skill_check_situational_modifier")
+    private Integer skillCheckSituationalModifier;
+
+    @Column(name = "skill_check_dc")
+    private Integer skillCheckDc;
+
+    @Column(name = "skill_check_total")
+    private Integer skillCheckTotal;
+
+    @Column(name = "skill_check_outcome", length = 16)
+    private String skillCheckOutcome;
+
+    @Column(name = "skill_check_ruleset_version")
+    private Integer skillCheckRulesetVersion;
+
     @Column(columnDefinition = "TEXT")
     private String storyText;
 
@@ -72,85 +97,35 @@ public class GameLog {
     @Column(name = "created_at")
     private LocalDateTime committedAt;
 
-    public static GameLog opening(
-            GameSession gameSession,
-            String storyText,
-            String choicesJson,
-            String imageUrl
-    ) {
-        return new GameLog(
-                gameSession,
-                1,
-                null,
-                null,
-                0,
-                1,
-                null,
-                null,
-                storyText,
-                choicesJson,
-                imageUrl
-        );
+    public static GameLog opening(GameSession gameSession, String storyText, String choicesJson, String imageUrl) {
+        return new GameLog(gameSession, 1, null, null, 0, 1, null, null, null, storyText, choicesJson, imageUrl);
     }
 
-    public static GameLog committedTurn(
-            GameSession gameSession,
-            int turnNumber,
-            int inputChoiceId,
-            String inputChoiceText,
-            int previousStateVersion,
-            int stateVersion,
-            String storyText,
-            String choicesJson,
-            String imageUrl
-    ) {
-        return committedTurn(
-                gameSession, turnNumber, inputChoiceId, inputChoiceText, previousStateVersion, stateVersion,
-                null, null, storyText, choicesJson, imageUrl
-        );
+    public static GameLog committedTurn(GameSession gameSession, int turnNumber, int inputChoiceId,
+            String inputChoiceText, int previousStateVersion, int stateVersion, String storyText,
+            String choicesJson, String imageUrl) {
+        return committedTurn(gameSession, turnNumber, inputChoiceId, inputChoiceText, previousStateVersion,
+                stateVersion, null, null, null, storyText, choicesJson, imageUrl);
     }
 
-    public static GameLog committedTurn(
-            GameSession gameSession,
-            int turnNumber,
-            int inputChoiceId,
-            String inputChoiceText,
-            int previousStateVersion,
-            int stateVersion,
-            String canonicalResultId,
-            String generatedStoryId,
-            String storyText,
-            String choicesJson,
-            String imageUrl
-    ) {
-        return new GameLog(
-                gameSession,
-                turnNumber,
-                inputChoiceId,
-                inputChoiceText,
-                previousStateVersion,
-                stateVersion,
-                canonicalResultId,
-                generatedStoryId,
-                storyText,
-                choicesJson,
-                imageUrl
-        );
+    public static GameLog committedTurn(GameSession gameSession, int turnNumber, int inputChoiceId,
+            String inputChoiceText, int previousStateVersion, int stateVersion, String canonicalResultId,
+            String generatedStoryId, String storyText, String choicesJson, String imageUrl) {
+        return committedTurn(gameSession, turnNumber, inputChoiceId, inputChoiceText, previousStateVersion,
+                stateVersion, canonicalResultId, generatedStoryId, null, storyText, choicesJson, imageUrl);
     }
 
-    private GameLog(
-            GameSession gameSession,
-            int turnNumber,
-            Integer inputChoiceId,
-            String inputChoiceText,
-            int previousStateVersion,
-            int stateVersion,
-            String canonicalResultId,
-            String generatedStoryId,
-            String storyText,
-            String choicesJson,
-            String imageUrl
-    ) {
+    public static GameLog committedTurn(GameSession gameSession, int turnNumber, int inputChoiceId,
+            String inputChoiceText, int previousStateVersion, int stateVersion, String canonicalResultId,
+            String generatedStoryId, SkillCheckResult skillCheckResult, String storyText, String choicesJson,
+            String imageUrl) {
+        return new GameLog(gameSession, turnNumber, inputChoiceId, inputChoiceText, previousStateVersion,
+                stateVersion, canonicalResultId, generatedStoryId, skillCheckResult, storyText, choicesJson, imageUrl);
+    }
+
+    private GameLog(GameSession gameSession, int turnNumber, Integer inputChoiceId, String inputChoiceText,
+            int previousStateVersion, int stateVersion, String canonicalResultId, String generatedStoryId,
+            SkillCheckResult skillCheckResult, String storyText, String choicesJson, String imageUrl) {
         this.gameSession = gameSession;
         this.turnNumber = turnNumber;
         this.inputChoiceId = inputChoiceId;
@@ -159,6 +134,16 @@ public class GameLog {
         this.stateVersion = stateVersion;
         this.canonicalResultId = canonicalResultId;
         this.generatedStoryId = generatedStoryId;
+        if (skillCheckResult != null) {
+            this.skillCheckStatType = skillCheckResult.statType().name();
+            this.skillCheckRawRoll = skillCheckResult.rawRoll();
+            this.skillCheckStatModifier = skillCheckResult.statModifier();
+            this.skillCheckSituationalModifier = skillCheckResult.situationalModifier();
+            this.skillCheckDc = skillCheckResult.dc();
+            this.skillCheckTotal = skillCheckResult.total();
+            this.skillCheckOutcome = skillCheckResult.outcome().name();
+            this.skillCheckRulesetVersion = skillCheckResult.rulesetVersion();
+        }
         this.storyText = storyText;
         this.choicesJson = choicesJson;
         this.imageUrl = imageUrl;
