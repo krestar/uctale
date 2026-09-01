@@ -10,6 +10,8 @@ alter table game_turn_reservation
     add column skill_check_ruleset_version integer;
 
 alter table game_turn_reservation
+    add constraint fk_game_turn_reservation_skill_check_request
+        foreign key (skill_check_request_id) references game_mutation_request(id),
     add constraint ck_game_turn_reservation_skill_check_complete check (
         (skill_check_request_id is null
             and skill_check_stat_type is null
