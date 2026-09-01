@@ -26,7 +26,7 @@ class ChoiceCodecTest {
     }
 
     @Test
-    @DisplayName("서버가 발급한 action은 token type sourceTurn arguments가 모두 일치할 때만 PlayerAction으로 변환된다")
+    @DisplayName("서버가 발급한 Skill Check action은 token type sourceTurn arguments가 모두 일치할 때만 PlayerAction으로 변환된다")
     void issuedActionResolvesOnlyWithExactContract() {
         GameChoice issued = codec.issue(List.of(new NarrativeTurn.Choice(7, "문을 잠근다")), 3).getFirst();
         String stored = codec.serialize(List.of(issued));
@@ -42,10 +42,14 @@ class ChoiceCodecTest {
 
         PlayerAction action = codec.resolve(stored, request);
 
-        assertThat(action.type()).isEqualTo(ActionType.NARRATIVE_CHOICE);
+        assertThat(action.type()).isEqualTo(ActionType.SKILL_CHECK);
         assertThat(action.sourceTurn()).isEqualTo(3);
         assertThat(action.displayText()).isEqualTo("문을 잠근다");
-        assertThat(action.arguments()).containsEntry("choiceId", "7");
+        assertThat(action.arguments())
+                .containsEntry("choiceId", "7")
+                .containsEntry("statType", "WILL")
+                .containsEntry("dc", "10")
+                .containsEntry("situationalModifier", "0");
     }
 
     @Test
@@ -63,7 +67,8 @@ class ChoiceCodecTest {
         ))).isInstanceOf(InvalidChoiceException.class);
 
         assertThatThrownBy(() -> codec.resolve(stored, new GameProgressRequest(
-                42L, 7, 3, issued.actionToken(), issued.actionType(), issued.sourceTurn(), Map.of("choiceId", "8")
+                42L, 7, 3, issued.actionToken(), issued.actionType(), issued.sourceTurn(),
+                Map.of("choiceId", "7", "statType", "WILL", "dc", "40", "situationalModifier", "0")
         ))).isInstanceOf(InvalidChoiceException.class);
     }
 
@@ -76,6 +81,19 @@ class ChoiceCodecTest {
         assertThatThrownBy(() -> codec.resolve(stored, new GameProgressRequest(
                 42L, 7, 3, issued.actionToken(), issued.actionType(), issued.sourceTurn(), issued.arguments()
         ))).isInstanceOf(InvalidChoiceException.class);
+    }
+
+    @Test
+    @DisplayName("metadata 없는 legacy wire 요청은 신규 저장 action에도 기존 narrative 의미를 유지한다")
+    void legacyWireRequestKeepsNarrativeCompatibility() {
+        GameChoice issued = codec.issue(List.of(new NarrativeTurn.Choice(7, "문을 잠근다")), 3).getFirst();
+        String stored = codec.serialize(List.of(issued));
+
+        PlayerAction action = codec.resolve(stored, new GameProgressRequest(42L, 7, 3));
+
+        assertThat(action.type()).isEqualTo(ActionType.NARRATIVE_CHOICE);
+        assertThat(action.sourceTurn()).isEqualTo(3);
+        assertThat(action.arguments()).containsExactly(Map.entry("choiceId", "7"));
     }
 
     @Test

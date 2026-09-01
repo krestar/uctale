@@ -24,6 +24,7 @@ class ActionResolverTest {
 
         assertThat(resolution.gameResult().resolvedAction()).isEqualTo(action);
         assertThat(resolution.gameResult().outcome()).isEqualTo(GameResult.Outcome.RESOLVED);
+        assertThat(resolution.gameResult().skillCheckResult()).isNull();
         assertThat(resolution.gameResult().canonicalFacts()).isEmpty();
         assertThat(resolution.gameResult().events()).containsExactly(GameResult.GameEvent.ACTION_RESOLVED);
         assertThat(resolution.gameResult().stateChanges())
@@ -70,6 +71,75 @@ class ActionResolverTest {
     }
 
     @Test
+    @DisplayName("Skill Check는 fixed RandomSource로 성공 판정을 만들고 저장 결과를 그대로 GameResult에 사용한다")
+    void resolveSkillCheck_Success() {
+        GameState state = GameState.initial("세계관", "캐릭터", "오프닝");
+        PlayerAction action = skillCheck(1, 7, 10, 0);
+
+        SkillCheckResult rolled = resolver.rollSkillCheck(state, action, (min, max) -> 10);
+        TurnResolution resolution = resolver.resolve(state, action, rolled);
+
+        assertThat(rolled.rawRoll()).isEqualTo(10);
+        assertThat(rolled.total()).isEqualTo(10);
+        assertThat(rolled.outcome()).isEqualTo(SkillCheckOutcome.SUCCESS);
+        assertThat(resolution.gameResult().skillCheckResult()).isEqualTo(rolled);
+        assertThat(resolution.gameResult().events()).containsExactly(
+                GameResult.GameEvent.ACTION_RESOLVED,
+                GameResult.GameEvent.SKILL_CHECK_RESOLVED
+        );
+    }
+
+    @Test
+    @DisplayName("Skill Check는 total이 DC보다 하나 작으면 실패한다")
+    void resolveSkillCheck_FailureBoundary() {
+        GameState state = GameState.initial("세계관", "캐릭터", "오프닝");
+        PlayerAction action = skillCheck(1, 7, 10, 0);
+
+        SkillCheckResult rolled = resolver.rollSkillCheck(state, action, (min, max) -> 9);
+
+        assertThat(rolled.total()).isEqualTo(9);
+        assertThat(rolled.outcome()).isEqualTo(SkillCheckOutcome.FAILURE);
+        assertThat(resolver.resolve(state, action, rolled).gameResult().skillCheckResult()).isEqualTo(rolled);
+    }
+
+    @Test
+    @DisplayName("저장된 Skill Check의 stat modifier가 canonical 능력치와 다르면 거절한다")
+    void resolveSkillCheck_RejectsStoredResultFromDifferentStats() {
+        GameState state = GameState.initial("세계관", "캐릭터", "오프닝");
+        PlayerAction action = skillCheck(1, 7, 10, 0);
+        SkillCheckResult tampered = new SkillCheckResult(
+                StatType.WILL, 10, 1, 0, 10, 11, SkillCheckOutcome.SUCCESS, SkillCheck.RULESET_VERSION
+        );
+
+        assertThatThrownBy(() -> resolver.resolve(state, action, tampered))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("canonical 능력치");
+    }
+
+    @Test
+    @DisplayName("stale source turn과 잘못된 Skill Check arguments는 난수 생성 전에 거절한다")
+    void resolveSkillCheck_RejectsBeforeRoll() {
+        GameState state = GameState.initial("세계관", "캐릭터", "오프닝");
+        PlayerAction stale = skillCheck(2, 7, 10, 0);
+
+        assertThatThrownBy(() -> resolver.rollSkillCheck(state, stale, (min, max) -> 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("source turn");
+
+        PlayerAction invalid = new PlayerAction(
+                7,
+                "token",
+                ActionType.SKILL_CHECK,
+                1,
+                Map.of("choiceId", "7", "statType", "WILL", "dc", "41", "situationalModifier", "0"),
+                "시도한다"
+        );
+        assertThatThrownBy(() -> resolver.rollSkillCheck(state, invalid, (min, max) -> 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("arguments");
+    }
+
+    @Test
     @DisplayName("Narrative 부착은 확정된 canonical 상태를 바꾸지 않고 StoryMemory만 완성한다")
     void attachNarrative_OnlyCompletesNarrativeMemory() {
         GameState state = GameState.initial("세계관", "캐릭터", "오프닝");
@@ -96,6 +166,22 @@ class ActionResolverTest {
                 sourceTurn,
                 Map.of("choiceId", Integer.toString(choiceId)),
                 text
+        );
+    }
+
+    private PlayerAction skillCheck(int sourceTurn, int choiceId, int dc, int situationalModifier) {
+        return new PlayerAction(
+                choiceId,
+                "token",
+                ActionType.SKILL_CHECK,
+                sourceTurn,
+                Map.of(
+                        "choiceId", Integer.toString(choiceId),
+                        "statType", "WILL",
+                        "dc", Integer.toString(dc),
+                        "situationalModifier", Integer.toString(situationalModifier)
+                ),
+                "시도한다"
         );
     }
 }

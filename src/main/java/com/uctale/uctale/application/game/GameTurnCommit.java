@@ -2,6 +2,7 @@ package com.uctale.uctale.application.game;
 
 import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.domain.game.GameState;
+import com.uctale.uctale.domain.game.SkillCheckResult;
 import com.uctale.uctale.domain.game.StateTransition;
 
 public record GameTurnCommit(
@@ -13,6 +14,7 @@ public record GameTurnCommit(
         String choicesJson,
         String canonicalResultId,
         String generatedStoryId,
+        SkillCheckResult skillCheckResult,
         ImageAssetService.AssetReference imageAsset
 ) {
     private static final int MAX_LINK_ID_LENGTH = 128;
@@ -56,10 +58,25 @@ public record GameTurnCommit(
             StateTransition stateTransition,
             String storyText,
             String choicesJson,
+            String canonicalResultId,
+            String generatedStoryId,
             ImageAssetService.AssetReference imageAsset
     ) {
         this(expectedTurn, inputChoiceId, inputChoiceText, stateTransition, storyText, choicesJson,
-                null, null, imageAsset);
+                canonicalResultId, generatedStoryId, null, imageAsset);
+    }
+
+    public GameTurnCommit(
+            int expectedTurn,
+            int inputChoiceId,
+            String inputChoiceText,
+            StateTransition stateTransition,
+            String storyText,
+            String choicesJson,
+            ImageAssetService.AssetReference imageAsset
+    ) {
+        this(expectedTurn, inputChoiceId, inputChoiceText, stateTransition, storyText, choicesJson,
+                null, null, null, imageAsset);
     }
 
     public GameTurnCommit(
@@ -73,7 +90,7 @@ public record GameTurnCommit(
             ImageAssetService.AssetReference imageAsset
     ) {
         this(expectedTurn, inputChoiceId, inputChoiceText, new StateTransition(previousState, nextState),
-                storyText, choicesJson, null, null, imageAsset);
+                storyText, choicesJson, null, null, null, imageAsset);
     }
 
     public GameState previousState() {
@@ -94,6 +111,10 @@ public record GameTurnCommit(
 
     public boolean hasNarrativeLink() {
         return canonicalResultId != null;
+    }
+
+    public boolean hasSkillCheck() {
+        return skillCheckResult != null;
     }
 
     private static void validateLinkId(String name, String value) {

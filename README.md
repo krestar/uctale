@@ -14,9 +14,9 @@ UCTale은 사용자가 직접 입력한 세계관과 주인공 설정을 바탕�
 
 UCTale의 핵심 원칙은 **게임의 결정적 사실과 규칙은 서버가 소유하고, LLM은 확정된 결과를 서술한다**는 것입니다.
 
-현재 main은 공유 베타 운영 안전망과 신뢰 가능한 턴 저장 기반에 더해 `ActionResolver` / `GameResult` / provider-safe `NarrativeContext` 경계까지 갖추었고, M3에서 실제 Skill Check turn 통합을 확장하는 단계입니다.
+현재 main은 공유 베타 운영 안전망과 신뢰 가능한 턴 저장 기반에 더해 `ActionResolver` / `GameResult` / provider-safe `NarrativeContext` 경계와 첫 실제 Skill Check turn vertical slice까지 갖추는 단계입니다.
 
-- 서버: 세션 소유권, 현재 턴, idempotency, reservation lease, canonical state, `GameResult`, GameLog, provider attempt 상한을 검증합니다.
+- 서버: 세션 소유권, 현재 턴, idempotency, reservation lease, canonical state, Skill Check 판정, `GameResult`, GameLog, provider attempt 상한을 검증합니다.
 - Narrative AI: 서버가 확정한 결과와 제한된 state/memory projection을 바탕으로 이야기와 다음 선택지 표현을 생성합니다.
 - Image AI: 브라우저의 임의 prompt가 아니라 서버가 발급한 image asset 계약만 실행합니다.
 - Frontend: 서버가 반환한 선택 행동과 상태를 표시하고, 규칙을 재계산하지 않습니다.
@@ -48,9 +48,10 @@ UCTale의 핵심 원칙은 **게임의 결정적 사실과 규칙은 서버가 �
 3. 서버가 첫 장면과 서버 발급 선택 행동을 생성합니다.
 4. 플레이어가 현재 턴에 유효한 행동을 선택합니다.
 5. 서버가 소유권, expected turn, idempotency, action payload를 검증합니다.
-6. 서버가 action을 `GameResult` / canonical next state로 먼저 resolve하고 provider-safe `NarrativeContext`를 구성한 뒤 Narrative provider를 호출합니다.
-7. 검증된 story는 확정 rule state를 변경하지 않고 transcript를 완성하며 canonical state와 committed-turn log를 원자적으로 저장합니다.
-8. 시각적으로 표현할 장면이 있으면 서버가 발급한 image asset을 통해 삽화를 제공합니다.
+6. Skill Check action이면 reservation 소유 요청이 서버 난수와 modifier/DC/outcome을 한 번 확정·보존합니다.
+7. 서버가 action을 `GameResult` / canonical next state로 resolve하고 provider-safe `NarrativeContext`를 구성한 뒤 Narrative provider를 호출합니다.
+8. 검증된 story는 확정 rule state를 변경하지 않고 transcript를 완성하며 canonical state와 committed-turn log를 원자적으로 저장합니다.
+9. 시각적으로 표현할 장면이 있으면 서버가 발급한 image asset을 통해 삽화를 제공합니다.
 
 ---
 
@@ -70,15 +71,16 @@ UCTale의 핵심 원칙은 **게임의 결정적 사실과 규칙은 서버가 �
 #33의 `AvailableAction` / `PlayerAction`과 #34의 `ActionResolver` / `TurnResolution` / `GameResult` 경계가 main에 반영되어 있습니다.
 
 - 서버는 각 선택지에 action token/type/source turn/arguments를 발급할 수 있습니다.
+- 신규 typed 선택은 첫 vertical slice로 `SKILL_CHECK` action을 사용하며 현재 서버 정책은 `WILL`, DC 10, 상황 modifier 0입니다.
 - `/progress`는 현재 turn의 서버 발급 action과 요청 payload가 일치하는지 검증합니다.
 - 변조되거나 만료된 action은 provider 호출 전에 거절됩니다.
-- 검증된 action은 provider 호출 전에 pure `ActionResolver`에서 `GameResult`와 canonical next `StateTransition`으로 확정됩니다.
+- metadata 없는 legacy wire 요청은 기존 `NARRATIVE_CHOICE` compatibility 의미를 유지합니다.
+- 검증된 action은 provider 호출 전에 `ActionResolver`에서 `GameResult`와 canonical next `StateTransition`으로 확정됩니다.
 - `GameService`는 action type별 규칙 세부 구현을 알지 않고 orchestration만 담당합니다.
-- 기존 `choiceId` 기반 요청은 compatibility 경로로 유지합니다.
 
 ### 타입 안전한 능력치와 Skill Check
 
-#7에서 서버 소유 게임 규칙의 첫 순수 도메인 기반을 추가했습니다.
+#7의 순수 규칙 기반에 #37의 실제 turn 통합을 연결합니다.
 
 - `StatType`: `MIGHT`, `AGILITY`, `INTELLECT`, `WILL`, `PRESENCE`
 - 신규·legacy 캐릭터는 기본 능력치 10을 사용합니다.
@@ -86,11 +88,11 @@ UCTale의 핵심 원칙은 **게임의 결정적 사실과 규칙은 서버가 �
 - `Difficulty`, `DiceRoll`, situational modifier가 각 허용 범위를 검증합니다.
 - `SkillCheck`는 `rawRoll + statModifier + situationalModifier >= DC`만으로 성공/실패를 결정합니다.
 - natural 1/20 특수 규칙은 사용하지 않습니다.
-- `SkillCheckResult`는 raw roll, modifier, DC, total, outcome, ruleset version을 보존합니다.
+- `SkillCheckResult`는 raw roll, stat modifier, situational modifier, DC, total, outcome, ruleset version을 보존합니다.
 - production random adapter는 `SecureRandom`, 테스트는 fixed/sequence `RandomSource`를 사용합니다.
-- Skill Check는 pure domain operation이며 Narrative provider를 호출하지 않습니다.
-
-아직 이 판정을 실제 `/progress` action/turn pipeline과 DB roll 저장, frontend에 연결하지 않습니다. 실제 통합은 #37/#38 범위입니다.
+- 같은 idempotency mutation retry는 reservation에 보존된 동일 판정을 재사용하고, 다른 request가 만료 lease를 takeover하면 새 판정을 확정합니다.
+- canonical commit은 Skill Check 결과와 state transition을 같은 transaction에서 `GameLog`에 기록합니다.
+- frontend의 능력치/판정 결과 표시는 #38 범위입니다.
 
 ### GameState와 Story Memory
 
@@ -107,13 +109,14 @@ snapshot JSON은 schema/ruleset version을 가지며 legacy production snapshot�
 
 #36 이후 progress Narrative provider에는 raw `GameState + 사용자 행동 문자열` 조합 대신 서버가 확정한 결과를 provider-safe projection으로 전달합니다.
 
-- `NarrativeContext`는 canonical result ID, resolved action projection, outcome, canonical facts/events/state changes, canonical next-state projection, memory projection, narrative cues를 포함합니다.
+- `NarrativeContext`는 canonical result ID, resolved action projection, outcome, optional Skill Check projection, canonical facts/events/state changes, canonical next-state projection, memory projection, narrative cues를 포함합니다.
+- Skill Check projection은 raw roll, stat/situational modifier, DC, total, success/failure, ruleset version을 포함합니다.
 - 서버 발급 `PlayerAction.token`은 provider context에 포함하지 않습니다.
 - prompt는 확정 결과/state, narrative cues, 금지 canonical mutation을 분리합니다.
 - provider는 story prose와 다음 choice 후보를 만들 수 있지만 서버가 확정한 outcome/roll/state change를 재판정할 수 없습니다.
 - provider story는 canonical state를 직접 변경하지 않고 기존 StoryMemory transcript만 완성합니다.
-- `game_log`는 새 progress turn부터 `canonical_result_id`와 `generated_story_id`를 함께 기록합니다. legacy/opening 행은 두 값이 모두 비어 있을 수 있습니다.
-- provider failure 시 canonical turn은 진행하지 않으며 같은 idempotent 요청은 동일 canonical result link를 재구성합니다.
+- `game_log`는 progress turn의 `canonical_result_id` / `generated_story_id`와 선택적 Skill Check audit 필드를 기록합니다. legacy/opening 행은 Skill Check 필드가 모두 비어 있을 수 있습니다.
+- provider failure 시 canonical turn은 진행하지 않으며 같은 idempotent 요청은 reservation에 저장된 Skill Check 판정과 동일 canonical result link를 재사용합니다.
 
 Gemini structured output의 provider-specific schema validation과 bounded repair/retry 강화는 #35의 별도 범위입니다. Story Memory projection/token budget 전면 개선은 #46 범위입니다.
 
@@ -125,6 +128,7 @@ M2의 턴 무결성·복구 구현 범위와 완료 조건은 main에 반영되�
 - 같은 key + 같은 payload의 완료 요청은 provider를 재호출하지 않고 canonical 결과를 replay합니다.
 - 같은 key를 다른 payload/operation에 재사용하면 provider 호출 전에 conflict로 거절합니다.
 - `(session_id, expected_turn)` reservation lease로 유효 lease 동안 중복 provider 진입을 억제합니다.
+- Skill Check가 필요한 typed action은 provider 호출 전에 현재 reservation owner가 판정을 한 번 저장합니다.
 - provider attempt는 reservation 획득 횟수와 분리된 `provider_attempt_count`로 관리하며 turn당 최대 3회로 제한합니다.
 - validation, rate limit, budget guard 같은 pre-provider 실패는 provider attempt를 소비하지 않습니다.
 - stale lease owner는 takeover 이후 canonical commit을 수행할 수 없습니다.
@@ -195,6 +199,7 @@ uctale/
 
 - [개발 원칙](./CONTRIBUTING.md)
 - [Action Resolution](./docs/architecture/action-resolution.md)
+- [Skill Check turn integration](./docs/architecture/skill-check-turn.md)
 - [GameResult 기반 NarrativeContext](./docs/architecture/narrative-context.md)
 - [GameState / Story Memory](./docs/architecture/game-state-story-memory.md)
 - [Game mutation idempotency](./docs/architecture/game-mutation-idempotency.md)
@@ -323,8 +328,8 @@ GitHub Actions CI도 backend unit test → PostgreSQL integration test → backe
 
 진행 중.
 
-현재 #33 `AvailableAction` / `PlayerAction`, #34 `ActionResolver` / `GameResult`, #36 확정 결과 기반 `NarrativeContext`, #7 typed `CharacterStats` / pure Skill Check 규칙 기반이 반영되었습니다. 다음 핵심 game-rule vertical slice는 #37 실제 Skill Check turn 통합입니다.
+현재 #33 `AvailableAction` / `PlayerAction`, #34 `ActionResolver` / `GameResult`, #36 확정 결과 기반 `NarrativeContext`, #7 typed `CharacterStats` / pure Skill Check 규칙에 더해 #37 Skill Check turn 통합과 감사 저장이 반영됩니다.
 
-Gemini structured output 검증과 bounded recovery는 #35, Skill Check 결과/roll 감사 저장과 frontend 표현은 #37/#38의 완료 조건을 기준으로 진행합니다.
+다음 UI 단계는 #38 능력치·Skill Check 결과 표시입니다. Gemini structured output 검증과 bounded recovery는 #35의 별도 P1 작업입니다.
 
 아직 구현되지 않은 전투·인벤토리·퀘스트·NPC 관계 기능은 현재 기능처럼 문서에 표시하지 않습니다.

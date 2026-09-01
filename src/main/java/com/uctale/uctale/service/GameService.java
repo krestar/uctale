@@ -23,8 +23,8 @@ import com.uctale.uctale.dto.GameChoice;
 import com.uctale.uctale.dto.GameInitRequest;
 import com.uctale.uctale.dto.GameProgressRequest;
 import com.uctale.uctale.dto.GameResponse;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.HashSet;
@@ -34,7 +34,6 @@ import java.util.UUID;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class GameService {
 
     private static final int MAX_TITLE_LENGTH = 200;
@@ -47,12 +46,62 @@ public class GameService {
     private final ImageAssetService imageAssetService;
     private final GamePersistenceService gamePersistenceService;
     private final ChoiceCodec choiceCodec;
-    private final TurnProcessor turnProcessor = new TurnProcessor();
+    private final TurnProcessor turnProcessor;
     private final ImagePromptComposer imagePromptComposer;
     private final CostRateLimiter costRateLimiter;
     private final ProviderCallTelemetry providerCallTelemetry;
     private final GameMutationFingerprint mutationFingerprint;
     private final GameMutationRequestService mutationRequestService;
+
+    @Autowired
+    public GameService(
+            NarrativeGenerator narrativeGenerator,
+            ImageAssetService imageAssetService,
+            GamePersistenceService gamePersistenceService,
+            ChoiceCodec choiceCodec,
+            TurnProcessor turnProcessor,
+            ImagePromptComposer imagePromptComposer,
+            CostRateLimiter costRateLimiter,
+            ProviderCallTelemetry providerCallTelemetry,
+            GameMutationFingerprint mutationFingerprint,
+            GameMutationRequestService mutationRequestService
+    ) {
+        this.narrativeGenerator = narrativeGenerator;
+        this.imageAssetService = imageAssetService;
+        this.gamePersistenceService = gamePersistenceService;
+        this.choiceCodec = choiceCodec;
+        this.turnProcessor = turnProcessor;
+        this.imagePromptComposer = imagePromptComposer;
+        this.costRateLimiter = costRateLimiter;
+        this.providerCallTelemetry = providerCallTelemetry;
+        this.mutationFingerprint = mutationFingerprint;
+        this.mutationRequestService = mutationRequestService;
+    }
+
+    public GameService(
+            NarrativeGenerator narrativeGenerator,
+            ImageAssetService imageAssetService,
+            GamePersistenceService gamePersistenceService,
+            ChoiceCodec choiceCodec,
+            ImagePromptComposer imagePromptComposer,
+            CostRateLimiter costRateLimiter,
+            ProviderCallTelemetry providerCallTelemetry,
+            GameMutationFingerprint mutationFingerprint,
+            GameMutationRequestService mutationRequestService
+    ) {
+        this(
+                narrativeGenerator,
+                imageAssetService,
+                gamePersistenceService,
+                choiceCodec,
+                new TurnProcessor(),
+                imagePromptComposer,
+                costRateLimiter,
+                providerCallTelemetry,
+                mutationFingerprint,
+                mutationRequestService
+        );
+    }
 
     public GameResponse initGame(String ownerKey, GameInitRequest request) {
         return initGame(CostRequestContext.internal(ownerKey, null, 1), request);
@@ -117,7 +166,9 @@ public class GameService {
             );
 
             PlayerAction playerAction = choiceCodec.resolve(loadedTurn.choicesJson(), request);
-            TurnResolution resolution = turnProcessor.resolve(loadedTurn.gameState(), playerAction);
+            TurnResolution resolution = turnProcessor.resolve(
+                    loadedTurn.gameState(), playerAction, mutation.requestId(), mutation.reservationOwner()
+            );
             String userChoiceText = resolution.gameResult().resolvedAction().displayText();
             String canonicalResultId = canonicalResultId(mutation.requestId(), loadedTurn.sessionId(),
                     resolution.stateTransition().nextState().turnNumber());
@@ -150,7 +201,7 @@ public class GameService {
             GameTurnCommit commit = new GameTurnCommit(
                     request.expectedTurn(), resolution.gameResult().resolvedAction().legacyChoiceId(), userChoiceText,
                     committedTransition, nextTurn.storyText(), choiceCodec.serialize(choices),
-                    canonicalResultId, generatedStoryId, imageAsset
+                    canonicalResultId, generatedStoryId, resolution.gameResult().skillCheckResult(), imageAsset
             );
 
             int savedTurn = gamePersistenceService.saveNextTurn(

@@ -7,6 +7,9 @@ import com.uctale.uctale.domain.game.CharacterStats;
 import com.uctale.uctale.domain.game.GameResult;
 import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.domain.game.GameTurn;
+import com.uctale.uctale.domain.game.SkillCheckOutcome;
+import com.uctale.uctale.domain.game.SkillCheckResult;
+import com.uctale.uctale.domain.game.StatType;
 import com.uctale.uctale.domain.game.TurnResolution;
 
 import java.util.List;
@@ -17,6 +20,7 @@ public record NarrativeContext(
         String canonicalResultId,
         ResolvedAction resolvedAction,
         GameResult.Outcome outcome,
+        SkillCheckProjection skillCheck,
         List<CanonicalFact> resultCanonicalFacts,
         List<GameResult.GameEvent> events,
         List<GameResult.StateChange> stateChanges,
@@ -57,6 +61,7 @@ public record NarrativeContext(
                 canonicalResultId,
                 ResolvedAction.from(result.resolvedAction()),
                 result.outcome(),
+                SkillCheckProjection.from(result.skillCheckResult()),
                 result.canonicalFacts(),
                 result.events(),
                 result.stateChanges(),
@@ -94,6 +99,31 @@ public record NarrativeContext(
                     action.sourceTurn(),
                     action.arguments(),
                     action.displayText()
+            );
+        }
+    }
+
+    public record SkillCheckProjection(
+            StatType statType,
+            int rawRoll,
+            int statModifier,
+            int situationalModifier,
+            int dc,
+            int total,
+            SkillCheckOutcome outcome,
+            int rulesetVersion
+    ) {
+        private static SkillCheckProjection from(SkillCheckResult result) {
+            if (result == null) return null;
+            return new SkillCheckProjection(
+                    result.statType(),
+                    result.rawRoll(),
+                    result.statModifier(),
+                    result.situationalModifier(),
+                    result.dc(),
+                    result.total(),
+                    result.outcome(),
+                    result.rulesetVersion()
             );
         }
     }

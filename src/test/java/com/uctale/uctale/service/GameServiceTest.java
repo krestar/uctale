@@ -10,13 +10,16 @@ import com.uctale.uctale.application.game.GameMutationRequestService;
 import com.uctale.uctale.application.game.GamePersistenceService;
 import com.uctale.uctale.application.game.GameTurnCommit;
 import com.uctale.uctale.application.game.ImagePromptComposer;
+import com.uctale.uctale.application.game.SkillCheckDecisionService;
 import com.uctale.uctale.application.game.TurnConflictException;
+import com.uctale.uctale.application.game.TurnProcessor;
 import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.application.narrative.NarrativeContext;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
 import com.uctale.uctale.domain.GameSession;
 import com.uctale.uctale.domain.game.GameState;
+import com.uctale.uctale.domain.game.SkillCheckOutcome;
 import com.uctale.uctale.dto.GameChoice;
 import com.uctale.uctale.dto.GameInitRequest;
 import com.uctale.uctale.dto.GameProgressRequest;
@@ -32,11 +35,13 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Clock;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -53,6 +58,7 @@ class GameServiceTest {
     @Mock private ImageAssetService imageAssetService;
     @Mock private GamePersistenceService gamePersistenceService;
     @Mock private GameMutationRequestService mutationRequestService;
+    @Mock private SkillCheckDecisionService skillCheckDecisionService;
 
     private ChoiceCodec choiceCodec;
     private GameService gameService;
@@ -61,8 +67,10 @@ class GameServiceTest {
     void setUp() {
         choiceCodec = new ChoiceCodec(new ObjectMapper());
         Clock clock = Clock.systemUTC();
+        TurnProcessor turnProcessor = new TurnProcessor(skillCheckDecisionService, (min, max) -> 10);
         gameService = new GameService(
                 narrativeGenerator, imageAssetService, gamePersistenceService, choiceCodec,
+                turnProcessor,
                 new ImagePromptComposer(),
                 new CostRateLimiter(new CostRateLimitPolicy(1_000, 1_000, 60), clock),
                 new ProviderCallTelemetry(clock, event -> {}),
@@ -71,6 +79,8 @@ class GameServiceTest {
         );
         lenient().when(mutationRequestService.begin(anyString(), anyString(), anyString(), any(), any(), anyString()))
                 .thenReturn(new GameMutationRequestService.BeginResult(100L, false, null, null, null, "lease-owner"));
+        lenient().when(skillCheckDecisionService.getOrCreate(anyLong(), anyString(), any()))
+                .thenAnswer(invocation -> ((Supplier<?>) invocation.getArgument(2)).get());
     }
 
     @Test
@@ -100,6 +110,7 @@ class GameServiceTest {
         assertThat(response.sessionId()).isEqualTo(42L);
         assertThat(response.turnNumber()).isEqualTo(1);
         assertThat(response.mainImageUrl()).isEqualTo("/api/game/image-assets/asset-id");
+        assertThat(response.choices().getFirst().actionType()).isEqualTo("SKILL_CHECK");
         ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
         verify(imageAssetService).issue(promptCaptor.capture(), eq("16:9"));
         assertThat(promptCaptor.getValue())
@@ -153,6 +164,7 @@ class GameServiceTest {
         ArgumentCaptor<NarrativeContext> contextCaptor = ArgumentCaptor.forClass(NarrativeContext.class);
         verify(narrativeGenerator).createNextTurn(contextCaptor.capture());
         assertThat(contextCaptor.getValue().playerAction()).isEqualTo("문을 잠근다");
+        assertThat(contextCaptor.getValue().skillCheck()).isNull();
 
         ArgumentCaptor<GameTurnCommit> commitCaptor = ArgumentCaptor.forClass(GameTurnCommit.class);
         verify(gamePersistenceService).saveNextTurn(
@@ -165,7 +177,43 @@ class GameServiceTest {
         assertThat(commit.nextStateVersion()).isEqualTo(2);
         assertThat(commit.nextState().storyMemory().recentTurns()).hasSize(2);
         assertThat(commit.storyText()).isEqualTo("다음 스토리");
+        assertThat(commit.skillCheckResult()).isNull();
         verify(imageAssetService, never()).issue(any(), any());
+    }
+
+    @Test
+    @DisplayName("서버 발급 Skill Check는 같은 확정 판정을 NarrativeContext와 commit audit에 전달한다")
+    void progressGame_SkillCheckUsesSingleServerDecision() {
+        GameChoice issued = choiceCodec.issue(List.of(new NarrativeTurn.Choice(7, "위험한 문을 연다")), 1).getFirst();
+        String choicesJson = choiceCodec.serialize(List.of(issued));
+        NarrativeTurn nextTurn = new NarrativeTurn(
+                "다음 장면", "문이 열렸다.",
+                List.of(new NarrativeTurn.Choice(1, "안으로 들어간다")),
+                new NarrativeTurn.VisualAssets("", List.of(), List.of())
+        );
+        given(gamePersistenceService.loadLatestTurn(OWNER_KEY, 42L, 1)).willReturn(loadedTurn(choicesJson));
+        given(narrativeGenerator.createNextTurn(any(NarrativeContext.class))).willReturn(nextTurn);
+        given(gamePersistenceService.saveNextTurn(
+                eq(OWNER_KEY), eq(42L), any(GameTurnCommit.class), eq(100L), eq("다음 장면"), eq("lease-owner")
+        )).willReturn(2);
+        GameProgressRequest request = new GameProgressRequest(
+                42L, issued.id(), 1, issued.actionToken(), issued.actionType(), issued.sourceTurn(), issued.arguments()
+        );
+
+        gameService.progressGame(OWNER_KEY, request);
+
+        ArgumentCaptor<NarrativeContext> contextCaptor = ArgumentCaptor.forClass(NarrativeContext.class);
+        verify(narrativeGenerator).createNextTurn(contextCaptor.capture());
+        assertThat(contextCaptor.getValue().skillCheck().rawRoll()).isEqualTo(10);
+        assertThat(contextCaptor.getValue().skillCheck().dc()).isEqualTo(10);
+        assertThat(contextCaptor.getValue().skillCheck().outcome()).isEqualTo(SkillCheckOutcome.SUCCESS);
+
+        ArgumentCaptor<GameTurnCommit> commitCaptor = ArgumentCaptor.forClass(GameTurnCommit.class);
+        verify(gamePersistenceService).saveNextTurn(
+                eq(OWNER_KEY), eq(42L), commitCaptor.capture(), eq(100L), eq("다음 장면"), eq("lease-owner")
+        );
+        assertThat(commitCaptor.getValue().skillCheckResult().rawRoll()).isEqualTo(10);
+        assertThat(commitCaptor.getValue().skillCheckResult().outcome()).isEqualTo(SkillCheckOutcome.SUCCESS);
     }
 
     @Test

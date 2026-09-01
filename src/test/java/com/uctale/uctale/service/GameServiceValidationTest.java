@@ -9,6 +9,7 @@ import com.uctale.uctale.application.game.GameMutationFingerprint;
 import com.uctale.uctale.application.game.GameMutationRequestService;
 import com.uctale.uctale.application.game.GamePersistenceService;
 import com.uctale.uctale.application.game.ImagePromptComposer;
+import com.uctale.uctale.application.game.TurnProcessor;
 import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.application.narrative.InvalidNarrativeResponseException;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
@@ -53,6 +54,7 @@ class GameServiceValidationTest {
                 imageAssetService,
                 gamePersistenceService,
                 new ChoiceCodec(new ObjectMapper()),
+                new TurnProcessor(),
                 new ImagePromptComposer(),
                 new CostRateLimiter(new CostRateLimitPolicy(1_000, 1_000, 60), clock),
                 new ProviderCallTelemetry(clock, event -> {}),

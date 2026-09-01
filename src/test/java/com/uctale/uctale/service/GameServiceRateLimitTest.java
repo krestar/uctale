@@ -13,6 +13,7 @@ import com.uctale.uctale.application.game.GameMutationRequestService;
 import com.uctale.uctale.application.game.GamePersistenceService;
 import com.uctale.uctale.application.game.ImagePromptComposer;
 import com.uctale.uctale.application.game.InvalidChoiceException;
+import com.uctale.uctale.application.game.TurnProcessor;
 import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
 import com.uctale.uctale.domain.game.GameState;
@@ -61,6 +62,7 @@ class GameServiceRateLimitTest {
                 imageAssetService,
                 gamePersistenceService,
                 new ChoiceCodec(new ObjectMapper()),
+                new TurnProcessor(),
                 new ImagePromptComposer(),
                 limiter,
                 telemetry,
@@ -94,6 +96,7 @@ class GameServiceRateLimitTest {
                 imageAssetService,
                 gamePersistenceService,
                 choiceCodec,
+                new TurnProcessor(),
                 new ImagePromptComposer(),
                 limiter,
                 telemetry,
