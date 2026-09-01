@@ -17,25 +17,36 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ChoiceCodecTest {
+
     private ChoiceCodec codec;
 
     @BeforeEach
-    void setUp() { codec = new ChoiceCodec(new ObjectMapper()); }
+    void setUp() {
+        codec = new ChoiceCodec(new ObjectMapper());
+    }
 
     @Test
-    @DisplayName("신규 선택지는 서버 소유 stat DC modifier를 포함한 SKILL_CHECK action으로 발급된다")
-    void issuedActionContainsServerOwnedSkillCheckContract() {
+    @DisplayName("서버가 발급한 Skill Check action은 token type sourceTurn arguments가 모두 일치할 때만 PlayerAction으로 변환된다")
+    void issuedActionResolvesOnlyWithExactContract() {
         GameChoice issued = codec.issue(List.of(new NarrativeTurn.Choice(7, "문을 잠근다")), 3).getFirst();
         String stored = codec.serialize(List.of(issued));
-        GameProgressRequest request = new GameProgressRequest(42L, issued.id(), 3, issued.actionToken(),
-                issued.actionType(), issued.sourceTurn(), issued.arguments());
+        GameProgressRequest request = new GameProgressRequest(
+                42L,
+                issued.id(),
+                3,
+                issued.actionToken(),
+                issued.actionType(),
+                issued.sourceTurn(),
+                issued.arguments()
+        );
 
         PlayerAction action = codec.resolve(stored, request);
 
         assertThat(action.type()).isEqualTo(ActionType.SKILL_CHECK);
         assertThat(action.sourceTurn()).isEqualTo(3);
         assertThat(action.displayText()).isEqualTo("문을 잠근다");
-        assertThat(action.arguments()).containsEntry("choiceId", "7")
+        assertThat(action.arguments())
+                .containsEntry("choiceId", "7")
                 .containsEntry("statType", "WILL")
                 .containsEntry("dc", "10")
                 .containsEntry("situationalModifier", "0");
@@ -46,16 +57,19 @@ class ChoiceCodecTest {
     void tamperedActionIsRejected() {
         GameChoice issued = codec.issue(List.of(new NarrativeTurn.Choice(7, "문을 잠근다")), 3).getFirst();
         String stored = codec.serialize(List.of(issued));
+
         assertThatThrownBy(() -> codec.resolve(stored, new GameProgressRequest(
-                42L, 7, 3, "tampered", issued.actionType(), issued.sourceTurn(), issued.arguments())))
-                .isInstanceOf(InvalidChoiceException.class);
+                42L, 7, 3, "tampered", issued.actionType(), issued.sourceTurn(), issued.arguments()
+        ))).isInstanceOf(InvalidChoiceException.class);
+
         assertThatThrownBy(() -> codec.resolve(stored, new GameProgressRequest(
-                42L, 7, 3, issued.actionToken(), "USE_ITEM", issued.sourceTurn(), issued.arguments())))
-                .isInstanceOf(InvalidChoiceException.class);
+                42L, 7, 3, issued.actionToken(), "USE_ITEM", issued.sourceTurn(), issued.arguments()
+        ))).isInstanceOf(InvalidChoiceException.class);
+
         assertThatThrownBy(() -> codec.resolve(stored, new GameProgressRequest(
                 42L, 7, 3, issued.actionToken(), issued.actionType(), issued.sourceTurn(),
-                Map.of("choiceId", "7", "statType", "WILL", "dc", "40", "situationalModifier", "0"))))
-                .isInstanceOf(InvalidChoiceException.class);
+                Map.of("choiceId", "7", "statType", "WILL", "dc", "40", "situationalModifier", "0")
+        ))).isInstanceOf(InvalidChoiceException.class);
     }
 
     @Test
@@ -63,20 +77,38 @@ class ChoiceCodecTest {
     void expiredActionIsRejected() {
         GameChoice issued = codec.issue(List.of(new NarrativeTurn.Choice(7, "문을 잠근다")), 2).getFirst();
         String stored = codec.serialize(List.of(issued));
+
         assertThatThrownBy(() -> codec.resolve(stored, new GameProgressRequest(
-                42L, 7, 3, issued.actionToken(), issued.actionType(), issued.sourceTurn(), issued.arguments())))
-                .isInstanceOf(InvalidChoiceException.class);
+                42L, 7, 3, issued.actionToken(), issued.actionType(), issued.sourceTurn(), issued.arguments()
+        ))).isInstanceOf(InvalidChoiceException.class);
     }
 
     @Test
-    @DisplayName("action metadata가 없는 기존 저장 선택지는 legacy narrative compatibility adapter로만 수락한다")
-    void legacyChoiceUsesCompatibilityAdapter() {
-        String stored = codec.serialize(List.of(new GameChoice(7, "문을 잠근다")));
+    @DisplayName("metadata 없는 legacy wire 요청은 신규 저장 action에도 기존 narrative 의미를 유지한다")
+    void legacyWireRequestKeepsNarrativeCompatibility() {
+        GameChoice issued = codec.issue(List.of(new NarrativeTurn.Choice(7, "문을 잠근다")), 3).getFirst();
+        String stored = codec.serialize(List.of(issued));
+
         PlayerAction action = codec.resolve(stored, new GameProgressRequest(42L, 7, 3));
+
         assertThat(action.type()).isEqualTo(ActionType.NARRATIVE_CHOICE);
         assertThat(action.sourceTurn()).isEqualTo(3);
+        assertThat(action.arguments()).containsExactly(Map.entry("choiceId", "7"));
+    }
+
+    @Test
+    @DisplayName("action metadata가 없는 기존 저장 선택지는 legacy compatibility adapter로만 수락한다")
+    void legacyChoiceUsesCompatibilityAdapter() {
+        String stored = codec.serialize(List.of(new GameChoice(7, "문을 잠근다")));
+
+        PlayerAction action = codec.resolve(stored, new GameProgressRequest(42L, 7, 3));
+
+        assertThat(action.type()).isEqualTo(ActionType.NARRATIVE_CHOICE);
+        assertThat(action.sourceTurn()).isEqualTo(3);
+        assertThat(action.displayText()).isEqualTo("문을 잠근다");
+
         assertThatThrownBy(() -> codec.resolve(stored, new GameProgressRequest(
-                42L, 7, 3, "invented", ActionType.NARRATIVE_CHOICE.name(), 3, Map.of("choiceId", "7"))))
-                .isInstanceOf(InvalidChoiceException.class);
+                42L, 7, 3, "invented", ActionType.NARRATIVE_CHOICE.name(), 3, Map.of("choiceId", "7")
+        ))).isInstanceOf(InvalidChoiceException.class);
     }
 }
