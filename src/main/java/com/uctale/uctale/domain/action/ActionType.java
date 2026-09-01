@@ -1,5 +1,6 @@
 package com.uctale.uctale.domain.action;
 
 public enum ActionType {
-    NARRATIVE_CHOICE
+    NARRATIVE_CHOICE,
+    SKILL_CHECK
 }
