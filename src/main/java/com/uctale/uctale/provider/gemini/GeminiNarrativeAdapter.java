@@ -8,7 +8,7 @@ import com.uctale.uctale.application.narrative.NarrativeGenerator;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
 import com.uctale.uctale.application.narrative.RecoverableNarrativeResponseException;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -23,7 +23,6 @@ import java.util.Set;
 @Component
 public class GeminiNarrativeAdapter implements NarrativeGenerator {
 
-    private static final String GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
     private static final int MAX_TITLE_LENGTH = 200;
     private static final int MAX_STORY_LENGTH = 50_000;
     private static final int MAX_CHOICE_TEXT_LENGTH = 255;
@@ -94,31 +93,43 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
             )
     );
 
-    @Value("${google.ai.api-key}")
-    private String apiKey;
-
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
+    private final GeminiProviderSettings settings;
 
-    public GeminiNarrativeAdapter(ObjectMapper objectMapper, RestClient.Builder builder) {
+    @Autowired
+    public GeminiNarrativeAdapter(
+            ObjectMapper objectMapper,
+            RestClient.Builder builder,
+            GeminiProviderSettings settings
+    ) {
         this.objectMapper = objectMapper;
         this.restClient = builder.build();
+        this.settings = settings;
     }
 
     @Override
     public NarrativeTurn createOpening(String worldSetting, String characterSetting) {
-        return generate(openingPrompt(worldSetting, characterSetting), "opening");
+        return generate(
+                openingPrompt(worldSetting, characterSetting),
+                "opening",
+                settings.openingThinkingLevel()
+        );
     }
 
     @Override
     public NarrativeTurn repairOpening(String worldSetting, String characterSetting, String reasonCode) {
-        return generate(openingPrompt(worldSetting, characterSetting) + recoveryInstruction(reasonCode), "opening_repair");
+        return generate(
+                openingPrompt(worldSetting, characterSetting) + recoveryInstruction(reasonCode),
+                "opening_repair",
+                settings.openingThinkingLevel()
+        );
     }
 
     @Override
     public NarrativeTurn createNextTurn(NarrativeContext context) {
         try {
-            return generate(buildProgressPrompt(context), "progress");
+            return generate(buildProgressPrompt(context), "progress", settings.progressThinkingLevel());
         } catch (JacksonException exception) {
             throw new IllegalStateException("Narrative progress prompt 직렬화에 실패했습니다.", exception);
         }
@@ -127,7 +138,11 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
     @Override
     public NarrativeTurn repairNextTurn(NarrativeContext context, String reasonCode) {
         try {
-            return generate(buildProgressPrompt(context) + recoveryInstruction(reasonCode), "progress_repair");
+            return generate(
+                    buildProgressPrompt(context) + recoveryInstruction(reasonCode),
+                    "progress_repair",
+                    settings.progressThinkingLevel()
+            );
         } catch (JacksonException exception) {
             throw new IllegalStateException("Narrative recovery prompt 직렬화에 실패했습니다.", exception);
         }
@@ -208,12 +223,18 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
         );
     }
 
-    private NarrativeTurn generate(String prompt, String errorContext) {
+    private NarrativeTurn generate(
+            String prompt,
+            String errorContext,
+            GeminiProviderSettings.ThinkingLevel thinkingLevel
+    ) {
+        long startedAt = System.nanoTime();
+        TokenUsage tokenUsage = TokenUsage.empty();
         try {
-            String requestBody = createRequestBody(prompt);
+            String requestBody = createRequestBody(prompt, thinkingLevel);
             String response = restClient.post()
-                    .uri(GEMINI_API_URL)
-                    .header("x-goog-api-key", apiKey)
+                    .uri(settings.generateContentUrl())
+                    .header("x-goog-api-key", settings.apiKey())
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(requestBody)
                     .retrieve()
@@ -221,24 +242,34 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
             if (response == null || response.isBlank()) {
                 throw recoverable("EMPTY_RESPONSE", "Gemini 응답 body가 비어 있습니다.", null);
             }
-            return parseResponse(response);
+            tokenUsage = readTokenUsage(response);
+            NarrativeTurn turn = parseResponse(response);
+            logProviderResult(errorContext, thinkingLevel, tokenUsage, startedAt, "SUCCESS");
+            return turn;
         } catch (RecoverableNarrativeResponseException exception) {
+            logProviderResult(errorContext, thinkingLevel, tokenUsage, startedAt, "INVALID_RESPONSE");
             log.warn("gemini_response_invalid context={} reason={}", errorContext, exception.reasonCode());
             throw exception;
         } catch (JacksonException exception) {
+            logProviderResult(errorContext, thinkingLevel, tokenUsage, startedAt, "REQUEST_SERIALIZATION_FAILURE");
             throw new IllegalStateException("Gemini 요청 직렬화에 실패했습니다.", exception);
         } catch (RuntimeException exception) {
+            logProviderResult(errorContext, thinkingLevel, tokenUsage, startedAt, "PROVIDER_FAILURE");
             log.error("Gemini provider 호출 실패 context={} error={}", errorContext, exception.getClass().getSimpleName());
             throw exception;
         }
     }
 
-    String createRequestBody(String userPrompt) throws JacksonException {
+    String createRequestBody(
+            String userPrompt,
+            GeminiProviderSettings.ThinkingLevel thinkingLevel
+    ) throws JacksonException {
         Map<String, Object> requestMap = Map.of(
                 "contents", List.of(Map.of("parts", List.of(Map.of("text", SYSTEM_INSTRUCTION + "\n\n" + userPrompt)))),
                 "generationConfig", Map.of(
                         "responseMimeType", "application/json",
-                        "responseSchema", RESPONSE_SCHEMA
+                        "responseSchema", RESPONSE_SCHEMA,
+                        "thinkingConfig", settings.thinkingConfig(thinkingLevel)
                 )
         );
         return objectMapper.writeValueAsString(requestMap);
@@ -266,6 +297,54 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
         } catch (JacksonException exception) {
             throw recoverable("MALFORMED_JSON", "Gemini JSON을 파싱할 수 없습니다.", exception);
         }
+    }
+
+    private TokenUsage readTokenUsage(String rawResponse) {
+        try {
+            JsonNode root = objectMapper.readTree(rawResponse);
+            JsonNode usage = root == null ? null : root.get("usageMetadata");
+            if (usage == null || !usage.isObject()) {
+                return TokenUsage.empty();
+            }
+            return new TokenUsage(
+                    optionalNonNegativeInt(usage.get("promptTokenCount")),
+                    optionalNonNegativeInt(usage.get("candidatesTokenCount")),
+                    optionalNonNegativeInt(usage.get("thoughtsTokenCount")),
+                    optionalNonNegativeInt(usage.get("totalTokenCount"))
+            );
+        } catch (JacksonException ignored) {
+            return TokenUsage.empty();
+        }
+    }
+
+    private Integer optionalNonNegativeInt(JsonNode node) {
+        if (node == null || !node.isIntegralNumber() || !node.canConvertToInt()) {
+            return null;
+        }
+        int value = node.intValue();
+        return value < 0 ? null : value;
+    }
+
+    private void logProviderResult(
+            String context,
+            GeminiProviderSettings.ThinkingLevel thinkingLevel,
+            TokenUsage usage,
+            long startedAt,
+            String outcome
+    ) {
+        long latencyMs = Math.max(0L, (System.nanoTime() - startedAt) / 1_000_000L);
+        log.info(
+                "gemini_provider_result model={} thinkingLevel={} context={} latencyMs={} outcome={} promptTokens={} candidatesTokens={} thoughtsTokens={} totalTokens={}",
+                settings.modelId(),
+                thinkingLevel.apiValue(),
+                context,
+                latencyMs,
+                outcome,
+                usage.promptTokenCount(),
+                usage.candidatesTokenCount(),
+                usage.thoughtsTokenCount(),
+                usage.totalTokenCount()
+        );
     }
 
     private NarrativeTurn mapNarrative(JsonNode rootNode) {
@@ -387,4 +466,15 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
     private record Candidate(Content content) {}
     private record Content(List<Part> parts) {}
     private record Part(String text) {}
+
+    private record TokenUsage(
+            Integer promptTokenCount,
+            Integer candidatesTokenCount,
+            Integer thoughtsTokenCount,
+            Integer totalTokenCount
+    ) {
+        private static TokenUsage empty() {
+            return new TokenUsage(null, null, null, null);
+        }
+    }
 }
