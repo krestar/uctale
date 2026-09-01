@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import BrandHeader from '../components/BrandHeader'
 import GameImage from '../components/GameImage'
+import GameRulesPanel from '../components/GameRulesPanel'
 import TypewriterText from '../components/TypewriterText'
 
 function GamePlayScreen({
@@ -50,6 +51,8 @@ function GamePlayScreen({
             onComplete={onTypingComplete}
           />
         </article>
+
+        <GameRulesPanel rules={gameData.rules} isProgressing={isProgressing} />
 
         <section className="choices-section" aria-labelledby="choices-title" aria-busy={isProgressing}>
           <div className="choices-heading">
