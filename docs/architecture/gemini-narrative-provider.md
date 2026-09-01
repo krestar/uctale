@@ -23,10 +23,11 @@ UCTale의 Narrative provider 모델 버전을 game domain이나 `NarrativeGenera
 
 `GeminiProviderSettings`가 모델 버전과 REST request 차이를 adapter 내부에서 흡수합니다.
 
-- Gemini 3 이상 stable Flash: `generationConfig.thinkingConfig.thinkingLevel` 사용
+- 검증된 Gemini 3.x stable Flash: `generationConfig.thinkingConfig.thinkingLevel` 사용
 - Gemini 2.5 Flash rollback: legacy `thinkingBudget` 사용
-- 향후 stable Flash major version이 동일 generateContent 계약을 유지하면 설정 변경만으로 전환 가능
-- 계약이 바뀌는 모델은 `GeminiProviderSettings` / `GeminiNarrativeAdapter` 내부에서만 호환 처리를 추가하며 game domain과 `NarrativeGenerator` port는 변경하지 않음
+- 같은 Gemini 3.x 계약 안의 stable Flash 교체는 설정 변경만으로 가능
+- 아직 검증하지 않은 새 major version은 동일 계약이라고 추측하지 않고 startup에서 거부하며, 공식 계약을 확인한 뒤 provider compatibility boundary만 갱신함
+- 계약이 바뀌는 모델도 `GeminiProviderSettings` / `GeminiNarrativeAdapter` 내부에서만 호환 처리를 추가하며 game domain과 `NarrativeGenerator` port는 변경하지 않음
 
 Gemini 2.5 rollback의 `low` / `medium` / `high`는 Google이 제공하는 동일 이름의 직접 매핑이 아닙니다. UCTALE compatibility policy로 다음 budget을 사용합니다.
 
