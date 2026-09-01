@@ -21,24 +21,28 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class GeminiNarrativeAdapterTest {
 
+    private static final String TEST_MODEL = "gemini-3.7-flash";
+
     private GeminiNarrativeAdapter adapter;
+    private GeminiProviderSettings settings;
     private MockRestServiceServer mockServer;
 
     @BeforeEach
     void setUp() {
         RestClient.Builder builder = RestClient.builder();
         mockServer = MockRestServiceServer.bindTo(builder).build();
-        adapter = new GeminiNarrativeAdapter(new ObjectMapper(), builder);
-        ReflectionTestUtils.setField(adapter, "apiKey", "TEST_API_KEY");
+        settings = new GeminiProviderSettings("TEST_API_KEY", TEST_MODEL, "medium", "low");
+        adapter = new GeminiNarrativeAdapter(new ObjectMapper(), builder, settings);
     }
 
     @Test
-    @DisplayName("Gemini 요청은 공식 REST structured output 계약과 API key header를 사용한다")
-    void createOpening_UsesStructuredOutputSchema() {
-        mockServer.expect(requestTo(geminiUrl()))
+    @DisplayName("Gemini opening 요청은 설정 모델과 structured output, opening thinking level을 사용한다")
+    void createOpening_UsesConfiguredModelStructuredOutputAndThinkingLevel() {
+        mockServer.expect(requestTo(settings.generateContentUrl()))
                 .andExpect(header("x-goog-api-key", "TEST_API_KEY"))
                 .andExpect(content().string(containsString("\"responseMimeType\":\"application/json\"")))
                 .andExpect(content().string(containsString("\"responseSchema\"")))
+                .andExpect(content().string(containsString("\"thinkingLevel\":\"medium\"")))
                 .andRespond(withSuccess(apiResponse(validNarrativeJson()), MediaType.APPLICATION_JSON));
 
         NarrativeTurn response = adapter.createOpening("좀비 아포칼립스", "김대리");
@@ -46,6 +50,33 @@ class GeminiNarrativeAdapterTest {
         assertThat(response.title()).isEqualTo("첫날 밤");
         assertThat(response.choices()).extracting(NarrativeTurn.Choice::text).containsExactly("도망간다");
         mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("progress 설정은 opening과 독립적인 thinking level을 request contract에 반영한다")
+    void createRequestBody_UsesProgressThinkingLevel() throws Exception {
+        String requestBody = adapter.createRequestBody("진행", settings.progressThinkingLevel());
+
+        assertThat(requestBody)
+                .contains("\"thinkingConfig\"")
+                .contains("\"thinkingLevel\":\"low\"")
+                .doesNotContain("thinkingBudget");
+    }
+
+    @Test
+    @DisplayName("Gemini usageMetadata의 prompt candidate thought total token을 관측값으로 읽는다")
+    void readTokenUsage_UsesProviderUsageMetadata() {
+        Object usage = ReflectionTestUtils.invokeMethod(adapter, "readTokenUsage", apiResponse(validNarrativeJson()));
+        Integer promptTokens = ReflectionTestUtils.invokeMethod(usage, "promptTokenCount");
+        Integer candidateTokens = ReflectionTestUtils.invokeMethod(usage, "candidatesTokenCount");
+        Integer thoughtTokens = ReflectionTestUtils.invokeMethod(usage, "thoughtsTokenCount");
+        Integer totalTokens = ReflectionTestUtils.invokeMethod(usage, "totalTokenCount");
+
+        assertThat(usage).isNotNull();
+        assertThat(promptTokens).isEqualTo(100);
+        assertThat(candidateTokens).isEqualTo(50);
+        assertThat(thoughtTokens).isEqualTo(25);
+        assertThat(totalTokens).isEqualTo(175);
     }
 
     @Test
@@ -79,20 +110,17 @@ class GeminiNarrativeAdapterTest {
     }
 
     @Test
-    @DisplayName("repair 요청은 raw 응답 없이 실패 분류만 prompt에 전달한다")
-    void repairOpening_UsesSafeReasonCode() {
-        mockServer.expect(requestTo(geminiUrl()))
+    @DisplayName("repair 요청은 raw 응답 없이 실패 분류와 동일 opening thinking level만 전달한다")
+    void repairOpening_UsesSafeReasonCodeAndOpeningThinkingLevel() {
+        mockServer.expect(requestTo(settings.generateContentUrl()))
                 .andExpect(header("x-goog-api-key", "TEST_API_KEY"))
                 .andExpect(content().string(containsString("[응답 수정 요청]")))
                 .andExpect(content().string(containsString("INVALID_CHOICE_ID")))
+                .andExpect(content().string(containsString("\"thinkingLevel\":\"medium\"")))
                 .andRespond(withSuccess(apiResponse(validNarrativeJson()), MediaType.APPLICATION_JSON));
 
         assertThat(adapter.repairOpening("세계", "캐릭터", "INVALID_CHOICE_ID").title()).isEqualTo("첫날 밤");
         mockServer.verify();
-    }
-
-    private String geminiUrl() {
-        return "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
     }
 
     private String validNarrativeJson() {
@@ -102,7 +130,8 @@ class GeminiNarrativeAdapterTest {
     private String apiResponse(String narrativeJson) {
         try {
             String escaped = new ObjectMapper().writeValueAsString(narrativeJson);
-            return "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":" + escaped + "}]}}]}";
+            return "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":" + escaped + "}]}}],"
+                    + "\"usageMetadata\":{\"promptTokenCount\":100,\"candidatesTokenCount\":50,\"thoughtsTokenCount\":25,\"totalTokenCount\":175}}";
         } catch (Exception exception) {
             throw new AssertionError(exception);
         }

@@ -14,6 +14,7 @@ public class ProviderCallTelemetry {
     private final Clock clock;
     private final ProviderCallEventSink sink;
     private final ProviderBudgetGuard budgetGuard;
+    private final String narrativeModel;
     private final String imageModel;
 
     @Autowired
@@ -21,19 +22,27 @@ public class ProviderCallTelemetry {
             Clock clock,
             ProviderCallEventSink sink,
             ProviderBudgetGuard budgetGuard,
+            @Value("${google.ai.model}") String narrativeModel,
             @Value("${game.image.model:flux}") String imageModel
     ) {
         this.clock = clock;
         this.sink = sink;
         this.budgetGuard = budgetGuard;
+        this.narrativeModel = narrativeModel;
         this.imageModel = imageModel;
     }
 
     public ProviderCallTelemetry(Clock clock, ProviderCallEventSink sink) {
-        this.clock = clock;
-        this.sink = sink;
-        this.budgetGuard = null;
-        this.imageModel = "configured";
+        this(clock, sink, null, "configured", "configured");
+    }
+
+    public ProviderCallTelemetry(
+            Clock clock,
+            ProviderCallEventSink sink,
+            ProviderBudgetGuard budgetGuard,
+            String imageModel
+    ) {
+        this(clock, sink, budgetGuard, "configured", imageModel);
     }
 
     public <T> T observe(
@@ -200,6 +209,6 @@ public class ProviderCallTelemetry {
     }
 
     private String defaultModel(String provider) {
-        return "gemini".equals(provider) ? "gemini-2.5-flash" : imageModel;
+        return "gemini".equals(provider) ? narrativeModel : imageModel;
     }
 }

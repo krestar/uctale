@@ -49,6 +49,28 @@ class ProviderCallTelemetryTest {
     }
 
     @Test
+    @DisplayName("Gemini telemetry는 application 설정의 Narrative model ID를 기록한다")
+    void geminiModel_ComesFromApplicationConfiguration() {
+        MutableClock clock = new MutableClock(Instant.parse("2026-08-30T06:00:00Z"));
+        List<ProviderCallEvent> events = new ArrayList<>();
+        ProviderCallTelemetry telemetry = new ProviderCallTelemetry(
+                clock, events::add, null, "gemini-3.7-flash", "flux"
+        );
+
+        telemetry.observe(
+                "gemini",
+                "opening",
+                CostRequestContext.internal("owner-a", null, 1),
+                0,
+                () -> "ok"
+        );
+
+        assertThat(events).singleElement().satisfies(event ->
+                assertThat(event.model()).isEqualTo("gemini-3.7-flash")
+        );
+    }
+
+    @Test
     @DisplayName("provider 예외도 실패 event를 남기고 원래 예외를 전달한다")
     void failure_IsRecorded() {
         MutableClock clock = new MutableClock(Instant.parse("2026-08-30T06:00:00Z"));

@@ -118,6 +118,7 @@ snapshot JSON은 schema/ruleset version을 가지며 legacy production snapshot�
 - `game_log`는 progress turn의 `canonical_result_id` / `generated_story_id`와 선택적 Skill Check audit 필드를 기록합니다. legacy/opening 행은 Skill Check 필드가 모두 비어 있을 수 있습니다.
 - provider failure 시 canonical turn은 진행하지 않으며 같은 idempotent 요청은 reservation에 저장된 Skill Check 판정과 동일 canonical result link를 재사용합니다.
 - Gemini `generateContent`는 JSON response schema를 사용하고 adapter가 필수 필드, 길이, choice 수/ID를 다시 검증합니다. 구조 오류는 최대 3 provider attempt의 bounded recovery를 거치며 raw 응답 전문은 진단 로그에 남기지 않습니다.
+- Narrative model은 설정 기반 stable Flash ID를 사용하며 기본값은 `gemini-3.7-flash`입니다. opening/progress thinking level과 2.5 rollback compatibility는 provider adapter 내부에서 처리합니다.
 
 Story Memory projection/token budget 전면 개선은 #46 범위입니다.
 
@@ -153,6 +154,7 @@ M2의 턴 무결성·복구 구현 범위와 완료 조건은 main에 반영되�
 - PostgreSQL `provider_usage_event` ledger로 일/월 provider 사용량을 누적합니다.
 - warning/critical budget threshold와 선택적 `FAIL_CLOSED` 정책을 지원합니다.
 - provider 호출마다 provider, model, operation, session, turn, request ID, latency, outcome, retry/attempt 수를 구조화 로그로 기록합니다.
+- Gemini provider attempt는 model/thinking level과 prompt/candidate/thought/total token usage를 별도 구조화 로그로 기록합니다.
 - prompt/응답 전문, 비밀번호, API key, access/owner token은 관측 로그에 남기지 않습니다.
 
 ### 프론트엔드 UX
@@ -176,7 +178,7 @@ M2의 턴 무결성·복구 구현 범위와 완료 조건은 main에 반영되�
 | Backend | Java 21, Spring Boot 4.1, Spring Web MVC, Spring Data JPA |
 | Database | PostgreSQL, Flyway |
 | Test Database | H2 + Testcontainers PostgreSQL 17.6 |
-| Narrative AI | Google Gemini 2.5 Flash |
+| Narrative AI | Google Gemini 3.7 Flash |
 | Image AI | Pollinations |
 | Deployment | Vercel, Render |
 
@@ -204,6 +206,7 @@ uctale/
 - [Action Resolution](./docs/architecture/action-resolution.md)
 - [Skill Check turn integration](./docs/architecture/skill-check-turn.md)
 - [GameResult 기반 NarrativeContext](./docs/architecture/narrative-context.md)
+- [Gemini Narrative provider](./docs/architecture/gemini-narrative-provider.md)
 - [GameState / Story Memory](./docs/architecture/game-state-story-memory.md)
 - [Game mutation idempotency](./docs/architecture/game-mutation-idempotency.md)
 - [Turn reservation lease](./docs/architecture/game-turn-reservation.md)
@@ -231,6 +234,9 @@ uctale/
 
 ```env
 GOOGLE_AI_API_KEY=...
+GOOGLE_AI_MODEL=gemini-3.7-flash
+GOOGLE_AI_THINKING_OPENING=medium
+GOOGLE_AI_THINKING_PROGRESS=low
 POLLINATIONS_TOKEN=...
 GAME_ACCESS_PASSWORD=...
 GAME_ACCESS_SESSION_SECRET=32자 이상의 충분히 긴 임의 문자열
@@ -331,6 +337,6 @@ GitHub Actions CI도 backend unit test → PostgreSQL integration test → backe
 
 진행 중.
 
-현재 #33 `AvailableAction` / `PlayerAction`, #34 `ActionResolver` / `GameResult`, #36 확정 결과 기반 `NarrativeContext`, #7 typed `CharacterStats` / pure Skill Check 규칙에 더해 #37 Skill Check turn 통합·감사 저장과 #38 능력치·Skill Check 결과 frontend projection, #35 Gemini structured output 검증과 bounded recovery가 반영됩니다.
+현재 #33 `AvailableAction` / `PlayerAction`, #34 `ActionResolver` / `GameResult`, #36 확정 결과 기반 `NarrativeContext`, #7 typed `CharacterStats` / pure Skill Check 규칙에 더해 #37 Skill Check turn 통합·감사 저장과 #38 능력치·Skill Check 결과 frontend projection, #35 Gemini structured output 검증과 bounded recovery, #49 Gemini 3.7 Flash 설정 기반 마이그레이션이 반영됩니다.
 
 아직 구현되지 않은 전투·인벤토리·퀘스트·NPC 관계 기능은 현재 기능처럼 문서에 표시하지 않습니다.
