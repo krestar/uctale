@@ -85,7 +85,7 @@ public class ChoiceCodec {
             throw invalidAction();
         }
         if (legacyWireRequest) {
-            return playerActionFrom(available);
+            return legacyPlayerAction(storedChoice, request.expectedTurn());
         }
 
         ActionType requestedType;
