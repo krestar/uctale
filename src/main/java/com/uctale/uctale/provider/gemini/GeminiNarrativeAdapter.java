@@ -107,6 +107,7 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
 
                 [확정 게임 결과]
                 outcome: %s
+                skill check: %s
                 canonical facts: %s
                 events: %s
                 state changes: %s
@@ -130,6 +131,7 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
                 %s
 
                 위 확정 결과를 변경하거나 재판정하지 말고 그 결과가 드러나는 장면을 서술하세요.
+                Skill Check가 있으면 raw roll, modifier, DC, total, success/failure를 서버가 확정한 그대로 따르세요.
                 서버가 확정하지 않은 roll, 성공/실패, HP/능력치/아이템/레벨/위치/생사 변화를 새 사실로 만들지 마세요.
                 응답은 story 표현, 다음 choices 제안, 선택적 visual_assets만 포함합니다.
                 시각적 변화가 없다면 visual_assets를 비워두세요.
@@ -137,6 +139,7 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
                 context.canonicalResultId(),
                 objectMapper.writeValueAsString(context.resolvedAction()),
                 context.outcome(),
+                context.skillCheck() == null ? "(없음)" : objectMapper.writeValueAsString(context.skillCheck()),
                 objectMapper.writeValueAsString(context.resultCanonicalFacts()),
                 objectMapper.writeValueAsString(context.events()),
                 objectMapper.writeValueAsString(context.stateChanges()),
@@ -157,9 +160,7 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
                 .body(requestBody)
                 .retrieve()
                 .body(String.class);
-        if (response == null || response.isBlank()) {
-            throw new IllegalStateException(errorContext + ": empty response");
-        }
+        if (response == null || response.isBlank()) throw new IllegalStateException(errorContext + ": empty response");
         return parseResponse(response);
     }
 
@@ -173,13 +174,10 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
 
     private NarrativeTurn parseResponse(String rawResponse) throws JacksonException {
         GeminiApiResponse apiResponse = objectMapper.readValue(rawResponse, GeminiApiResponse.class);
-        if (apiResponse.candidates() == null || apiResponse.candidates().isEmpty()) {
-            throw new IllegalStateException("AI 응답이 비어있습니다.");
-        }
+        if (apiResponse.candidates() == null || apiResponse.candidates().isEmpty()) throw new IllegalStateException("AI 응답이 비어있습니다.");
 
         String jsonText = apiResponse.candidates().get(0).content().parts().get(0).text();
         JsonNode rootNode = objectMapper.readTree(jsonText);
-
         List<NarrativeTurn.Choice> choices = new ArrayList<>();
         JsonNode choicesNode = rootNode.path("choices");
         if (choicesNode.isArray()) {
@@ -213,9 +211,7 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
         if (node.isArray()) {
             for (JsonNode item : node) {
                 String value = item.asString();
-                if (value != null && !value.isBlank()) {
-                    values.add(value);
-                }
+                if (value != null && !value.isBlank()) values.add(value);
             }
         }
         return values;
