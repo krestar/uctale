@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
@@ -60,6 +61,18 @@ class GeminiNarrativeAdapterTest {
                 .contains("\"thinkingConfig\"")
                 .contains("\"thinkingLevel\":\"low\"")
                 .doesNotContain("thinkingBudget");
+    }
+
+    @Test
+    @DisplayName("Gemini usageMetadata의 prompt candidate thought total token을 관측값으로 읽는다")
+    void readTokenUsage_UsesProviderUsageMetadata() {
+        Object usage = ReflectionTestUtils.invokeMethod(adapter, "readTokenUsage", apiResponse(validNarrativeJson()));
+
+        assertThat(usage).isNotNull();
+        assertThat(ReflectionTestUtils.invokeMethod(usage, "promptTokenCount")).isEqualTo(100);
+        assertThat(ReflectionTestUtils.invokeMethod(usage, "candidatesTokenCount")).isEqualTo(50);
+        assertThat(ReflectionTestUtils.invokeMethod(usage, "thoughtsTokenCount")).isEqualTo(25);
+        assertThat(ReflectionTestUtils.invokeMethod(usage, "totalTokenCount")).isEqualTo(175);
     }
 
     @Test
