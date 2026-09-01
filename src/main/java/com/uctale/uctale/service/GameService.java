@@ -8,6 +8,7 @@ import com.uctale.uctale.application.game.ChoiceCodec;
 import com.uctale.uctale.application.game.GameMutationFingerprint;
 import com.uctale.uctale.application.game.GameMutationRequestService;
 import com.uctale.uctale.application.game.GamePersistenceService;
+import com.uctale.uctale.application.game.GameResponseProjector;
 import com.uctale.uctale.application.game.GameTurnCommit;
 import com.uctale.uctale.application.game.ImagePromptComposer;
 import com.uctale.uctale.application.game.TurnProcessor;
@@ -17,6 +18,7 @@ import com.uctale.uctale.application.narrative.NarrativeContext;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
 import com.uctale.uctale.domain.action.PlayerAction;
+import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.domain.game.StateTransition;
 import com.uctale.uctale.domain.game.TurnResolution;
 import com.uctale.uctale.dto.GameChoice;
@@ -136,7 +138,11 @@ public class GameService {
                     costContext.ownerKey(), request.worldSetting(), request.characterSetting(), opening.storyText(),
                     choiceCodec.serialize(choices), imageAsset, mutation.requestId(), opening.title()
             );
-            return toResponse(session.getId(), session.getCurrentTurn(), opening, choices, imageAsset.publicUrl());
+            GameState initialState = GameState.initial(request.worldSetting(), request.characterSetting(), opening.storyText());
+            return GameResponseProjector.project(
+                    session.getId(), session.getCurrentTurn(), opening.title(), opening.storyText(), choices,
+                    imageAsset.publicUrl(), initialState, null
+            );
         } catch (RuntimeException exception) {
             mutationRequestService.markFailed(mutation.requestId());
             throw exception;
@@ -208,7 +214,10 @@ public class GameService {
                     costContext.ownerKey(), loadedTurn.sessionId(), commit, mutation.requestId(), nextTurn.title(),
                     mutation.reservationOwner()
             );
-            return toResponse(loadedTurn.sessionId(), savedTurn, nextTurn, choices, imageUrl);
+            return GameResponseProjector.project(
+                    loadedTurn.sessionId(), savedTurn, nextTurn.title(), nextTurn.storyText(), choices, imageUrl,
+                    committedTransition.nextState(), resolution.gameResult().skillCheckResult()
+            );
         } catch (RuntimeException exception) {
             mutationRequestService.markFailed(mutation.requestId(), mutation.reservationOwner());
             throw exception;
@@ -222,9 +231,9 @@ public class GameService {
         GamePersistenceService.CommittedTurn turn = gamePersistenceService.loadCommittedTurn(
                 ownerKey, mutation.resultSessionId(), mutation.resultTurn()
         );
-        return new GameResponse(
+        return GameResponseProjector.projectReplay(
                 mutation.resultSessionId(), mutation.resultTurn(), mutation.resultTitle(), turn.storyText(),
-                choiceCodec.deserialize(turn.choicesJson()), turn.imageUrl()
+                choiceCodec.deserialize(turn.choicesJson()), turn.imageUrl(), turn.gameState(), turn.skillCheckAudit()
         );
     }
 
@@ -261,9 +270,5 @@ public class GameService {
         if (imagePrompt != null && imagePrompt.length() > MAX_IMAGE_PROMPT_LENGTH) {
             throw new InvalidNarrativeResponseException("이미지 prompt가 너무 깁니다.");
         }
-    }
-
-    private GameResponse toResponse(Long sessionId, int turnNumber, NarrativeTurn turn, List<GameChoice> choices, String imageUrl) {
-        return new GameResponse(sessionId, turnNumber, turn.title(), turn.storyText(), choices, imageUrl);
     }
 }
