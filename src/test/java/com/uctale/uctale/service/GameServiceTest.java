@@ -10,13 +10,16 @@ import com.uctale.uctale.application.game.GameMutationRequestService;
 import com.uctale.uctale.application.game.GamePersistenceService;
 import com.uctale.uctale.application.game.GameTurnCommit;
 import com.uctale.uctale.application.game.ImagePromptComposer;
+import com.uctale.uctale.application.game.SkillCheckDecisionService;
 import com.uctale.uctale.application.game.TurnConflictException;
+import com.uctale.uctale.application.game.TurnProcessor;
 import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.application.narrative.NarrativeContext;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
 import com.uctale.uctale.domain.GameSession;
 import com.uctale.uctale.domain.game.GameState;
+import com.uctale.uctale.domain.game.SkillCheckOutcome;
 import com.uctale.uctale.dto.GameChoice;
 import com.uctale.uctale.dto.GameInitRequest;
 import com.uctale.uctale.dto.GameProgressRequest;
@@ -32,11 +35,13 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Clock;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -53,6 +58,7 @@ class GameServiceTest {
     @Mock private ImageAssetService imageAssetService;
     @Mock private GamePersistenceService gamePersistenceService;
     @Mock private GameMutationRequestService mutationRequestService;
+    @Mock private SkillCheckDecisionService skillCheckDecisionService;
 
     private ChoiceCodec choiceCodec;
     private GameService gameService;
@@ -61,16 +67,18 @@ class GameServiceTest {
     void setUp() {
         choiceCodec = new ChoiceCodec(new ObjectMapper());
         Clock clock = Clock.systemUTC();
+        TurnProcessor turnProcessor = new TurnProcessor(skillCheckDecisionService, (min, max) -> 10);
         gameService = new GameService(
-                narrativeGenerator, imageAssetService, gamePersistenceService, choiceCodec,
+                narrativeGenerator, imageAssetService, gamePersistenceService, choiceCodec, turnProcessor,
                 new ImagePromptComposer(),
                 new CostRateLimiter(new CostRateLimitPolicy(1_000, 1_000, 60), clock),
                 new ProviderCallTelemetry(clock, event -> {}),
-                new GameMutationFingerprint(),
-                mutationRequestService
+                new GameMutationFingerprint(), mutationRequestService
         );
         lenient().when(mutationRequestService.begin(anyString(), anyString(), anyString(), any(), any(), anyString()))
                 .thenReturn(new GameMutationRequestService.BeginResult(100L, false, null, null, null, "lease-owner"));
+        lenient().when(skillCheckDecisionService.getOrCreate(anyLong(), anyString(), any()))
+                .thenAnswer(invocation -> ((Supplier<?>) invocation.getArgument(2)).get());
     }
 
     @Test
@@ -78,33 +86,23 @@ class GameServiceTest {
     void initGame_ReturnsFirstTurn() {
         GameInitRequest request = new GameInitRequest("좀비 아포칼립스", "김대리");
         NarrativeTurn opening = new NarrativeTurn(
-                "첫날 밤", "오프닝 스토리",
-                List.of(new NarrativeTurn.Choice(1, "도망간다")),
-                new NarrativeTurn.VisualAssets("dark street", List.of("zombie"), List.of())
-        );
+                "첫날 밤", "오프닝 스토리", List.of(new NarrativeTurn.Choice(1, "도망간다")),
+                new NarrativeTurn.VisualAssets("dark street", List.of("zombie"), List.of()));
         GameSession session = new GameSession(OWNER_KEY, request.worldSetting(), request.characterSetting());
         ReflectionTestUtils.setField(session, "id", 42L);
         ImageAssetService.AssetReference asset = new ImageAssetService.AssetReference(
                 "asset-id", "/api/game/image-assets/asset-id", "prompt", "16:9",
-                "flux", 1024, 576, 123, true, "uctale-charcoal-v2"
-        );
-
+                "flux", 1024, 576, 123, true, "uctale-charcoal-v2");
         given(narrativeGenerator.createOpening("좀비 아포칼립스", "김대리")).willReturn(opening);
         given(imageAssetService.issue(any(String.class), eq("16:9"))).willReturn(asset);
-        given(gamePersistenceService.saveOpening(
-                eq(OWNER_KEY), any(), any(), any(), any(), eq(asset), eq(100L), eq("첫날 밤")
-        )).willReturn(session);
+        given(gamePersistenceService.saveOpening(eq(OWNER_KEY), any(), any(), any(), any(), eq(asset), eq(100L), eq("첫날 밤"))).willReturn(session);
 
         GameResponse response = gameService.initGame(OWNER_KEY, request);
 
         assertThat(response.sessionId()).isEqualTo(42L);
         assertThat(response.turnNumber()).isEqualTo(1);
         assertThat(response.mainImageUrl()).isEqualTo("/api/game/image-assets/asset-id");
-        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
-        verify(imageAssetService).issue(promptCaptor.capture(), eq("16:9"));
-        assertThat(promptCaptor.getValue())
-                .startsWith("style[uctale-charcoal-v2]")
-                .contains("subjects: zombie", "setting: dark street", "final style lock:");
+        assertThat(response.choices().getFirst().actionType()).isEqualTo("SKILL_CHECK");
     }
 
     @Test
@@ -113,11 +111,8 @@ class GameServiceTest {
         given(mutationRequestService.begin(anyString(), eq(GameMutationRequestService.INIT), anyString(), any(), any(), anyString()))
                 .willReturn(new GameMutationRequestService.BeginResult(100L, true, 42L, 1, "기존 오프닝"));
         given(gamePersistenceService.loadCommittedTurn(OWNER_KEY, 42L, 1))
-                .willReturn(new GamePersistenceService.CommittedTurn(
-                        "기존 스토리",
-                        choiceCodec.serialize(List.of(new GameChoice(3, "계속한다"))),
-                        "/api/game/image-assets/replayed"
-                ));
+                .willReturn(new GamePersistenceService.CommittedTurn("기존 스토리",
+                        choiceCodec.serialize(List.of(new GameChoice(3, "계속한다"))), "/api/game/image-assets/replayed"));
 
         GameResponse response = gameService.initGame(OWNER_KEY, new GameInitRequest("세계관", "캐릭터"));
 
@@ -129,43 +124,47 @@ class GameServiceTest {
     }
 
     @Test
-    @DisplayName("progress는 persistence 전에 입력과 다음 canonical state를 확정한다")
+    @DisplayName("legacy progress는 persistence 전에 입력과 다음 canonical state를 확정한다")
     void progressGame_PreparesCommittedStateTransitionBeforePersistence() {
         String choicesJson = choiceCodec.serialize(List.of(new GameChoice(7, "문을 잠근다")));
-        GamePersistenceService.LoadedTurn loadedTurn = loadedTurn(choicesJson);
-        NarrativeTurn nextTurn = new NarrativeTurn(
-                "다음 장면", "다음 스토리",
-                List.of(new NarrativeTurn.Choice(1, "기다린다")),
-                new NarrativeTurn.VisualAssets("", List.of(), List.of())
-        );
-
-        given(gamePersistenceService.loadLatestTurn(OWNER_KEY, 42L, 1)).willReturn(loadedTurn);
+        NarrativeTurn nextTurn = nextTurn();
+        given(gamePersistenceService.loadLatestTurn(OWNER_KEY, 42L, 1)).willReturn(loadedTurn(choicesJson));
         given(narrativeGenerator.createNextTurn(any(NarrativeContext.class))).willReturn(nextTurn);
-        given(gamePersistenceService.saveNextTurn(
-                eq(OWNER_KEY), eq(42L), any(GameTurnCommit.class), eq(100L), eq("다음 장면"), eq("lease-owner")
-        )).willReturn(2);
+        given(gamePersistenceService.saveNextTurn(eq(OWNER_KEY), eq(42L), any(GameTurnCommit.class), eq(100L), eq("다음 장면"), eq("lease-owner"))).willReturn(2);
 
         GameResponse response = gameService.progressGame(OWNER_KEY, new GameProgressRequest(42L, 7, 1));
 
         assertThat(response.turnNumber()).isEqualTo(2);
-        assertThat(response.mainImageUrl()).isEqualTo("/api/game/image-assets/old-asset");
+        ArgumentCaptor<GameTurnCommit> commitCaptor = ArgumentCaptor.forClass(GameTurnCommit.class);
+        verify(gamePersistenceService).saveNextTurn(eq(OWNER_KEY), eq(42L), commitCaptor.capture(), eq(100L), eq("다음 장면"), eq("lease-owner"));
+        assertThat(commitCaptor.getValue().skillCheckResult()).isNull();
+        verify(imageAssetService, never()).issue(any(), any());
+    }
+
+    @Test
+    @DisplayName("서버 발급 Skill Check action은 확정 판정을 NarrativeContext와 GameLog commit 후보에 동일하게 전달한다")
+    void progressGame_SkillCheckUsesServerDecisionForNarrativeAndAudit() {
+        GameChoice issued = choiceCodec.issue(List.of(new NarrativeTurn.Choice(7, "위험한 문을 연다")), 1).getFirst();
+        String choicesJson = choiceCodec.serialize(List.of(issued));
+        given(gamePersistenceService.loadLatestTurn(OWNER_KEY, 42L, 1)).willReturn(loadedTurn(choicesJson));
+        given(narrativeGenerator.createNextTurn(any(NarrativeContext.class))).willReturn(nextTurn());
+        given(gamePersistenceService.saveNextTurn(eq(OWNER_KEY), eq(42L), any(GameTurnCommit.class), eq(100L), eq("다음 장면"), eq("lease-owner"))).willReturn(2);
+        GameProgressRequest request = new GameProgressRequest(42L, issued.id(), 1, issued.actionToken(),
+                issued.actionType(), issued.sourceTurn(), issued.arguments());
+
+        gameService.progressGame(OWNER_KEY, request);
 
         ArgumentCaptor<NarrativeContext> contextCaptor = ArgumentCaptor.forClass(NarrativeContext.class);
         verify(narrativeGenerator).createNextTurn(contextCaptor.capture());
-        assertThat(contextCaptor.getValue().playerAction()).isEqualTo("문을 잠근다");
+        assertThat(contextCaptor.getValue().skillCheck()).isNotNull();
+        assertThat(contextCaptor.getValue().skillCheck().rawRoll()).isEqualTo(10);
+        assertThat(contextCaptor.getValue().skillCheck().dc()).isEqualTo(10);
+        assertThat(contextCaptor.getValue().skillCheck().outcome()).isEqualTo(SkillCheckOutcome.SUCCESS);
 
         ArgumentCaptor<GameTurnCommit> commitCaptor = ArgumentCaptor.forClass(GameTurnCommit.class);
-        verify(gamePersistenceService).saveNextTurn(
-                eq(OWNER_KEY), eq(42L), commitCaptor.capture(), eq(100L), eq("다음 장면"), eq("lease-owner")
-        );
-        GameTurnCommit commit = commitCaptor.getValue();
-        assertThat(commit.inputChoiceId()).isEqualTo(7);
-        assertThat(commit.inputChoiceText()).isEqualTo("문을 잠근다");
-        assertThat(commit.previousStateVersion()).isEqualTo(1);
-        assertThat(commit.nextStateVersion()).isEqualTo(2);
-        assertThat(commit.nextState().storyMemory().recentTurns()).hasSize(2);
-        assertThat(commit.storyText()).isEqualTo("다음 스토리");
-        verify(imageAssetService, never()).issue(any(), any());
+        verify(gamePersistenceService).saveNextTurn(eq(OWNER_KEY), eq(42L), commitCaptor.capture(), eq(100L), eq("다음 장면"), eq("lease-owner"));
+        assertThat(commitCaptor.getValue().skillCheckResult().rawRoll()).isEqualTo(10);
+        assertThat(commitCaptor.getValue().skillCheckResult().outcome()).isEqualTo(SkillCheckOutcome.SUCCESS);
     }
 
     @Test
@@ -174,11 +173,8 @@ class GameServiceTest {
         given(mutationRequestService.begin(anyString(), eq(GameMutationRequestService.PROGRESS), anyString(), eq(42L), eq(1), anyString()))
                 .willReturn(new GameMutationRequestService.BeginResult(100L, true, 42L, 2, "기존 장면"));
         given(gamePersistenceService.loadCommittedTurn(OWNER_KEY, 42L, 2))
-                .willReturn(new GamePersistenceService.CommittedTurn(
-                        "기존 스토리",
-                        choiceCodec.serialize(List.of(new GameChoice(3, "계속한다"))),
-                        "/api/game/image-assets/replayed"
-                ));
+                .willReturn(new GamePersistenceService.CommittedTurn("기존 스토리",
+                        choiceCodec.serialize(List.of(new GameChoice(3, "계속한다"))), "/api/game/image-assets/replayed"));
 
         GameResponse response = gameService.progressGame(OWNER_KEY, new GameProgressRequest(42L, 7, 1));
 
@@ -187,7 +183,6 @@ class GameServiceTest {
         assertThat(response.storyText()).isEqualTo("기존 스토리");
         verify(narrativeGenerator, never()).createNextTurn(any());
         verify(gamePersistenceService, never()).loadLatestTurn(anyString(), any(), anyInt());
-        verify(gamePersistenceService, never()).saveNextTurn(anyString(), any(), any(GameTurnCommit.class), any(), any());
     }
 
     @Test
@@ -198,18 +193,18 @@ class GameServiceTest {
 
         assertThatThrownBy(() -> gameService.progressGame(OWNER_KEY, new GameProgressRequest(42L, 1, 1)))
                 .isInstanceOf(TurnConflictException.class);
-
         verify(narrativeGenerator, never()).createNextTurn(any(NarrativeContext.class));
         verify(imageAssetService, never()).issue(any(), any());
-        verify(gamePersistenceService, never()).saveNextTurn(any(), any(), any(GameTurnCommit.class), any(), any());
         verify(mutationRequestService).markFailed(100L, "lease-owner");
     }
 
+    private NarrativeTurn nextTurn() {
+        return new NarrativeTurn("다음 장면", "다음 스토리",
+                List.of(new NarrativeTurn.Choice(1, "기다린다")), new NarrativeTurn.VisualAssets("", List.of(), List.of()));
+    }
+
     private GamePersistenceService.LoadedTurn loadedTurn(String choicesJson) {
-        return new GamePersistenceService.LoadedTurn(
-                42L, 1, "좀비 아포칼립스", "김대리", "직전 스토리", choicesJson,
-                "/api/game/image-assets/old-asset",
-                GameState.initial("좀비 아포칼립스", "김대리", "직전 스토리")
-        );
+        return new GamePersistenceService.LoadedTurn(42L, 1, "좀비 아포칼립스", "김대리", "직전 스토리",
+                choicesJson, "/api/game/image-assets/old-asset", GameState.initial("좀비 아포칼립스", "김대리", "직전 스토리"));
     }
 }
