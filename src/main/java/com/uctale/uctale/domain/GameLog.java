@@ -97,35 +97,108 @@ public class GameLog {
     @Column(name = "created_at")
     private LocalDateTime committedAt;
 
-    public static GameLog opening(GameSession gameSession, String storyText, String choicesJson, String imageUrl) {
-        return new GameLog(gameSession, 1, null, null, 0, 1, null, null, null, storyText, choicesJson, imageUrl);
+    public static GameLog opening(
+            GameSession gameSession,
+            String storyText,
+            String choicesJson,
+            String imageUrl
+    ) {
+        return new GameLog(
+                gameSession,
+                1,
+                null,
+                null,
+                0,
+                1,
+                null,
+                null,
+                null,
+                storyText,
+                choicesJson,
+                imageUrl
+        );
     }
 
-    public static GameLog committedTurn(GameSession gameSession, int turnNumber, int inputChoiceId,
-            String inputChoiceText, int previousStateVersion, int stateVersion, String storyText,
-            String choicesJson, String imageUrl) {
-        return committedTurn(gameSession, turnNumber, inputChoiceId, inputChoiceText, previousStateVersion,
-                stateVersion, null, null, null, storyText, choicesJson, imageUrl);
+    public static GameLog committedTurn(
+            GameSession gameSession,
+            int turnNumber,
+            int inputChoiceId,
+            String inputChoiceText,
+            int previousStateVersion,
+            int stateVersion,
+            String storyText,
+            String choicesJson,
+            String imageUrl
+    ) {
+        return committedTurn(
+                gameSession, turnNumber, inputChoiceId, inputChoiceText, previousStateVersion, stateVersion,
+                null, null, null, storyText, choicesJson, imageUrl
+        );
     }
 
-    public static GameLog committedTurn(GameSession gameSession, int turnNumber, int inputChoiceId,
-            String inputChoiceText, int previousStateVersion, int stateVersion, String canonicalResultId,
-            String generatedStoryId, String storyText, String choicesJson, String imageUrl) {
-        return committedTurn(gameSession, turnNumber, inputChoiceId, inputChoiceText, previousStateVersion,
-                stateVersion, canonicalResultId, generatedStoryId, null, storyText, choicesJson, imageUrl);
+    public static GameLog committedTurn(
+            GameSession gameSession,
+            int turnNumber,
+            int inputChoiceId,
+            String inputChoiceText,
+            int previousStateVersion,
+            int stateVersion,
+            String canonicalResultId,
+            String generatedStoryId,
+            String storyText,
+            String choicesJson,
+            String imageUrl
+    ) {
+        return committedTurn(
+                gameSession, turnNumber, inputChoiceId, inputChoiceText, previousStateVersion, stateVersion,
+                canonicalResultId, generatedStoryId, null, storyText, choicesJson, imageUrl
+        );
     }
 
-    public static GameLog committedTurn(GameSession gameSession, int turnNumber, int inputChoiceId,
-            String inputChoiceText, int previousStateVersion, int stateVersion, String canonicalResultId,
-            String generatedStoryId, SkillCheckResult skillCheckResult, String storyText, String choicesJson,
-            String imageUrl) {
-        return new GameLog(gameSession, turnNumber, inputChoiceId, inputChoiceText, previousStateVersion,
-                stateVersion, canonicalResultId, generatedStoryId, skillCheckResult, storyText, choicesJson, imageUrl);
+    public static GameLog committedTurn(
+            GameSession gameSession,
+            int turnNumber,
+            int inputChoiceId,
+            String inputChoiceText,
+            int previousStateVersion,
+            int stateVersion,
+            String canonicalResultId,
+            String generatedStoryId,
+            SkillCheckResult skillCheckResult,
+            String storyText,
+            String choicesJson,
+            String imageUrl
+    ) {
+        return new GameLog(
+                gameSession,
+                turnNumber,
+                inputChoiceId,
+                inputChoiceText,
+                previousStateVersion,
+                stateVersion,
+                canonicalResultId,
+                generatedStoryId,
+                skillCheckResult,
+                storyText,
+                choicesJson,
+                imageUrl
+        );
     }
 
-    private GameLog(GameSession gameSession, int turnNumber, Integer inputChoiceId, String inputChoiceText,
-            int previousStateVersion, int stateVersion, String canonicalResultId, String generatedStoryId,
-            SkillCheckResult skillCheckResult, String storyText, String choicesJson, String imageUrl) {
+    private GameLog(
+            GameSession gameSession,
+            int turnNumber,
+            Integer inputChoiceId,
+            String inputChoiceText,
+            int previousStateVersion,
+            int stateVersion,
+            String canonicalResultId,
+            String generatedStoryId,
+            SkillCheckResult skillCheckResult,
+            String storyText,
+            String choicesJson,
+            String imageUrl
+    ) {
         this.gameSession = gameSession;
         this.turnNumber = turnNumber;
         this.inputChoiceId = inputChoiceId;
