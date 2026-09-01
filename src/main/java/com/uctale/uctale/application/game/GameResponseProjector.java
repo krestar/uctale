@@ -45,6 +45,7 @@ public final class GameResponseProjector {
             GameState gameState,
             GamePersistenceService.SkillCheckAudit skillCheckAudit
     ) {
+        GameState exactReplayState = gameState != null && gameState.turnNumber() == turnNumber ? gameState : null;
         return new GameResponse(
                 sessionId,
                 turnNumber,
@@ -52,7 +53,7 @@ public final class GameResponseProjector {
                 storyText,
                 choices,
                 imageUrl,
-                projectStats(gameState),
+                projectStats(exactReplayState),
                 projectSkillCheckAudit(skillCheckAudit)
         );
     }
