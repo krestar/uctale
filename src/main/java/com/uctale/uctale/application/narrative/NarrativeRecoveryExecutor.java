@@ -59,7 +59,7 @@ public final class NarrativeRecoveryExecutor {
                 if (attempt == maxAttempts) {
                     throw new NarrativeRecoveryExhaustedException(attempt - 1, previousReason, exception);
                 }
-                sleeper.sleep(backoffMillis(attempt - 1));
+                sleeper.sleep(backoffMillis(attempt));
             } catch (RuntimeException exception) {
                 if (attempt == 1) {
                     throw exception;
@@ -71,10 +71,7 @@ public final class NarrativeRecoveryExecutor {
     }
 
     private long backoffMillis(int retryIndex) {
-        if (retryIndex <= 0) {
-            return 0L;
-        }
-        int index = Math.min(retryIndex - 1, DEFAULT_BACKOFF_MILLIS.length - 1);
+        int index = Math.min(Math.max(retryIndex, 1) - 1, DEFAULT_BACKOFF_MILLIS.length - 1);
         return DEFAULT_BACKOFF_MILLIS[index];
     }
 
