@@ -45,7 +45,7 @@ class GameResponseProjectorTest {
         );
 
         GameResponse response = GameResponseProjector.projectReplay(
-                42L, 2, "장면", "스토리", List.of(), null,
+                42L, 1, "장면", "스토리", List.of(), null,
                 GameState.initial("세계", "캐릭터", "오프닝"), audit
         );
 
@@ -57,13 +57,24 @@ class GameResponseProjectorTest {
     }
 
     @Test
+    void replayDoesNotUseNewerStateAsHistoricalStats() {
+        GameState newerState = GameState.initial("세계", "캐릭터", "오프닝").advance("행동", "다음 이야기");
+
+        GameResponse response = GameResponseProjector.projectReplay(
+                42L, 1, "과거 장면", "오프닝", List.of(), null, newerState, null
+        );
+
+        assertThat(response.characterStats()).isEmpty();
+    }
+
+    @Test
     void replayRejectsPartialAuditInsteadOfSilentlyDefaulting() {
         GamePersistenceService.SkillCheckAudit partial = new GamePersistenceService.SkillCheckAudit(
                 "WILL", 10, null, 0, 10, 10, "SUCCESS", 1
         );
 
         assertThatThrownBy(() -> GameResponseProjector.projectReplay(
-                42L, 2, "장면", "스토리", List.of(), null,
+                42L, 1, "장면", "스토리", List.of(), null,
                 GameState.initial("세계", "캐릭터", "오프닝"), partial
         )).isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("불완전");
