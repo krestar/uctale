@@ -39,14 +39,11 @@ class GeminiProviderSettingsTest {
     }
 
     @Test
-    @DisplayName("향후 stable Flash major version도 동일 compatibility boundary에서 thinkingLevel을 사용한다")
-    void futureStableFlash_UsesThinkingLevelBoundary() {
-        GeminiProviderSettings settings = new GeminiProviderSettings(
-                "key", "gemini-4.0-flash", "high", "medium"
-        );
-
-        assertThat(settings.thinkingConfig(settings.openingThinkingLevel()))
-                .containsEntry("thinkingLevel", "high");
+    @DisplayName("검증하지 않은 future major Flash는 자동 호환한다고 가정하지 않는다")
+    void unreviewedFutureMajor_IsRejected() {
+        assertThatThrownBy(() -> new GeminiProviderSettings("key", "gemini-4.0-flash", "high", "medium"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("지원하지 않는 Gemini Narrative model family");
     }
 
     @Test
