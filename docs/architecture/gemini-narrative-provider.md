@@ -48,7 +48,18 @@ Gemini request는 다음을 유지합니다.
 - opening과 progress의 thinking level 독립 적용
 - repair 요청은 원 요청과 동일한 operation thinking level 사용
 
-Narrative prompt 내용과 출력 언어 계약은 #97의 별도 범위이며 이 버전 마이그레이션에서 변경하지 않습니다.
+### Narrative 출력 언어 계약
+
+사용자에게 노출되는 Narrative 필드와 image provider용 시각 묘사의 언어 책임을 분리합니다.
+
+- `title`, `story_text`, `choices[].text`는 세계관/캐릭터 설정과 현재 narrative context에서 확립된 주 언어를 유지합니다.
+- 세계관/캐릭터 설정의 주 언어가 한국어이면 opening의 `title`, `story_text`, `choices[].text`를 한국어로 작성하도록 명시합니다.
+- progress는 `worldPremise`, `playerDescription`, Story Memory와 최근 narrative context의 주 언어를 계속 사용하도록 명시합니다.
+- repair는 원 요청에서 확립된 Narrative 주 언어를 그대로 유지하며 번역하거나 다른 언어로 전환하지 않습니다.
+- `visual_assets.background`, `visual_assets.characters`, `visual_assets.assets`는 기존 image prompt pipeline과의 호환성을 위해 항상 영어 설명을 사용합니다.
+- JSON field 이름과 `visual_assets`의 영어 계약은 사용자 노출 Narrative를 영어로 전환할 근거가 아닙니다.
+
+이 계약은 prompt 지침이며 별도 외부 언어 감지/번역 서비스를 도입하지 않습니다. 또한 언어 선택은 canonical game state나 Skill Check/GameResult 판정 권한을 LLM에 부여하지 않습니다.
 
 ## 관측성
 
@@ -66,7 +77,7 @@ Narrative prompt 내용과 출력 언어 계약은 #97의 별도 범위이며 �
 
 토큰 수는 Gemini `usageMetadata`가 제공될 때만 기록됩니다. prompt/story 전문과 API key는 기록하지 않습니다.
 
-bounded recovery와 canonical commit 경계는 #35에서 확립한 정책을 그대로 유지합니다. 모델 설정 변경은 provider attempt 횟수나 게임 상태 저장 의미를 변경하지 않습니다.
+bounded recovery와 canonical commit 경계는 #35에서 확립한 정책을 그대로 유지합니다. 모델 설정이나 Narrative 출력 언어 계약은 provider attempt 횟수나 게임 상태 저장 의미를 변경하지 않습니다.
 
 ## rollback
 
@@ -74,8 +85,9 @@ production에서 문제가 발생하면 코드 변경 없이 `GOOGLE_AI_MODEL`�
 
 rollback 후에는 최소한 다음을 확인합니다.
 
-- opening 정상 생성
-- progress 정상 생성
+- 한국어 설정의 opening title/story/choices가 한국어로 유지되는지
+- progress와 repair에서 Narrative 언어가 유지되는지
+- `visual_assets` 영어 설명 계약
 - structured output validation
 - invalid response bounded recovery
 - provider telemetry의 model/thinking 값

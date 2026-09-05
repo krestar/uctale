@@ -41,6 +41,13 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
             4. **메모리 우선순위:** 확정 게임 결과/상태 > 캐논 사실 > 누적 요약 > 최근 턴 순으로 충돌을 해결하십시오.
             5. **출력 책임:** story_text와 다음 choices를 제안하고, 선택적으로 visual_assets를 묘사하십시오. canonical state 변경값을 출력 계약으로 만들지 마십시오.
 
+            [내러티브 출력 언어 계약 - 매우 중요]
+            1. 사용자에게 노출되는 `title`, `story_text`, `choices[].text`는 세계관/캐릭터 설정과 현재 narrative context에서 확립된 **주 언어**를 따르세요.
+            2. 세계관과 캐릭터 설정의 주 언어가 한국어라면 `title`, `story_text`, `choices[].text`를 모두 한국어로 작성하세요.
+            3. JSON field 이름이나 아래 `visual_assets` 영어 계약 때문에 사용자 내러티브 언어를 영어로 바꾸거나 번역하지 마세요.
+            4. opening, progress, repair 사이에서 사용자 내러티브의 주 언어를 임의로 전환하지 마세요.
+            5. `visual_assets`는 이미지 provider용 별도 계약이며 사용자 내러티브 언어와 무관하게 영어로 작성합니다.
+
             [시각적 요소(visual_assets) 작성 규칙 - 매우 중요]
             1. **이미지 생성 판단:** 직전 턴과 비교하여 **시각적으로 명확한 변화**가 있을 때만 작성하세요.
                - (O) 장소 이동, 새로운 적/NPC 등장, 중요한 아이템 등장
@@ -153,6 +160,11 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
                 [세계관 설정]: %s
                 [캐릭터 설정]: %s
 
+                [내러티브 출력 언어]
+                `title`, `story_text`, `choices[].text`는 위 세계관/캐릭터 설정의 주 언어로 작성하세요.
+                주 언어가 한국어라면 해당 사용자 노출 필드를 모두 한국어로 작성하세요.
+                `visual_assets`만 이미지 provider 계약에 따라 영어로 작성하세요.
+
                 위 설정을 바탕으로 게임의 오프닝을 생성하세요.
                 첫 장면이므로 visual_assets(배경, 분위기 등)를 반드시 상세하게 채워주세요.
                 """, worldSetting, characterSetting);
@@ -165,6 +177,8 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
                 직전 provider 응답이 구조 계약을 만족하지 않았습니다.
                 실패 분류: %s
                 원래 게임 결과나 사실을 바꾸지 말고, 동일 요청을 response schema에 맞는 JSON으로 다시 작성하세요.
+                원래 요청에서 확립된 `title`, `story_text`, `choices[].text`의 주 언어를 그대로 유지하고 번역하거나 다른 언어로 전환하지 마세요.
+                `visual_assets`는 기존과 동일하게 영어로 작성하세요.
                 """.formatted(safeReasonCode(reasonCode));
     }
 
@@ -200,6 +214,11 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
 
                 [금지 canonical mutation]
                 %s
+
+                [내러티브 출력 언어]
+                `title`, `story_text`, `choices[].text`는 worldPremise, playerDescription과 누적/최근 narrative context에서 확립된 주 언어를 계속 사용하세요.
+                해당 주 언어가 한국어라면 사용자 노출 내러티브 필드를 모두 한국어로 작성하세요.
+                `visual_assets`만 이미지 provider 계약에 따라 영어로 작성하고, 그 영어 계약 때문에 사용자 내러티브 언어를 바꾸지 마세요.
 
                 위 확정 결과를 변경하거나 재판정하지 말고 그 결과가 드러나는 장면을 서술하세요.
                 Skill Check가 있으면 raw roll, modifier, DC, total, success/failure를 서버가 확정한 그대로 따르세요.
