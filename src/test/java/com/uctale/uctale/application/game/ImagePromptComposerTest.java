@@ -7,13 +7,14 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ImagePromptComposerTest {
 
     private final ImagePromptComposer composer = new ImagePromptComposer();
 
     @Test
-    @DisplayName("대표 장면과 색채 스트레스 fixture는 같은 입력에서 항상 같은 v2 prompt를 만든다")
+    @DisplayName("대표 장면과 색채 스트레스 fixture는 같은 입력에서 항상 같은 v3 prompt를 만든다")
     void representativeFixtures_AreDeterministic() {
         List<NarrativeTurn.VisualAssets> fixtures = List.of(
                 assets("subway platform", List.of("office worker"), List.of("briefcase")),
@@ -45,31 +46,49 @@ class ImagePromptComposerTest {
             String second = composer.compose(fixture);
             assertThat(first).isEqualTo(second);
             assertThat(first)
-                    .startsWith("style[uctale-charcoal-v2]: monochrome charcoal and graphite drawing")
-                    .contains("grayscale only", "atmosphere:", "composition:", "final style lock:", "no color");
+                    .startsWith("style[uctale-charcoal-v3]: raw monochrome charcoal and graphite sketch")
+                    .contains(
+                            "rough charcoal and graphite linework",
+                            "high-contrast black and white tonal structure",
+                            "grayscale only",
+                            "coarse paper grain",
+                            "dense cross-hatching",
+                            "smudged deep shadows",
+                            "erased and scraped white highlights",
+                            "no colored pigments or color accents",
+                            "final style lock:"
+                    );
             assertThat(first.length()).isLessThanOrEqualTo(1_800);
         }
     }
 
     @Test
-    @DisplayName("v2 prompt는 style을 장면보다 먼저 고정하고 장면 의미는 제거하지 않는다")
-    void compose_V2StyleLocksChromaticScene() {
+    @DisplayName("v3 prompt는 raw medium을 장면보다 먼저 고정하고 color-prone 장면 의미를 보존한다")
+    void compose_V3StyleLocksChromaticSceneWithoutDeletingMeaning() {
         String prompt = composer.compose(assets(
-                "Seoul skyline under a nuclear explosion with an orange mushroom cloud and red fire",
+                "Seoul skyline under a nuclear explosion with an orange mushroom cloud, red fire, neon signs, and vivid sunset",
                 List.of(),
                 List.of("glowing emergency sign")
         ));
 
-        assertThat(prompt.indexOf("style[uctale-charcoal-v2]")).isLessThan(prompt.indexOf("setting:"));
+        assertThat(prompt.indexOf("style[uctale-charcoal-v3]")).isLessThan(prompt.indexOf("setting:"));
         assertThat(prompt)
-                .contains("nuclear explosion", "orange mushroom cloud", "red fire", "glowing emergency sign")
+                .contains(
+                        "nuclear explosion",
+                        "orange mushroom cloud",
+                        "red fire",
+                        "neon signs",
+                        "vivid sunset",
+                        "glowing emergency sign"
+                )
                 .contains("black, gray, and white tonal values only")
-                .endsWith("no color");
+                .contains("no colored accent")
+                .contains("avoid polished or editorial digital illustration");
     }
 
     @Test
-    @DisplayName("v2 prompt는 중복과 공백을 제거하고 고정 순서의 golden 문자열을 만든다")
-    void compose_GoldenPrompt() {
+    @DisplayName("v3 prompt는 중복과 공백을 제거하고 고정 순서의 golden 문자열을 만든다")
+    void compose_V3GoldenPrompt() {
         NarrativeTurn.VisualAssets assets = assets(
                 "  ruined   station  ",
                 List.of("Hunter", " hunter ", "Black wolf"),
@@ -77,6 +96,32 @@ class ImagePromptComposerTest {
         );
 
         assertThat(composer.compose(assets)).isEqualTo(
+                "style[uctale-charcoal-v3]: raw monochrome charcoal and graphite sketch on coarse off-white paper, "
+                        + "rough charcoal and graphite linework, high-contrast black and white tonal structure, grayscale only, "
+                        + "coarse paper grain and visible dry-media texture, uneven hand-drawn strokes, dense cross-hatching, "
+                        + "scratched graphite marks, smudged deep shadows, erased and scraped white highlights, "
+                        + "imperfect raw concept-sketch finish, no colored pigments or color accents, "
+                        + "no polished digital illustration, no watercolor, no oil painting, no photorealism, no 3D render; "
+                        + "subjects: Hunter, Black wolf; objects: rusted sword; setting: ruined station; "
+                        + "atmosphere: dramatic monochrome depth with heavy shadow masses, smoky charcoal smudges, and tactile sketch energy; "
+                        + "composition: clear focal point, readable silhouettes, strong atmospheric depth, raw hand-drawn spatial layering; "
+                        + "final style lock: raw charcoal and graphite sketch only; render fire, explosions, neon, sunsets, glowing objects, "
+                        + "and other color-prone subjects using black, gray, and white tonal values only; preserve scene meaning with no colored accent; "
+                        + "avoid polished or editorial digital illustration"
+        );
+    }
+
+    @Test
+    @DisplayName("v2를 명시하면 기존 golden prompt를 그대로 유지한다")
+    void legacyV2_PreservesGoldenPrompt() {
+        ImagePromptComposer v2 = new ImagePromptComposer("uctale-charcoal-v2");
+        NarrativeTurn.VisualAssets assets = assets(
+                "  ruined   station  ",
+                List.of("Hunter", " hunter ", "Black wolf"),
+                List.of("rusted sword", "RUSTED SWORD")
+        );
+
+        assertThat(v2.compose(assets)).isEqualTo(
                 "style[uctale-charcoal-v2]: monochrome charcoal and graphite drawing on off-white paper, "
                         + "grayscale only, visible charcoal grain, smudged shading, expressive hand-drawn strokes, "
                         + "no colored pigments or color accents, no watercolor, no oil painting, no digital color painting, "
@@ -108,12 +153,34 @@ class ImagePromptComposerTest {
     }
 
     @Test
-    @DisplayName("시각 요소가 없으면 null이고 fallback도 기본 v2 style 계약을 사용한다")
+    @DisplayName("긴 장면도 v3 style lock을 보존하며 prompt 길이를 제한한다")
+    void longScene_PreservesStyleContractWithinLimit() {
+        String longSetting = "burning neon sunset battlefield ".repeat(100);
+
+        String prompt = composer.compose(assets(longSetting, List.of("soldier"), List.of("flare")));
+
+        assertThat(prompt.length()).isLessThanOrEqualTo(1_800);
+        assertThat(prompt)
+                .startsWith("style[uctale-charcoal-v3]")
+                .contains("setting: burning neon sunset battlefield")
+                .endsWith("avoid polished or editorial digital illustration");
+    }
+
+    @Test
+    @DisplayName("시각 요소가 없으면 null이고 fallback도 기본 v3 style 계약을 사용한다")
     void emptyAssets_AndFallback() {
         assertThat(composer.compose(assets(" ", List.of(), List.of()))).isNull();
         assertThat(composer.composeFallback("zombie apocalypse"))
-                .startsWith("style[uctale-charcoal-v2]")
+                .startsWith("style[uctale-charcoal-v3]")
                 .contains("setting: zombie apocalypse", "final style lock:");
+    }
+
+    @Test
+    @DisplayName("지원하지 않는 style version은 조용히 기본값으로 복구하지 않는다")
+    void unsupportedStyleVersion_IsRejected() {
+        assertThatThrownBy(() -> new ImagePromptComposer("uctale-charcoal-v4"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("지원하지 않는 이미지 style version");
     }
 
     private NarrativeTurn.VisualAssets assets(String background, List<String> characters, List<String> objects) {
