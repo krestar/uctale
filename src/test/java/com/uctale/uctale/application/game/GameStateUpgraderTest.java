@@ -142,7 +142,7 @@ class GameStateUpgraderTest {
     @Test
     @DisplayName("미래 schema version은 기본값 처리하지 않고 실패한다")
     void futureSchemaVersion_FailsExplicitly() throws Exception {
-        JsonNode snapshot = objectMapper.readTree("""{"schemaVersion": 4, "rulesetVersion": 1, "state": {}}""");
+        JsonNode snapshot = objectMapper.readTree("{\"schemaVersion\": 4, \"rulesetVersion\": 1, \"state\": {}}");
         assertThatThrownBy(() -> upgrader.upgrade(snapshot))
                 .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("미래 snapshot schemaVersion");
     }
@@ -150,7 +150,7 @@ class GameStateUpgraderTest {
     @Test
     @DisplayName("미지원 ruleset version은 자동 재판정하지 않고 실패한다")
     void unsupportedRulesetVersion_FailsExplicitly() throws Exception {
-        JsonNode snapshot = objectMapper.readTree("""{"schemaVersion": 3, "rulesetVersion": 2, "state": {}}""");
+        JsonNode snapshot = objectMapper.readTree("{\"schemaVersion\": 3, \"rulesetVersion\": 2, \"state\": {}}");
         assertThatThrownBy(() -> upgrader.upgrade(snapshot))
                 .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("rulesetVersion");
     }
@@ -158,7 +158,7 @@ class GameStateUpgraderTest {
     @Test
     @DisplayName("envelope에서 schemaVersion만 누락된 손상 snapshot은 legacy로 오인하지 않는다")
     void damagedEnvelopeMissingSchemaVersion_FailsExplicitly() throws Exception {
-        JsonNode snapshot = objectMapper.readTree("""{"rulesetVersion": 1, "state": {}}""");
+        JsonNode snapshot = objectMapper.readTree("{\"rulesetVersion\": 1, \"state\": {}}");
         assertThatThrownBy(() -> upgrader.upgrade(snapshot))
                 .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("schemaVersion이 누락");
     }
@@ -166,7 +166,7 @@ class GameStateUpgraderTest {
     @Test
     @DisplayName("schemaVersion이 있어도 state가 누락되면 손상 snapshot으로 실패한다")
     void missingState_FailsExplicitly() throws Exception {
-        JsonNode snapshot = objectMapper.readTree("""{"schemaVersion": 3, "rulesetVersion": 1}""");
+        JsonNode snapshot = objectMapper.readTree("{\"schemaVersion\": 3, \"rulesetVersion\": 1}");
         assertThatThrownBy(() -> upgrader.upgrade(snapshot))
                 .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("state가 누락");
     }
