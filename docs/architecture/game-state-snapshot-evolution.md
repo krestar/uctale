@@ -69,11 +69,11 @@ v2에는 inventory 의미가 존재하지 않았으므로 안전하게 복구 �
 v3 upgrade 규칙:
 
 - `inventory`가 없으면 `items: {}`와 `equipment.slots: {}`를 명시적으로 추가
-- v2 문서에 이미 `inventory` 필드가 존재하지만 object가 아니면 손상 데이터로 실패
+- schema v2 snapshot에 `inventory` 키가 존재하면 object 형태여도 정의되지 않은 의미를 v3 canonical state로 승격하지 않고 명시적으로 실패
 - 과거 story prose에서 item 획득·소비·장착을 추론하지 않음
 - read-time upgrade는 DB write나 provider 호출 없이 순수 변환만 수행
 
-현재 schema v3에서 inventory가 누락되거나 손상된 경우는 legacy로 간주하지 않고 역직렬화 실패로 처리합니다.
+현재 schema v3에서 inventory가 누락되거나 손상된 경우도 legacy로 간주하지 않고 역직렬화 실패로 처리합니다.
 
 ## read / write 정책
 
