@@ -84,6 +84,9 @@ public class GameLog {
     @Column(name = "skill_check_ruleset_version")
     private Integer skillCheckRulesetVersion;
 
+    @Column(name = "inventory_changes_json", columnDefinition = "TEXT")
+    private String inventoryChangesJson;
+
     @Column(columnDefinition = "TEXT")
     private String storyText;
 
@@ -113,6 +116,7 @@ public class GameLog {
                 null,
                 null,
                 null,
+                null,
                 storyText,
                 choicesJson,
                 imageUrl
@@ -132,7 +136,7 @@ public class GameLog {
     ) {
         return committedTurn(
                 gameSession, turnNumber, inputChoiceId, inputChoiceText, previousStateVersion, stateVersion,
-                null, null, null, storyText, choicesJson, imageUrl
+                null, null, null, null, storyText, choicesJson, imageUrl
         );
     }
 
@@ -151,7 +155,7 @@ public class GameLog {
     ) {
         return committedTurn(
                 gameSession, turnNumber, inputChoiceId, inputChoiceText, previousStateVersion, stateVersion,
-                canonicalResultId, generatedStoryId, null, storyText, choicesJson, imageUrl
+                canonicalResultId, generatedStoryId, null, null, storyText, choicesJson, imageUrl
         );
     }
 
@@ -169,6 +173,27 @@ public class GameLog {
             String choicesJson,
             String imageUrl
     ) {
+        return committedTurn(
+                gameSession, turnNumber, inputChoiceId, inputChoiceText, previousStateVersion, stateVersion,
+                canonicalResultId, generatedStoryId, skillCheckResult, null, storyText, choicesJson, imageUrl
+        );
+    }
+
+    public static GameLog committedTurn(
+            GameSession gameSession,
+            int turnNumber,
+            int inputChoiceId,
+            String inputChoiceText,
+            int previousStateVersion,
+            int stateVersion,
+            String canonicalResultId,
+            String generatedStoryId,
+            SkillCheckResult skillCheckResult,
+            String inventoryChangesJson,
+            String storyText,
+            String choicesJson,
+            String imageUrl
+    ) {
         return new GameLog(
                 gameSession,
                 turnNumber,
@@ -179,6 +204,7 @@ public class GameLog {
                 canonicalResultId,
                 generatedStoryId,
                 skillCheckResult,
+                inventoryChangesJson,
                 storyText,
                 choicesJson,
                 imageUrl
@@ -195,6 +221,7 @@ public class GameLog {
             String canonicalResultId,
             String generatedStoryId,
             SkillCheckResult skillCheckResult,
+            String inventoryChangesJson,
             String storyText,
             String choicesJson,
             String imageUrl
@@ -217,6 +244,7 @@ public class GameLog {
             this.skillCheckOutcome = skillCheckResult.outcome().name();
             this.skillCheckRulesetVersion = skillCheckResult.rulesetVersion();
         }
+        this.inventoryChangesJson = inventoryChangesJson;
         this.storyText = storyText;
         this.choicesJson = choicesJson;
         this.imageUrl = imageUrl;

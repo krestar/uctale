@@ -4,15 +4,25 @@ public record GameState(
         int turnNumber,
         PlayerCharacter playerCharacter,
         WorldState worldState,
-        StoryMemory storyMemory
+        StoryMemory storyMemory,
+        Inventory inventory
 ) {
     public GameState {
         if (turnNumber < 1) {
             throw new IllegalArgumentException("turnNumber는 1 이상이어야 합니다.");
         }
-        if (playerCharacter == null || worldState == null || storyMemory == null) {
+        if (playerCharacter == null || worldState == null || storyMemory == null || inventory == null) {
             throw new IllegalArgumentException("GameState 구성 요소는 null일 수 없습니다.");
         }
+    }
+
+    public GameState(
+            int turnNumber,
+            PlayerCharacter playerCharacter,
+            WorldState worldState,
+            StoryMemory storyMemory
+    ) {
+        this(turnNumber, playerCharacter, worldState, storyMemory, Inventory.empty());
     }
 
     public static GameState initial(String worldSetting, String characterSetting, String openingStory) {
@@ -20,8 +30,16 @@ public record GameState(
                 1,
                 PlayerCharacter.initial(characterSetting),
                 WorldState.initial(worldSetting),
-                StoryMemory.initial(worldSetting, characterSetting, openingStory)
+                StoryMemory.initial(worldSetting, characterSetting, openingStory),
+                Inventory.empty()
         );
+    }
+
+    public GameState withInventory(Inventory nextInventory) {
+        if (nextInventory == null) {
+            throw new IllegalArgumentException("inventory는 null일 수 없습니다.");
+        }
+        return new GameState(turnNumber, playerCharacter, worldState, storyMemory, nextInventory);
     }
 
     public GameState advanceTurn() {
@@ -29,7 +47,8 @@ public record GameState(
                 turnNumber + 1,
                 playerCharacter,
                 worldState,
-                storyMemory
+                storyMemory,
+                inventory
         );
     }
 
@@ -42,7 +61,8 @@ public record GameState(
                 turnNumber,
                 playerCharacter,
                 worldState,
-                storyMemory.append(new GameTurn(turnNumber, playerAction, storyText))
+                storyMemory.append(new GameTurn(turnNumber, playerAction, storyText)),
+                inventory
         );
     }
 

@@ -60,6 +60,7 @@ public class GameStateUpgrader {
         return switch (source.schemaVersion()) {
             case GameStateSnapshotFormat.LEGACY_SCHEMA_VERSION -> upgradeV0ToV1(source);
             case 1 -> upgradeV1ToV2(source);
+            case 2 -> upgradeV2ToV3(source);
             default -> throw new GameStateSnapshotException(
                     "snapshot schemaVersion " + source.schemaVersion() + "의 다음 upgrade 경로가 없습니다."
             );
@@ -93,6 +94,23 @@ public class GameStateUpgrader {
         playerCharacter.set("stats", normalizedStats);
 
         return new VersionedState(2, source.rulesetVersion(), state);
+    }
+
+    private VersionedState upgradeV2ToV3(VersionedState source) {
+        if (!(source.state().deepCopy() instanceof ObjectNode state)) {
+            throw new GameStateSnapshotException("snapshot state가 object가 아닙니다.");
+        }
+        if (state.has("inventory")) {
+            throw new GameStateSnapshotException("schema v2 snapshot에는 inventory 필드가 정의되어 있지 않습니다.");
+        }
+
+        ObjectNode emptyInventory = JsonNodeFactory.instance.objectNode();
+        emptyInventory.set("items", JsonNodeFactory.instance.objectNode());
+        ObjectNode equipment = JsonNodeFactory.instance.objectNode();
+        equipment.set("slots", JsonNodeFactory.instance.objectNode());
+        emptyInventory.set("equipment", equipment);
+        state.set("inventory", emptyInventory);
+        return new VersionedState(3, source.rulesetVersion(), state);
     }
 
     private int legacyScore(JsonNode stats, String enumKey, String fieldKey) {

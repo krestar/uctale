@@ -12,10 +12,12 @@ import com.uctale.uctale.repository.GameMutationRequestRepository;
 import com.uctale.uctale.repository.GameSessionRepository;
 import com.uctale.uctale.repository.GameStateSnapshotRepository;
 import com.uctale.uctale.repository.ImageAssetRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 @Service
 public class GamePersistenceService {
@@ -29,11 +31,13 @@ public class GamePersistenceService {
     private final GameMutationRequestRepository gameMutationRequestRepository;
     private final GameStateCodec gameStateCodec;
     private final GameStateRecovery gameStateRecovery;
+    private final InventoryAuditCodec inventoryAuditCodec;
 
+    @Autowired
     public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
             GameStateSnapshotRepository gameStateSnapshotRepository, ImageAssetRepository imageAssetRepository,
             GameMutationRequestRepository gameMutationRequestRepository, GameStateCodec gameStateCodec,
-            GameStateRecovery gameStateRecovery) {
+            GameStateRecovery gameStateRecovery, InventoryAuditCodec inventoryAuditCodec) {
         this.gameSessionRepository = gameSessionRepository;
         this.gameLogRepository = gameLogRepository;
         this.gameStateSnapshotRepository = gameStateSnapshotRepository;
@@ -41,6 +45,23 @@ public class GamePersistenceService {
         this.gameMutationRequestRepository = gameMutationRequestRepository;
         this.gameStateCodec = gameStateCodec;
         this.gameStateRecovery = gameStateRecovery;
+        this.inventoryAuditCodec = inventoryAuditCodec;
+    }
+
+    public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
+            GameStateSnapshotRepository gameStateSnapshotRepository, ImageAssetRepository imageAssetRepository,
+            GameMutationRequestRepository gameMutationRequestRepository, GameStateCodec gameStateCodec,
+            GameStateRecovery gameStateRecovery) {
+        this(
+                gameSessionRepository,
+                gameLogRepository,
+                gameStateSnapshotRepository,
+                imageAssetRepository,
+                gameMutationRequestRepository,
+                gameStateCodec,
+                gameStateRecovery,
+                new InventoryAuditCodec(new ObjectMapper())
+        );
     }
 
     @Transactional
@@ -125,10 +146,11 @@ public class GamePersistenceService {
             session.advanceTurn();
             String imageUrl = commit.imageAsset() == null ? previousLog.getImageUrl()
                     : persistImageAsset(session, commit.nextStateVersion(), commit.imageAsset());
+            String inventoryChangesJson = inventoryAuditCodec.serialize(commit.stateChanges());
             gameSessionRepository.save(session);
             gameLogRepository.save(GameLog.committedTurn(session, commit.nextStateVersion(), commit.inputChoiceId(),
                     commit.inputChoiceText(), commit.previousStateVersion(), commit.nextStateVersion(),
-                    commit.canonicalResultId(), commit.generatedStoryId(), commit.skillCheckResult(),
+                    commit.canonicalResultId(), commit.generatedStoryId(), commit.skillCheckResult(), inventoryChangesJson,
                     commit.storyText(), commit.choicesJson(), imageUrl));
             GameStateSnapshot snapshot = gameStateSnapshotRepository.findById(sessionId)
                     .orElseGet(() -> new GameStateSnapshot(session, gameStateCodec.serialize(commit.previousState())));

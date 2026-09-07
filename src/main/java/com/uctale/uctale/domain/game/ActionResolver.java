@@ -10,6 +10,8 @@ import java.util.Objects;
 
 public final class ActionResolver {
 
+    private final InventoryRules inventoryRules = new InventoryRules();
+
     public boolean requiresSkillCheck(PlayerAction action) {
         Objects.requireNonNull(action, "PlayerAction은 필수입니다.");
         return action.type() == ActionType.SKILL_CHECK;
@@ -25,43 +27,64 @@ public final class ActionResolver {
     }
 
     public TurnResolution resolve(GameState state, PlayerAction action) {
+        return resolveWithInventory(state, action, List.of());
+    }
+
+    public TurnResolution resolveWithInventory(GameState state, PlayerAction action, List<InventoryCommand> inventoryCommands) {
         validateBase(state, action);
         if (action.type() == ActionType.SKILL_CHECK) {
             throw new IllegalArgumentException("SKILL_CHECK action에는 서버가 확정한 SkillCheckResult가 필요합니다.");
         }
         validateNarrativeChoice(action);
-        return resolved(state, action, null);
+        return resolved(state, action, null, inventoryCommands);
     }
 
     public TurnResolution resolve(GameState state, PlayerAction action, SkillCheckResult skillCheckResult) {
+        return resolveWithInventory(state, action, skillCheckResult, List.of());
+    }
+
+    public TurnResolution resolveWithInventory(
+            GameState state,
+            PlayerAction action,
+            SkillCheckResult skillCheckResult,
+            List<InventoryCommand> inventoryCommands
+    ) {
         validateBase(state, action);
         if (action.type() != ActionType.SKILL_CHECK) {
             if (skillCheckResult != null) {
                 throw new IllegalArgumentException("Skill Check가 아닌 action에 판정 결과를 연결할 수 없습니다.");
             }
             validateNarrativeChoice(action);
-            return resolved(state, action, null);
+            return resolved(state, action, null, inventoryCommands);
         }
         Objects.requireNonNull(skillCheckResult, "SkillCheckResult는 필수입니다.");
         SkillCheck skillCheck = parseSkillCheck(action);
         validateSkillCheckResult(state, skillCheck, skillCheckResult);
-        return resolved(state, action, skillCheckResult);
+        return resolved(state, action, skillCheckResult, inventoryCommands);
     }
 
-    private TurnResolution resolved(GameState state, PlayerAction action, SkillCheckResult skillCheckResult) {
-        GameState nextState = state.advanceTurn();
+    private TurnResolution resolved(
+            GameState state,
+            PlayerAction action,
+            SkillCheckResult skillCheckResult,
+            List<InventoryCommand> inventoryCommands
+    ) {
+        InventoryRules.Result inventoryResult = inventoryRules.apply(state.inventory(), inventoryCommands);
+        GameState nextState = state.withInventory(inventoryResult.inventory()).advanceTurn();
         List<GameResult.GameEvent> events = new ArrayList<>();
         events.add(GameResult.GameEvent.ACTION_RESOLVED);
         if (skillCheckResult != null) {
             events.add(GameResult.GameEvent.SKILL_CHECK_RESOLVED);
         }
+        List<GameResult.StateChange> stateChanges = new ArrayList<>(inventoryResult.stateChanges());
+        stateChanges.add(new GameResult.TurnAdvanced(state.turnNumber(), nextState.turnNumber()));
         GameResult result = new GameResult(
                 action,
                 GameResult.Outcome.RESOLVED,
                 skillCheckResult,
                 List.of(),
                 events,
-                List.of(new GameResult.TurnAdvanced(state.turnNumber(), nextState.turnNumber())),
+                stateChanges,
                 List.of(action.displayText())
         );
         return new TurnResolution(result, new StateTransition(state, nextState));
