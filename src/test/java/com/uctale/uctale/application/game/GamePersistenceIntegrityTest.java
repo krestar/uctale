@@ -29,6 +29,7 @@ class GamePersistenceIntegrityTest {
     @Mock private GameMutationRequestRepository gameMutationRequestRepository;
     @Mock private GameStateCodec gameStateCodec;
     @Mock private GameStateRecovery gameStateRecovery;
+    @Mock private InventoryAuditCodec inventoryAuditCodec;
 
     private GamePersistenceService persistenceService;
     private GameTurnCommit commit;
@@ -42,7 +43,8 @@ class GamePersistenceIntegrityTest {
                 imageAssetRepository,
                 gameMutationRequestRepository,
                 gameStateCodec,
-                gameStateRecovery
+                gameStateRecovery,
+                inventoryAuditCodec
         );
         GameState previousState = GameState.initial("세계관", "캐릭터", "첫 이야기");
         commit = new GameTurnCommit(
