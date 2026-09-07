@@ -46,16 +46,16 @@ class ImagePromptComposerTest {
             String second = composer.compose(fixture);
             assertThat(first).isEqualTo(second);
             assertThat(first)
-                    .startsWith("style[uctale-charcoal-v3]: raw monochrome charcoal and graphite sketch")
+                    .startsWith("style[uctale-charcoal-v3]: raw monochrome charcoal/graphite sketch")
                     .contains(
-                            "rough charcoal and graphite linework",
-                            "high-contrast black and white tonal structure",
+                            "rough uneven linework",
+                            "high-contrast black/white structure",
                             "grayscale only",
                             "coarse paper grain",
                             "dense cross-hatching",
                             "smudged deep shadows",
-                            "erased and scraped white highlights",
-                            "no colored pigments or color accents",
+                            "erased/scraped white highlights",
+                            "no colored pigment/accent",
                             "final style lock:"
                     );
             assertThat(first.length()).isLessThanOrEqualTo(1_800);
@@ -81,9 +81,9 @@ class ImagePromptComposerTest {
                         "vivid sunset",
                         "glowing emergency sign"
                 )
-                .contains("black, gray, and white tonal values only")
+                .contains("black/gray/white tonal values only")
                 .contains("no colored accent")
-                .contains("avoid polished or editorial digital illustration");
+                .contains("polished/editorial digital illustration");
     }
 
     @Test
@@ -96,18 +96,16 @@ class ImagePromptComposerTest {
         );
 
         assertThat(composer.compose(assets)).isEqualTo(
-                "style[uctale-charcoal-v3]: raw monochrome charcoal and graphite sketch on coarse off-white paper, "
-                        + "rough charcoal and graphite linework, high-contrast black and white tonal structure, grayscale only, "
-                        + "coarse paper grain and visible dry-media texture, uneven hand-drawn strokes, dense cross-hatching, "
-                        + "scratched graphite marks, smudged deep shadows, erased and scraped white highlights, "
-                        + "imperfect raw concept-sketch finish, no colored pigments or color accents, "
-                        + "no polished digital illustration, no watercolor, no oil painting, no photorealism, no 3D render; "
+                "style[uctale-charcoal-v3]: raw monochrome charcoal/graphite sketch on coarse off-white paper; "
+                        + "rough uneven linework, high-contrast black/white structure, grayscale only; coarse paper grain, "
+                        + "dry-media texture, dense cross-hatching, scratched graphite, smudged deep shadows, "
+                        + "erased/scraped white highlights; imperfect raw concept-sketch finish; no colored pigment/accent, "
+                        + "polished/editorial digital illustration, watercolor, oil painting, photorealism, or 3D render; "
                         + "subjects: Hunter, Black wolf; objects: rusted sword; setting: ruined station; "
-                        + "atmosphere: dramatic monochrome depth with heavy shadow masses, smoky charcoal smudges, and tactile sketch energy; "
-                        + "composition: clear focal point, readable silhouettes, strong atmospheric depth, raw hand-drawn spatial layering; "
-                        + "final style lock: raw charcoal and graphite sketch only; render fire, explosions, neon, sunsets, glowing objects, "
-                        + "and other color-prone subjects using black, gray, and white tonal values only; preserve scene meaning with no colored accent; "
-                        + "avoid polished or editorial digital illustration"
+                        + "atmosphere: deep monochrome shadows and tactile charcoal energy; "
+                        + "composition: readable silhouettes, strong depth, raw hand-drawn layering; "
+                        + "final style lock: raw charcoal/graphite only; preserve fire, explosions, neon, sunsets and glowing objects, "
+                        + "but render color-prone subjects in black/gray/white tonal values only; no colored accent"
         );
     }
 
@@ -153,17 +151,20 @@ class ImagePromptComposerTest {
     }
 
     @Test
-    @DisplayName("긴 장면도 v3 style lock을 보존하며 prompt 길이를 제한한다")
+    @DisplayName("긴 장면도 v3 style lock을 보존하며 최소 1000자 장면 예산과 전체 길이 제한을 유지한다")
     void longScene_PreservesStyleContractWithinLimit() {
         String longSetting = "burning neon sunset battlefield ".repeat(100);
 
         String prompt = composer.compose(assets(longSetting, List.of("soldier"), List.of("flare")));
 
+        int sceneStart = prompt.indexOf("subjects:");
+        int sceneEnd = prompt.indexOf("; atmosphere:");
         assertThat(prompt.length()).isLessThanOrEqualTo(1_800);
+        assertThat(sceneEnd - sceneStart).isGreaterThanOrEqualTo(1_000);
         assertThat(prompt)
                 .startsWith("style[uctale-charcoal-v3]")
                 .contains("setting: burning neon sunset battlefield")
-                .endsWith("avoid polished or editorial digital illustration");
+                .endsWith("no colored accent");
     }
 
     @Test
