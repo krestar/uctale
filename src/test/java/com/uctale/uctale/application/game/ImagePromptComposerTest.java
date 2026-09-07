@@ -102,7 +102,7 @@ class ImagePromptComposerTest {
                         + "erased/scraped white highlights; imperfect raw concept-sketch finish; no colored pigment/accent, "
                         + "polished/editorial digital illustration, watercolor, oil painting, photorealism, or 3D render; "
                         + "subjects: Hunter, Black wolf; objects: rusted sword; setting: ruined station; "
-                        + "atmosphere: deep monochrome shadows and tactile charcoal energy; "
+                        + "atmosphere: deep monochrome shadows, charcoal energy; "
                         + "composition: readable silhouettes, strong depth, raw hand-drawn layering; "
                         + "final style lock: raw charcoal/graphite only; preserve fire, explosions, neon, sunsets and glowing objects, "
                         + "but render color-prone subjects in black/gray/white tonal values only; no colored accent"
