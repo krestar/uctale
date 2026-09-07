@@ -38,20 +38,18 @@ public class ImagePromptComposer {
                     + "and glowing objects using black, gray, and white tonal values only; no color";
 
     private static final String V3_STYLE_PREFIX =
-            "style[uctale-charcoal-v3]: raw monochrome charcoal and graphite sketch on coarse off-white paper, "
-                    + "rough charcoal and graphite linework, high-contrast black and white tonal structure, grayscale only, "
-                    + "coarse paper grain and visible dry-media texture, uneven hand-drawn strokes, dense cross-hatching, "
-                    + "scratched graphite marks, smudged deep shadows, erased and scraped white highlights, "
-                    + "imperfect raw concept-sketch finish, no colored pigments or color accents, "
-                    + "no polished digital illustration, no watercolor, no oil painting, no photorealism, no 3D render";
+            "style[uctale-charcoal-v3]: raw monochrome charcoal/graphite sketch on coarse off-white paper; "
+                    + "rough uneven linework, high-contrast black/white structure, grayscale only; coarse paper grain, "
+                    + "dry-media texture, dense cross-hatching, scratched graphite, smudged deep shadows, "
+                    + "erased/scraped white highlights; imperfect raw concept-sketch finish; no colored pigment/accent, "
+                    + "polished/editorial digital illustration, watercolor, oil painting, photorealism, or 3D render";
     private static final String V3_ATMOSPHERE =
-            "atmosphere: dramatic monochrome depth with heavy shadow masses, smoky charcoal smudges, and tactile sketch energy";
+            "atmosphere: deep monochrome shadows and tactile charcoal energy";
     private static final String V3_COMPOSITION =
-            "composition: clear focal point, readable silhouettes, strong atmospheric depth, raw hand-drawn spatial layering";
+            "composition: readable silhouettes, strong depth, raw hand-drawn layering";
     private static final String V3_FINAL_LOCK =
-            "final style lock: raw charcoal and graphite sketch only; render fire, explosions, neon, sunsets, glowing objects, "
-                    + "and other color-prone subjects using black, gray, and white tonal values only; preserve scene meaning "
-                    + "with no colored accent; avoid polished or editorial digital illustration";
+            "final style lock: raw charcoal/graphite only; preserve fire, explosions, neon, sunsets and glowing objects, "
+                    + "but render color-prone subjects in black/gray/white tonal values only; no colored accent";
 
     private static final Map<String, String> SUPPORTED_STYLES = Map.of(
             LEGACY_STYLE_VERSION, V1_STYLE_PROMPT,
