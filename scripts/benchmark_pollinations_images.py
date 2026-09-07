@@ -45,22 +45,23 @@ FIXTURES = (
     ("festival", "subjects: crowd; objects: multicolor lanterns; setting: brightly colored festival"),
 )
 STYLE_PREFIX = (
-    "style[uctale-charcoal-v2]: monochrome charcoal and graphite drawing on off-white paper, "
-    "grayscale only, visible charcoal grain, smudged shading, expressive hand-drawn strokes, "
-    "no colored pigments or color accents, no watercolor, no oil painting, no digital color painting, "
-    "no photorealism, no 3D render"
+    "style[uctale-charcoal-v3]: raw monochrome charcoal/graphite sketch on coarse off-white paper; "
+    "rough uneven linework, high-contrast black/white structure, grayscale only; coarse paper grain, "
+    "dry-media texture, dense cross-hatching, scratched graphite, smudged deep shadows, "
+    "erased/scraped white highlights; imperfect raw concept-sketch finish; no colored pigment/accent, "
+    "polished/editorial digital illustration, watercolor, oil painting, photorealism, or 3D render"
 )
 STYLE_SUFFIX = (
-    "atmosphere: narrative editorial scene with restrained tonal drama; "
-    "composition: clear focal point, readable silhouettes, layered hand-drawn depth; "
-    "final style lock: monochrome charcoal and graphite only; render fire, explosions, neon, sunsets, "
-    "and glowing objects using black, gray, and white tonal values only; no color"
+    "atmosphere: deep monochrome shadows, charcoal energy; "
+    "composition: readable silhouettes, strong depth, raw hand-drawn layering; "
+    "final style lock: raw charcoal/graphite only; preserve fire, explosions, neon, sunsets and glowing objects, "
+    "but render color-prone subjects in black/gray/white tonal values only; no colored accent"
 )
 FAIL_FAST_STATUSES = {401, 402, 403}
 DEFAULT_HEADERS = {
     "Authorization": "",
     "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 UCTaleBenchmark/1.2",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 UCTaleBenchmark/1.3",
 }
 
 

@@ -21,7 +21,7 @@
 - landscape: `768x432`
 - square: `512x512`
 - safe: `true`
-- style: `uctale-charcoal-v2`
+- style: `uctale-charcoal-v3`
 - connect timeout: 10초
 - read timeout: 120초
 - provider retry: 최대 2회
@@ -32,23 +32,32 @@
 
 ## Charcoal style version
 
-### `uctale-charcoal-v2` — 신규 기본값
+### `uctale-charcoal-v3` — 현재 신규 asset 기본값
 
-production smoke test에서 핵폭발·불꽃처럼 색채 의미가 강한 장면이 v1의 후행 style suffix를 압도해 컬러 일러스트로 드리프트하는 사례가 확인됐다. v2는 scene을 삭제하거나 프론트에서 흑백 filter로 덮지 않고 prompt 계약 자체를 강화한다.
+v2는 color drift 억제를 위해 grayscale/no-color 계약을 강화했지만, production 장면에서 지나치게 정제된 editorial illustration처럼 보이고 UCTale이 의도한 거칠고 밀도 높은 흑백 스케치 정체성이 약해지는 사례가 확인됐다. v3는 v2의 grayscale 안정성을 유지하면서 raw dry-media 질감을 더 강하게 선언한다.
 
-- prompt 시작에서 `monochrome charcoal and graphite`, `grayscale only`, off-white paper와 hand-drawn medium을 먼저 선언한다.
-- colored pigment/accent, watercolor, oil painting, digital color painting, photorealism, 3D render를 명시적으로 제외한다.
-- scene의 fire/explosion/neon/sunset/glowing object 표현은 그대로 남긴다.
+- prompt 시작에서 `raw monochrome charcoal and graphite sketch`를 scene보다 먼저 선언한다.
+- rough charcoal/graphite linework, high-contrast black/white tonal structure, coarse paper grain, visible dry-media texture를 명시한다.
+- uneven hand-drawn strokes, dense cross-hatching, scratched graphite marks, smudged deep shadows, erased/scraped white highlights를 요구한다.
+- 완성도 방향은 `imperfect raw concept-sketch finish`로 고정하고 polished/editorial digital illustration을 명시적으로 억제한다.
+- colored pigment/accent, watercolor, oil painting, photorealism, 3D render를 제외한다.
+- scene의 fire/explosion/neon/sunset/glowing object와 color-prone keyword는 삭제하지 않는다.
 - prompt 끝에서 해당 요소를 black/gray/white tonal value로만 표현하도록 final monochrome lock을 다시 건다.
-- atmosphere/composition 문구는 generic cinematic color concept-art보다 narrative/editorial hand-drawn 방향을 사용한다.
+- composition은 readable silhouettes와 strong atmospheric depth를 유지하되 특정 장르나 기존 IP의 시각 언어를 강제하지 않는다.
 
-이 계약은 provider의 확률적 결과를 100% 보장하지는 않지만, scene token보다 style을 우선 배치하고 앞뒤에서 반복해 Flux의 style drift 가능성을 낮춘다.
+이 계약은 provider의 확률적 결과를 100% 보장하지 않는다. 자동 테스트는 실제 그림의 주관적 품질이 아니라 style/medium contract, scene 의미 보존, prompt 결정성/길이 제한, legacy golden prompt를 검증한다.
+
+### `uctale-charcoal-v2` — legacy compatibility
+
+v2 preset과 prompt 조합 문자열은 그대로 지원한다. v2를 명시하면 기존 `monochrome charcoal and graphite drawing`, `narrative editorial scene with restrained tonal drama`, `layered hand-drawn depth`, 기존 final monochrome lock을 그대로 사용한다.
+
+이미 v2로 발급된 asset은 DB에 저장된 prompt/model/size/seed/safe/styleVersion을 재사용하므로 v3 전환으로 재구성하거나 재판정하지 않는다.
 
 ### `uctale-charcoal-v1` — legacy compatibility
 
-v1 preset과 prompt 조합 로직은 삭제하지 않는다. 이미 발급된 asset에는 prompt와 styleVersion이 DB에 저장되어 있으므로, v1 asset 재조회/재시도는 당시의 model·prompt·size·seed·safe·styleVersion을 그대로 사용한다.
+v1 preset과 prompt 조합 로직도 삭제하지 않는다. 이미 발급된 asset에는 prompt와 styleVersion이 DB에 저장되어 있으므로, v1 asset 재조회/재시도는 당시의 model·prompt·size·seed·safe·styleVersion을 그대로 사용한다.
 
-따라서 v2 전환은 **새 asset에만 적용**되며 과거 이미지의 재현 계약을 변경하지 않는다.
+따라서 v3 전환은 **새 asset에만 적용**되며 과거 v1/v2 이미지의 재현 계약을 변경하지 않는다.
 
 ## Pollinations 요청
 
@@ -93,7 +102,7 @@ v1 preset과 prompt 조합 로직은 삭제하지 않는다. 이미 발급된 as
 
 API key와 raw prompt는 기록하지 않는다.
 
-실제 비용은 Pollinations account usage에서 기간과 key를 기준으로 확인하고, `docs/benchmarks/pollinations-image-benchmark.md`의 request 결과와 대조한다. 기존 #50 benchmark 수치는 v1에서 model/resolution을 비교한 역사적 기록이므로 v2 전환으로 덮어쓰지 않는다. 재검증이 필요하면 benchmark script의 v2 chromatic stress fixture를 별도 output으로 실행한다.
+실제 비용은 Pollinations account usage에서 기간과 key를 기준으로 확인하고, `docs/benchmarks/pollinations-image-benchmark.md`의 request 결과와 대조한다. 기존 #50 benchmark 수치는 v1에서 model/resolution을 비교한 역사적 기록이므로 v2/v3 전환으로 덮어쓰지 않는다. 재검증이 필요하면 benchmark script의 현재 style contract와 chromatic stress fixture를 별도 output으로 실행한다.
 
 ## 한계
 

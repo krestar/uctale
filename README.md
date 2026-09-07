@@ -144,7 +144,7 @@ M2의 턴 무결성·복구 구현 범위와 완료 조건은 main에 반영되�
 - Pollinations를 통해 게임 장면 이미지를 생성합니다.
 - 브라우저는 provider prompt나 secret을 전달받지 않고 서버 발급 asset URL만 사용합니다.
 - 동일 asset은 저장된 model, prompt, size, seed, safe, style version을 재사용합니다.
-- 기본 정책은 `flux`, `768x432`, `uctale-charcoal-v2`입니다.
+- 기본 정책은 `flux`, `768x432`, `uctale-charcoal-v3`입니다.
 - provider 응답은 JPEG/PNG, 최대 8 MiB 계약을 검증합니다.
 - provider 오류가 발생해도 canonical game turn은 유지됩니다.
 

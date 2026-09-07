@@ -15,7 +15,8 @@ import java.util.Map;
 public class ImagePromptComposer {
 
     static final String LEGACY_STYLE_VERSION = "uctale-charcoal-v1";
-    static final String DEFAULT_STYLE_VERSION = "uctale-charcoal-v2";
+    static final String V2_STYLE_VERSION = "uctale-charcoal-v2";
+    static final String DEFAULT_STYLE_VERSION = "uctale-charcoal-v3";
     private static final int MAX_PROMPT_LENGTH = 1_800;
 
     private static final String V1_STYLE_PROMPT =
@@ -36,9 +37,24 @@ public class ImagePromptComposer {
             "final style lock: monochrome charcoal and graphite only; render fire, explosions, neon, sunsets, "
                     + "and glowing objects using black, gray, and white tonal values only; no color";
 
+    private static final String V3_STYLE_PREFIX =
+            "style[uctale-charcoal-v3]: raw monochrome charcoal/graphite sketch on coarse off-white paper; "
+                    + "rough uneven linework, high-contrast black/white structure, grayscale only; coarse paper grain, "
+                    + "dry-media texture, dense cross-hatching, scratched graphite, smudged deep shadows, "
+                    + "erased/scraped white highlights; imperfect raw concept-sketch finish; no colored pigment/accent, "
+                    + "polished/editorial digital illustration, watercolor, oil painting, photorealism, or 3D render";
+    private static final String V3_ATMOSPHERE =
+            "atmosphere: deep monochrome shadows, charcoal energy";
+    private static final String V3_COMPOSITION =
+            "composition: readable silhouettes, strong depth, raw hand-drawn layering";
+    private static final String V3_FINAL_LOCK =
+            "final style lock: raw charcoal/graphite only; preserve fire, explosions, neon, sunsets and glowing objects, "
+                    + "but render color-prone subjects in black/gray/white tonal values only; no colored accent";
+
     private static final Map<String, String> SUPPORTED_STYLES = Map.of(
             LEGACY_STYLE_VERSION, V1_STYLE_PROMPT,
-            DEFAULT_STYLE_VERSION, V2_STYLE_PREFIX
+            V2_STYLE_VERSION, V2_STYLE_PREFIX,
+            DEFAULT_STYLE_VERSION, V3_STYLE_PREFIX
     );
 
     private final String styleVersion;
@@ -48,7 +64,7 @@ public class ImagePromptComposer {
     }
 
     @Autowired
-    public ImagePromptComposer(@Value("${game.image.style-version:uctale-charcoal-v2}") String styleVersion) {
+    public ImagePromptComposer(@Value("${game.image.style-version:uctale-charcoal-v3}") String styleVersion) {
         String normalized = styleVersion == null ? "" : styleVersion.trim();
         if (!SUPPORTED_STYLES.containsKey(normalized)) {
             throw new IllegalArgumentException("지원하지 않는 이미지 style version입니다: " + normalized);
@@ -114,7 +130,10 @@ public class ImagePromptComposer {
         if (LEGACY_STYLE_VERSION.equals(styleVersion)) {
             return finishLegacyV1(scenePrompt);
         }
-        return finishV2(scenePrompt);
+        if (V2_STYLE_VERSION.equals(styleVersion)) {
+            return finishV2(scenePrompt);
+        }
+        return finishV3(scenePrompt);
     }
 
     private String finishLegacyV1(String scenePrompt) {
@@ -127,6 +146,13 @@ public class ImagePromptComposer {
     private String finishV2(String scenePrompt) {
         String prefix = V2_STYLE_PREFIX + "; ";
         String suffix = "; " + V2_ATMOSPHERE + "; " + V2_COMPOSITION + "; " + V2_FINAL_LOCK;
+        int sceneBudget = MAX_PROMPT_LENGTH - prefix.length() - suffix.length();
+        return prefix + limit(scenePrompt, sceneBudget) + suffix;
+    }
+
+    private String finishV3(String scenePrompt) {
+        String prefix = V3_STYLE_PREFIX + "; ";
+        String suffix = "; " + V3_ATMOSPHERE + "; " + V3_COMPOSITION + "; " + V3_FINAL_LOCK;
         int sceneBudget = MAX_PROMPT_LENGTH - prefix.length() - suffix.length();
         return prefix + limit(scenePrompt, sceneBudget) + suffix;
     }

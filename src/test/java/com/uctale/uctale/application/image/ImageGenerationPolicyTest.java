@@ -20,7 +20,7 @@ class ImageGenerationPolicyTest {
             }
         };
         ImageGenerationPolicy policy = new ImageGenerationPolicy(
-                "flux", 768, 432, 512, true, "uctale-charcoal-v1", random
+                "flux", 768, 432, 512, true, "uctale-charcoal-v3", random
         );
 
         ImageGenerationPolicy.GenerationSpec landscape = policy.issue("16:9");
@@ -31,16 +31,26 @@ class ImageGenerationPolicyTest {
         assertThat(landscape.height()).isEqualTo(432);
         assertThat(landscape.seed()).isEqualTo(123456);
         assertThat(landscape.safe()).isTrue();
-        assertThat(landscape.styleVersion()).isEqualTo("uctale-charcoal-v1");
+        assertThat(landscape.styleVersion()).isEqualTo("uctale-charcoal-v3");
         assertThat(square.width()).isEqualTo(512);
         assertThat(square.height()).isEqualTo(512);
+    }
+
+    @Test
+    @DisplayName("legacy style version도 asset 계약에 그대로 고정할 수 있다")
+    void issue_PreservesConfiguredLegacyStyleVersion() {
+        ImageGenerationPolicy policy = new ImageGenerationPolicy(
+                "flux", 768, 432, 512, true, "uctale-charcoal-v2", new SecureRandom()
+        );
+
+        assertThat(policy.issue("16:9").styleVersion()).isEqualTo("uctale-charcoal-v2");
     }
 
     @Test
     @DisplayName("잘못된 이미지 크기 설정은 애플리케이션 시작 전에 거부한다")
     void invalidDimension_IsRejected() {
         assertThatThrownBy(() -> new ImageGenerationPolicy(
-                "flux", 32, 432, 512, true, "uctale-charcoal-v1", new SecureRandom()
+                "flux", 32, 432, 512, true, "uctale-charcoal-v3", new SecureRandom()
         )).isInstanceOf(IllegalArgumentException.class);
     }
 }
