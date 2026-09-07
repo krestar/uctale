@@ -44,7 +44,7 @@ public class ImagePromptComposer {
                     + "erased/scraped white highlights; imperfect raw concept-sketch finish; no colored pigment/accent, "
                     + "polished/editorial digital illustration, watercolor, oil painting, photorealism, or 3D render";
     private static final String V3_ATMOSPHERE =
-            "atmosphere: deep monochrome shadows and tactile charcoal energy";
+            "atmosphere: deep monochrome shadows, charcoal energy";
     private static final String V3_COMPOSITION =
             "composition: readable silhouettes, strong depth, raw hand-drawn layering";
     private static final String V3_FINAL_LOCK =
