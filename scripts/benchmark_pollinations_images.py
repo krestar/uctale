@@ -45,22 +45,25 @@ FIXTURES = (
     ("festival", "subjects: crowd; objects: multicolor lanterns; setting: brightly colored festival"),
 )
 STYLE_PREFIX = (
-    "style[uctale-charcoal-v2]: monochrome charcoal and graphite drawing on off-white paper, "
-    "grayscale only, visible charcoal grain, smudged shading, expressive hand-drawn strokes, "
-    "no colored pigments or color accents, no watercolor, no oil painting, no digital color painting, "
-    "no photorealism, no 3D render"
+    "style[uctale-charcoal-v3]: raw monochrome charcoal and graphite sketch on coarse off-white paper, "
+    "rough charcoal and graphite linework, high-contrast black and white tonal structure, grayscale only, "
+    "coarse paper grain and visible dry-media texture, uneven hand-drawn strokes, dense cross-hatching, "
+    "scratched graphite marks, smudged deep shadows, erased and scraped white highlights, "
+    "imperfect raw concept-sketch finish, no colored pigments or color accents, "
+    "no polished digital illustration, no watercolor, no oil painting, no photorealism, no 3D render"
 )
 STYLE_SUFFIX = (
-    "atmosphere: narrative editorial scene with restrained tonal drama; "
-    "composition: clear focal point, readable silhouettes, layered hand-drawn depth; "
-    "final style lock: monochrome charcoal and graphite only; render fire, explosions, neon, sunsets, "
-    "and glowing objects using black, gray, and white tonal values only; no color"
+    "atmosphere: dramatic monochrome depth with heavy shadow masses, smoky charcoal smudges, and tactile sketch energy; "
+    "composition: clear focal point, readable silhouettes, strong atmospheric depth, raw hand-drawn spatial layering; "
+    "final style lock: raw charcoal and graphite sketch only; render fire, explosions, neon, sunsets, glowing objects, "
+    "and other color-prone subjects using black, gray, and white tonal values only; preserve scene meaning with no colored accent; "
+    "avoid polished or editorial digital illustration"
 )
 FAIL_FAST_STATUSES = {401, 402, 403}
 DEFAULT_HEADERS = {
     "Authorization": "",
     "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 UCTaleBenchmark/1.2",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 UCTaleBenchmark/1.3",
 }
 
 
