@@ -15,7 +15,8 @@ import java.util.Map;
 public class ImagePromptComposer {
 
     static final String LEGACY_STYLE_VERSION = "uctale-charcoal-v1";
-    static final String DEFAULT_STYLE_VERSION = "uctale-charcoal-v2";
+    static final String V2_STYLE_VERSION = "uctale-charcoal-v2";
+    static final String DEFAULT_STYLE_VERSION = "uctale-charcoal-v3";
     private static final int MAX_PROMPT_LENGTH = 1_800;
 
     private static final String V1_STYLE_PROMPT =
@@ -36,9 +37,26 @@ public class ImagePromptComposer {
             "final style lock: monochrome charcoal and graphite only; render fire, explosions, neon, sunsets, "
                     + "and glowing objects using black, gray, and white tonal values only; no color";
 
+    private static final String V3_STYLE_PREFIX =
+            "style[uctale-charcoal-v3]: raw monochrome charcoal and graphite sketch on coarse off-white paper, "
+                    + "rough charcoal and graphite linework, high-contrast black and white tonal structure, grayscale only, "
+                    + "coarse paper grain and visible dry-media texture, uneven hand-drawn strokes, dense cross-hatching, "
+                    + "scratched graphite marks, smudged deep shadows, erased and scraped white highlights, "
+                    + "imperfect raw concept-sketch finish, no colored pigments or color accents, "
+                    + "no polished digital illustration, no watercolor, no oil painting, no photorealism, no 3D render";
+    private static final String V3_ATMOSPHERE =
+            "atmosphere: dramatic monochrome depth with heavy shadow masses, smoky charcoal smudges, and tactile sketch energy";
+    private static final String V3_COMPOSITION =
+            "composition: clear focal point, readable silhouettes, strong atmospheric depth, raw hand-drawn spatial layering";
+    private static final String V3_FINAL_LOCK =
+            "final style lock: raw charcoal and graphite sketch only; render fire, explosions, neon, sunsets, glowing objects, "
+                    + "and other color-prone subjects using black, gray, and white tonal values only; preserve scene meaning "
+                    + "with no colored accent; avoid polished or editorial digital illustration";
+
     private static final Map<String, String> SUPPORTED_STYLES = Map.of(
             LEGACY_STYLE_VERSION, V1_STYLE_PROMPT,
-            DEFAULT_STYLE_VERSION, V2_STYLE_PREFIX
+            V2_STYLE_VERSION, V2_STYLE_PREFIX,
+            DEFAULT_STYLE_VERSION, V3_STYLE_PREFIX
     );
 
     private final String styleVersion;
@@ -48,7 +66,7 @@ public class ImagePromptComposer {
     }
 
     @Autowired
-    public ImagePromptComposer(@Value("${game.image.style-version:uctale-charcoal-v2}") String styleVersion) {
+    public ImagePromptComposer(@Value("${game.image.style-version:uctale-charcoal-v3}") String styleVersion) {
         String normalized = styleVersion == null ? "" : styleVersion.trim();
         if (!SUPPORTED_STYLES.containsKey(normalized)) {
             throw new IllegalArgumentException("지원하지 않는 이미지 style version입니다: " + normalized);
@@ -114,7 +132,10 @@ public class ImagePromptComposer {
         if (LEGACY_STYLE_VERSION.equals(styleVersion)) {
             return finishLegacyV1(scenePrompt);
         }
-        return finishV2(scenePrompt);
+        if (V2_STYLE_VERSION.equals(styleVersion)) {
+            return finishV2(scenePrompt);
+        }
+        return finishV3(scenePrompt);
     }
 
     private String finishLegacyV1(String scenePrompt) {
@@ -127,6 +148,13 @@ public class ImagePromptComposer {
     private String finishV2(String scenePrompt) {
         String prefix = V2_STYLE_PREFIX + "; ";
         String suffix = "; " + V2_ATMOSPHERE + "; " + V2_COMPOSITION + "; " + V2_FINAL_LOCK;
+        int sceneBudget = MAX_PROMPT_LENGTH - prefix.length() - suffix.length();
+        return prefix + limit(scenePrompt, sceneBudget) + suffix;
+    }
+
+    private String finishV3(String scenePrompt) {
+        String prefix = V3_STYLE_PREFIX + "; ";
+        String suffix = "; " + V3_ATMOSPHERE + "; " + V3_COMPOSITION + "; " + V3_FINAL_LOCK;
         int sceneBudget = MAX_PROMPT_LENGTH - prefix.length() - suffix.length();
         return prefix + limit(scenePrompt, sceneBudget) + suffix;
     }
