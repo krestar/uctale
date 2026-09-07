@@ -79,15 +79,17 @@ Flux에서 1024x576은 768x432 대비 평균 latency 약 6.6%, 평균 응답 크
 
 ## style version에 대한 역사 기록
 
-이 benchmark는 **`uctale-charcoal-v1` 시점의 model/resolution 비교**입니다. 따라서 당시 최종 결정에 v1이 기록되어 있었던 것은 맞으며, 이 문서의 96장 결과를 v2 결과로 재해석하지 않습니다.
+이 benchmark는 **`uctale-charcoal-v1` 시점의 model/resolution 비교**입니다. 따라서 당시 최종 결정에 v1이 기록되어 있었던 것은 맞으며, 이 문서의 96장 결과를 v2나 v3 결과로 재해석하지 않습니다.
 
-이후 production smoke에서 핵폭발·불꽃 등 색채 의미가 강한 장면이 컬러 일러스트로 드리프트하는 사례가 발견되어 prompt style contract만 `uctale-charcoal-v2`로 강화되었습니다. 현재 production 기본값은 다음과 같습니다.
+이후 production smoke에서 핵폭발·불꽃 등 색채 의미가 강한 장면이 컬러 일러스트로 드리프트하는 사례가 발견되어 prompt style contract가 `uctale-charcoal-v2`로 강화되었습니다. 그 뒤 v2가 지나치게 정제된 editorial illustration 방향으로 수렴하는 사례가 확인되어 raw monochrome charcoal/graphite 질감을 강화한 `uctale-charcoal-v3`가 신규 asset 기본값이 되었습니다.
+
+현재 production 기본값은 다음과 같습니다.
 
 - model: `flux`
 - resolution: `768x432`
-- style: `uctale-charcoal-v2`
+- style: `uctale-charcoal-v3`
 
-즉 **benchmark가 결정한 model/resolution은 유지되고, style version만 후속 운영 검증을 통해 v2로 진화**했습니다. 현재 계약은 `docs/architecture/image-generation.md`가 authoritative source입니다.
+즉 **benchmark가 결정한 model/resolution은 유지되고, style version만 후속 운영 검증을 통해 v1 → v2 → v3로 진화**했습니다. 현재 계약은 `docs/architecture/image-generation.md`가 authoritative source입니다.
 
 ## 재현 방법
 
@@ -101,4 +103,4 @@ POLLINATIONS_TOKEN=... python scripts/benchmark_pollinations_images.py
 - `build/pollinations-benchmark/raw.csv`: fixture/model/size/seed/status/latency/MIME/bytes
 - `build/pollinations-benchmark/summary.json`: model/size별 성공률, 평균·P95 지연
 
-운영 secret과 생성 이미지는 저장소에 commit하지 않습니다. v2 style을 다시 정량/시각 비교하려면 기존 역사 결과를 덮어쓰지 않고 별도 output으로 재실행합니다.
+운영 secret과 생성 이미지는 저장소에 commit하지 않습니다. 현재 style contract를 다시 정량/시각 비교하려면 기존 역사 결과를 덮어쓰지 않고 별도 output으로 재실행합니다.
