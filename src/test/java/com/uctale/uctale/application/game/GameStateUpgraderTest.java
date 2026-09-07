@@ -120,7 +120,29 @@ class GameStateUpgraderTest {
     }
 
     @Test
-    @DisplayName("schema v2 inventory 필드가 손상되어 있으면 빈 값으로 덮지 않고 실패한다")
+    @DisplayName("schema v2에 inventory 필드가 있으면 의미를 추정하지 않고 실패한다")
+    void schemaV2WithInventory_FailsExplicitly() throws Exception {
+        JsonNode snapshot = objectMapper.readTree("""
+                {
+                  "schemaVersion": 2,
+                  "rulesetVersion": 1,
+                  "state": {
+                    "turnNumber": 1,
+                    "playerCharacter": {"description":"캐릭터","stats":{"might":10,"agility":10,"intellect":10,"will":10,"presence":10}},
+                    "worldState": {"premise": "세계관", "flags": {}},
+                    "storyMemory": {"canonicalFacts": [], "rollingSummary": "", "recentTurns": []},
+                    "inventory": {"items": {}, "equipment": {"slots": {}}}
+                  }
+                }
+                """);
+        assertThatThrownBy(() -> upgrader.upgrade(snapshot))
+                .isInstanceOf(GameStateSnapshotException.class)
+                .hasMessageContaining("schema v2")
+                .hasMessageContaining("inventory");
+    }
+
+    @Test
+    @DisplayName("schema v2 inventory 필드가 손상되어 있어도 임의 기본값으로 덮지 않고 실패한다")
     void damagedLegacyInventory_FailsExplicitly() throws Exception {
         JsonNode snapshot = objectMapper.readTree("""
                 {
