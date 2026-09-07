@@ -100,18 +100,16 @@ public class GameStateUpgrader {
         if (!(source.state().deepCopy() instanceof ObjectNode state)) {
             throw new GameStateSnapshotException("snapshot state가 object가 아닙니다.");
         }
-        JsonNode inventory = state.get("inventory");
-        if (inventory != null && !inventory.isObject()) {
-            throw new GameStateSnapshotException("snapshot inventory가 object가 아닙니다.");
+        if (state.has("inventory")) {
+            throw new GameStateSnapshotException("schema v2 snapshot에는 inventory 필드가 정의되어 있지 않습니다.");
         }
-        if (inventory == null) {
-            ObjectNode emptyInventory = JsonNodeFactory.instance.objectNode();
-            emptyInventory.set("items", JsonNodeFactory.instance.objectNode());
-            ObjectNode equipment = JsonNodeFactory.instance.objectNode();
-            equipment.set("slots", JsonNodeFactory.instance.objectNode());
-            emptyInventory.set("equipment", equipment);
-            state.set("inventory", emptyInventory);
-        }
+
+        ObjectNode emptyInventory = JsonNodeFactory.instance.objectNode();
+        emptyInventory.set("items", JsonNodeFactory.instance.objectNode());
+        ObjectNode equipment = JsonNodeFactory.instance.objectNode();
+        equipment.set("slots", JsonNodeFactory.instance.objectNode());
+        emptyInventory.set("equipment", equipment);
+        state.set("inventory", emptyInventory);
         return new VersionedState(3, source.rulesetVersion(), state);
     }
 
