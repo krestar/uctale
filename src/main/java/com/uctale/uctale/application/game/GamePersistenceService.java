@@ -12,10 +12,12 @@ import com.uctale.uctale.repository.GameMutationRequestRepository;
 import com.uctale.uctale.repository.GameSessionRepository;
 import com.uctale.uctale.repository.GameStateSnapshotRepository;
 import com.uctale.uctale.repository.ImageAssetRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 @Service
 public class GamePersistenceService {
@@ -31,6 +33,7 @@ public class GamePersistenceService {
     private final GameStateRecovery gameStateRecovery;
     private final InventoryAuditCodec inventoryAuditCodec;
 
+    @Autowired
     public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
             GameStateSnapshotRepository gameStateSnapshotRepository, ImageAssetRepository imageAssetRepository,
             GameMutationRequestRepository gameMutationRequestRepository, GameStateCodec gameStateCodec,
@@ -43,6 +46,22 @@ public class GamePersistenceService {
         this.gameStateCodec = gameStateCodec;
         this.gameStateRecovery = gameStateRecovery;
         this.inventoryAuditCodec = inventoryAuditCodec;
+    }
+
+    public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
+            GameStateSnapshotRepository gameStateSnapshotRepository, ImageAssetRepository imageAssetRepository,
+            GameMutationRequestRepository gameMutationRequestRepository, GameStateCodec gameStateCodec,
+            GameStateRecovery gameStateRecovery) {
+        this(
+                gameSessionRepository,
+                gameLogRepository,
+                gameStateSnapshotRepository,
+                imageAssetRepository,
+                gameMutationRequestRepository,
+                gameStateCodec,
+                gameStateRecovery,
+                new InventoryAuditCodec(new ObjectMapper())
+        );
     }
 
     @Transactional
