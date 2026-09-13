@@ -56,7 +56,7 @@
 
 snapshot schema v6는 item `combatModifiers`와 enemy `combatProfile`을 명시적으로 저장한다. 기존 v5 snapshot은 item modifier를 0/0, enemy profile을 defense 10 / damage reduction 0으로 deterministic upgrade하며, 현재 v6에서 필드가 누락된 손상 snapshot은 조용히 기본값 처리하지 않는다.
 
-`game_turn_reservation.attack_result_json`은 최초 서버 Attack 판정을 lease 소유권 아래 저장한다. 동일 idempotency request가 provider 실패 후 재시도되면 새 roll을 만들지 않고 이 판정을 재사용한다.
+`game_turn_reservation.attack_result_request_id`와 `attack_result_json`은 최초 서버 Attack 판정과 그 판정을 만든 mutation request를 lease 소유권 아래 저장한다. 동일 idempotency request가 provider 실패 후 재시도되면 새 roll을 만들지 않고 이 판정을 재사용한다. 반대로 다른 mutation request가 만료 reservation을 takeover하면 이전 request의 판정을 재사용하지 않고 새 판정을 확정한다.
 
 combat 변화와 `AttackResolved`는 `game_log.combat_changes_json`에 typed audit으로 저장한다. `GameTurnCommit`은 previous encounter에서 combat audit을 replay한 결과가 next encounter와 정확히 일치하는지 검증한다. snapshot이 없으면 `GameStateRecovery`가 inventory, player vitals, combat audit 순으로 replay해 참가자와 current actor를 복구한다. pre-v6 inventory/combat audit은 codec의 명시적인 upgrade 경계에서 neutral item modifier와 기본 enemy profile로 복구한다.
 
