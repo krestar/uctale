@@ -146,6 +146,42 @@ public record GameResult(
     ) implements StateChange {
         public CombatEncounterChanged {
             CombatRules.validateChange(previousEncounter, nextEncounter, reason);
+            validateCombatDelta(previousEncounter, nextEncounter, reason);
+        }
+    }
+
+    private static void validateCombatDelta(CombatEncounter previous, CombatEncounter next, CombatChangeReason reason) {
+        if (previous == null) return;
+        switch (reason) {
+            case PARTICIPANT_JOINED -> {
+                if (next.enemies().size() != previous.enemies().size() + 1
+                        || !next.enemies().entrySet().containsAll(previous.enemies().entrySet())) {
+                    throw new IllegalArgumentException("PARTICIPANT_JOINED는 정확히 한 enemy만 추가해야 합니다.");
+                }
+            }
+            case PARTICIPANT_LEFT -> {
+                if (next.enemies().size() != previous.enemies().size() - 1
+                        || !previous.enemies().entrySet().containsAll(next.enemies().entrySet())) {
+                    throw new IllegalArgumentException("PARTICIPANT_LEFT는 정확히 한 enemy만 제거해야 합니다.");
+                }
+            }
+            case ACTIVATED, ACTOR_ADVANCED, RESOLVED, ESCAPED -> {
+                if (!previous.enemies().equals(next.enemies())) {
+                    throw new IllegalArgumentException(reason + " change로 enemy 상태나 참가자를 변경할 수 없습니다.");
+                }
+            }
+            case ENEMY_UPDATED -> {
+                if (!previous.enemies().keySet().equals(next.enemies().keySet())) {
+                    throw new IllegalArgumentException("ENEMY_UPDATED로 참가자 집합을 변경할 수 없습니다.");
+                }
+                long changed = previous.enemies().keySet().stream()
+                        .filter(id -> !previous.enemies().get(id).equals(next.enemies().get(id)))
+                        .count();
+                if (changed != 1) {
+                    throw new IllegalArgumentException("ENEMY_UPDATED는 정확히 한 enemy 상태만 변경해야 합니다.");
+                }
+            }
+            case STARTED -> { }
         }
     }
 
