@@ -33,12 +33,14 @@ public class GamePersistenceService {
     private final GameStateRecovery gameStateRecovery;
     private final InventoryAuditCodec inventoryAuditCodec;
     private final VitalsAuditCodec vitalsAuditCodec;
+    private final CombatAuditCodec combatAuditCodec;
 
     @Autowired
     public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
             GameStateSnapshotRepository gameStateSnapshotRepository, ImageAssetRepository imageAssetRepository,
             GameMutationRequestRepository gameMutationRequestRepository, GameStateCodec gameStateCodec,
-            GameStateRecovery gameStateRecovery, InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec) {
+            GameStateRecovery gameStateRecovery, InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec,
+            CombatAuditCodec combatAuditCodec) {
         this.gameSessionRepository = gameSessionRepository;
         this.gameLogRepository = gameLogRepository;
         this.gameStateSnapshotRepository = gameStateSnapshotRepository;
@@ -48,6 +50,16 @@ public class GamePersistenceService {
         this.gameStateRecovery = gameStateRecovery;
         this.inventoryAuditCodec = inventoryAuditCodec;
         this.vitalsAuditCodec = vitalsAuditCodec;
+        this.combatAuditCodec = combatAuditCodec;
+    }
+
+    public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
+            GameStateSnapshotRepository gameStateSnapshotRepository, ImageAssetRepository imageAssetRepository,
+            GameMutationRequestRepository gameMutationRequestRepository, GameStateCodec gameStateCodec,
+            GameStateRecovery gameStateRecovery, InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec) {
+        this(gameSessionRepository, gameLogRepository, gameStateSnapshotRepository, imageAssetRepository,
+                gameMutationRequestRepository, gameStateCodec, gameStateRecovery, inventoryAuditCodec, vitalsAuditCodec,
+                new CombatAuditCodec(new ObjectMapper()));
     }
 
     public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
@@ -56,7 +68,7 @@ public class GamePersistenceService {
             GameStateRecovery gameStateRecovery, InventoryAuditCodec inventoryAuditCodec) {
         this(gameSessionRepository, gameLogRepository, gameStateSnapshotRepository, imageAssetRepository,
                 gameMutationRequestRepository, gameStateCodec, gameStateRecovery, inventoryAuditCodec,
-                new VitalsAuditCodec(new ObjectMapper()));
+                new VitalsAuditCodec(new ObjectMapper()), new CombatAuditCodec(new ObjectMapper()));
     }
 
     public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
@@ -65,7 +77,8 @@ public class GamePersistenceService {
             GameStateRecovery gameStateRecovery) {
         this(gameSessionRepository, gameLogRepository, gameStateSnapshotRepository, imageAssetRepository,
                 gameMutationRequestRepository, gameStateCodec, gameStateRecovery,
-                new InventoryAuditCodec(new ObjectMapper()), new VitalsAuditCodec(new ObjectMapper()));
+                new InventoryAuditCodec(new ObjectMapper()), new VitalsAuditCodec(new ObjectMapper()),
+                new CombatAuditCodec(new ObjectMapper()));
     }
 
     @Transactional
@@ -99,9 +112,7 @@ public class GamePersistenceService {
                 .orElseThrow(() -> new IllegalStateException("게임 로그가 없습니다."));
         if (lastLog.getTurnNumber() != expectedTurn) throw new IllegalStateException("세션 턴과 저장된 로그가 일치하지 않습니다.");
         GameState gameState = loadOrRecoverState(session);
-        if (gameState.turnNumber() != expectedTurn || lastLog.getStateVersion() != expectedTurn) {
-            throw new IllegalStateException("세션 턴과 canonical state version이 일치하지 않습니다.");
-        }
+        if (gameState.turnNumber() != expectedTurn || lastLog.getStateVersion() != expectedTurn) throw new IllegalStateException("세션 턴과 canonical state version이 일치하지 않습니다.");
         return new LoadedTurn(session.getId(), session.getCurrentTurn(), session.getWorldSetting(),
                 session.getCharacterSetting(), lastLog.getStoryText(), lastLog.getChoicesJson(), lastLog.getImageUrl(), gameState);
     }
@@ -134,23 +145,19 @@ public class GamePersistenceService {
             validateCommitAgainstSession(session, commit);
             GameLog previousLog = gameLogRepository.findTopByGameSessionOrderByTurnNumberDesc(session)
                     .orElseThrow(() -> new IllegalStateException("게임 로그가 없습니다."));
-            if (previousLog.getTurnNumber() != commit.expectedTurn() || previousLog.getStateVersion() != commit.previousStateVersion()) {
-                throw new IllegalStateException("세션 턴과 저장된 로그의 state version이 일치하지 않습니다.");
-            }
+            if (previousLog.getTurnNumber() != commit.expectedTurn() || previousLog.getStateVersion() != commit.previousStateVersion()) throw new IllegalStateException("세션 턴과 저장된 로그의 state version이 일치하지 않습니다.");
             GameState canonicalPreviousState = loadOrRecoverState(session);
-            if (!canonicalPreviousState.equals(commit.previousState())) {
-                throw new TurnConflictException("commit의 이전 상태가 현재 canonical state와 일치하지 않습니다.");
-            }
+            if (!canonicalPreviousState.equals(commit.previousState())) throw new TurnConflictException("commit의 이전 상태가 현재 canonical state와 일치하지 않습니다.");
             session.advanceTurn();
-            String imageUrl = commit.imageAsset() == null ? previousLog.getImageUrl()
-                    : persistImageAsset(session, commit.nextStateVersion(), commit.imageAsset());
+            String imageUrl = commit.imageAsset() == null ? previousLog.getImageUrl() : persistImageAsset(session, commit.nextStateVersion(), commit.imageAsset());
             String inventoryChangesJson = inventoryAuditCodec.serialize(commit.stateChanges());
             String vitalsChangesJson = vitalsAuditCodec.serialize(commit.stateChanges());
+            String combatChangesJson = combatAuditCodec.serialize(commit.stateChanges());
             gameSessionRepository.save(session);
             gameLogRepository.save(GameLog.committedTurn(session, commit.nextStateVersion(), commit.inputChoiceId(),
                     commit.inputChoiceText(), commit.previousStateVersion(), commit.nextStateVersion(),
                     commit.canonicalResultId(), commit.generatedStoryId(), commit.skillCheckResult(), inventoryChangesJson,
-                    vitalsChangesJson, commit.storyText(), commit.choicesJson(), imageUrl));
+                    vitalsChangesJson, combatChangesJson, commit.storyText(), commit.choicesJson(), imageUrl));
             GameStateSnapshot snapshot = gameStateSnapshotRepository.findById(sessionId)
                     .orElseGet(() -> new GameStateSnapshot(session, gameStateCodec.serialize(commit.previousState())));
             snapshot.updateStateJson(gameStateCodec.serialize(commit.nextState()));
@@ -179,8 +186,7 @@ public class GamePersistenceService {
 
     private void completeMutationRequest(Long mutationRequestId, Long sessionId, int turn, String resultTitle) {
         if (mutationRequestId == null) return;
-        GameMutationRequest request = gameMutationRequestRepository.findById(mutationRequestId)
-                .orElseThrow(() -> new IllegalStateException("mutation request를 찾을 수 없습니다."));
+        GameMutationRequest request = gameMutationRequestRepository.findById(mutationRequestId).orElseThrow(() -> new IllegalStateException("mutation request를 찾을 수 없습니다."));
         request.complete(sessionId, turn, resultTitle);
         gameMutationRequestRepository.save(request);
     }
@@ -201,8 +207,7 @@ public class GamePersistenceService {
     }
 
     private GameSession findOwnedSession(String ownerKey, Long sessionId) {
-        return gameSessionRepository.findByIdAndOwnerKey(sessionId, ownerKey)
-                .orElseThrow(() -> new GameSessionNotFoundException("존재하지 않는 세션입니다."));
+        return gameSessionRepository.findByIdAndOwnerKey(sessionId, ownerKey).orElseThrow(() -> new GameSessionNotFoundException("존재하지 않는 세션입니다."));
     }
 
     private boolean isTurnUniqueConstraintViolation(DataIntegrityViolationException exception) {
@@ -230,20 +235,17 @@ public class GamePersistenceService {
     public record LoadedTurn(Long sessionId, int turnNumber, String worldSetting, String characterSetting,
             String storyText, String choicesJson, String imageUrl, GameState gameState) {}
 
-    public record CommittedTurn(String storyText, String choicesJson, String imageUrl,
-                                GameState gameState, SkillCheckAudit skillCheckAudit) {
-        public CommittedTurn(String storyText, String choicesJson, String imageUrl) {
-            this(storyText, choicesJson, imageUrl, null, null);
-        }
+    public record CommittedTurn(String storyText, String choicesJson, String imageUrl, GameState gameState, SkillCheckAudit skillCheckAudit) {
+        public CommittedTurn(String storyText, String choicesJson, String imageUrl) { this(storyText, choicesJson, imageUrl, null, null); }
     }
 
-    public record SkillCheckAudit(String statType, Integer rawRoll, Integer statModifier,
-            Integer situationalModifier, Integer dc, Integer total, String outcome, Integer rulesetVersion) {
+    public record SkillCheckAudit(String statType, Integer rawRoll, Integer statModifier, Integer situationalModifier,
+            Integer dc, Integer total, String outcome, Integer rulesetVersion) {
         static SkillCheckAudit from(GameLog log) {
             if (log.getSkillCheckStatType() == null) return null;
-            return new SkillCheckAudit(log.getSkillCheckStatType(), log.getSkillCheckRawRoll(),
-                    log.getSkillCheckStatModifier(), log.getSkillCheckSituationalModifier(), log.getSkillCheckDc(),
-                    log.getSkillCheckTotal(), log.getSkillCheckOutcome(), log.getSkillCheckRulesetVersion());
+            return new SkillCheckAudit(log.getSkillCheckStatType(), log.getSkillCheckRawRoll(), log.getSkillCheckStatModifier(),
+                    log.getSkillCheckSituationalModifier(), log.getSkillCheckDc(), log.getSkillCheckTotal(),
+                    log.getSkillCheckOutcome(), log.getSkillCheckRulesetVersion());
         }
     }
 }

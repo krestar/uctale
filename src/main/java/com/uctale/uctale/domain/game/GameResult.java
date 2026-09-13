@@ -29,14 +29,15 @@ public record GameResult(
     }
 
     public enum Outcome { RESOLVED }
-    public enum GameEvent { ACTION_RESOLVED, SKILL_CHECK_RESOLVED }
+    public enum GameEvent { ACTION_RESOLVED, SKILL_CHECK_RESOLVED, COMBAT_ACTION_RESOLVED, COMBAT_ENCOUNTER_CHANGED }
     public enum VitalResource { HP, MP }
     public enum VitalsChangeReason { DAMAGE, HEAL, SPEND, RESTORE }
     public enum StatusRemovalReason { EXPLICIT, EXPIRED }
 
     public sealed interface StateChange permits TurnAdvanced, ItemAcquired, ItemRemoved,
             ItemQuantityChanged, ItemConsumed, ItemEquipped, ItemUnequipped, VitalsChanged,
-            StatusEffectApplied, StatusEffectUpdated, StatusDurationChanged, StatusEffectRemoved {
+            StatusEffectApplied, StatusEffectUpdated, StatusDurationChanged, StatusEffectRemoved,
+            CombatEncounterChanged {
         default String getType() {
             if (this instanceof TurnAdvanced) return "TURN_ADVANCED";
             if (this instanceof ItemAcquired) return "ITEM_ACQUIRED";
@@ -50,6 +51,7 @@ public record GameResult(
             if (this instanceof StatusEffectUpdated) return "STATUS_EFFECT_UPDATED";
             if (this instanceof StatusDurationChanged) return "STATUS_DURATION_CHANGED";
             if (this instanceof StatusEffectRemoved) return "STATUS_EFFECT_REMOVED";
+            if (this instanceof CombatEncounterChanged) return "COMBAT_ENCOUNTER_CHANGED";
             throw new IllegalStateException("지원하지 않는 state change입니다.");
         }
     }
@@ -65,9 +67,7 @@ public record GameResult(
     public record ItemAcquired(OwnedItem item, int resultingQuantity) implements StateChange {
         public ItemAcquired {
             Objects.requireNonNull(item, "acquired item은 필수입니다.");
-            if (resultingQuantity < item.quantity()) {
-                throw new IllegalArgumentException("획득 후 quantity가 획득 quantity보다 작을 수 없습니다.");
-            }
+            if (resultingQuantity < item.quantity()) throw new IllegalArgumentException("획득 후 quantity가 획득 quantity보다 작을 수 없습니다.");
         }
     }
 
@@ -78,61 +78,35 @@ public record GameResult(
     public record ItemQuantityChanged(String itemId, String definitionId, int previousQuantity, int nextQuantity) implements StateChange {
         public ItemQuantityChanged {
             validateItemReference(itemId, definitionId);
-            if (previousQuantity < 1 || nextQuantity < 1 || previousQuantity == nextQuantity) {
-                throw new IllegalArgumentException("item quantity state change가 올바르지 않습니다.");
-            }
+            if (previousQuantity < 1 || nextQuantity < 1 || previousQuantity == nextQuantity) throw new IllegalArgumentException("item quantity state change가 올바르지 않습니다.");
         }
     }
 
     public record ItemConsumed(String itemId, String definitionId, int quantity, int remainingQuantity) implements StateChange {
         public ItemConsumed {
             validateItemReference(itemId, definitionId);
-            if (quantity < 1 || remainingQuantity < 0) {
-                throw new IllegalArgumentException("item consume state change가 올바르지 않습니다.");
-            }
+            if (quantity < 1 || remainingQuantity < 0) throw new IllegalArgumentException("item consume state change가 올바르지 않습니다.");
         }
     }
 
     public record ItemEquipped(EquipmentSlot slot, String itemId, String definitionId) implements StateChange {
-        public ItemEquipped {
-            Objects.requireNonNull(slot, "equipment slot은 필수입니다.");
-            validateItemReference(itemId, definitionId);
-        }
+        public ItemEquipped { Objects.requireNonNull(slot, "equipment slot은 필수입니다."); validateItemReference(itemId, definitionId); }
     }
 
     public record ItemUnequipped(EquipmentSlot slot, String itemId, String definitionId) implements StateChange {
-        public ItemUnequipped {
-            Objects.requireNonNull(slot, "equipment slot은 필수입니다.");
-            validateItemReference(itemId, definitionId);
-        }
+        public ItemUnequipped { Objects.requireNonNull(slot, "equipment slot은 필수입니다."); validateItemReference(itemId, definitionId); }
     }
 
-    public record VitalsChanged(
-            VitalResource resource,
-            int previousValue,
-            int nextValue,
-            int delta,
-            VitalsChangeReason reason
-    ) implements StateChange {
+    public record VitalsChanged(VitalResource resource, int previousValue, int nextValue, int delta, VitalsChangeReason reason) implements StateChange {
         public VitalsChanged {
             Objects.requireNonNull(resource, "vitals resource는 필수입니다.");
             Objects.requireNonNull(reason, "vitals change reason은 필수입니다.");
-            if (previousValue < 0 || nextValue < 0 || previousValue == nextValue) {
-                throw new IllegalArgumentException("vitals state change 값이 올바르지 않습니다.");
-            }
-            if ((long) nextValue - previousValue != delta) {
-                throw new IllegalArgumentException("vitals delta가 이전/다음 값과 일치하지 않습니다.");
-            }
-            if (resource == VitalResource.HP && reason != VitalsChangeReason.DAMAGE && reason != VitalsChangeReason.HEAL) {
-                throw new IllegalArgumentException("HP에는 DAMAGE/HEAL reason만 사용할 수 있습니다.");
-            }
-            if (resource == VitalResource.MP && reason != VitalsChangeReason.SPEND && reason != VitalsChangeReason.RESTORE) {
-                throw new IllegalArgumentException("MP에는 SPEND/RESTORE reason만 사용할 수 있습니다.");
-            }
+            if (previousValue < 0 || nextValue < 0 || previousValue == nextValue) throw new IllegalArgumentException("vitals state change 값이 올바르지 않습니다.");
+            if ((long) nextValue - previousValue != delta) throw new IllegalArgumentException("vitals delta가 이전/다음 값과 일치하지 않습니다.");
+            if (resource == VitalResource.HP && reason != VitalsChangeReason.DAMAGE && reason != VitalsChangeReason.HEAL) throw new IllegalArgumentException("HP에는 DAMAGE/HEAL reason만 사용할 수 있습니다.");
+            if (resource == VitalResource.MP && reason != VitalsChangeReason.SPEND && reason != VitalsChangeReason.RESTORE) throw new IllegalArgumentException("MP에는 SPEND/RESTORE reason만 사용할 수 있습니다.");
             boolean decreasing = reason == VitalsChangeReason.DAMAGE || reason == VitalsChangeReason.SPEND;
-            if ((decreasing && delta >= 0) || (!decreasing && delta <= 0)) {
-                throw new IllegalArgumentException("vitals delta 방향이 reason과 일치하지 않습니다.");
-            }
+            if ((decreasing && delta >= 0) || (!decreasing && delta <= 0)) throw new IllegalArgumentException("vitals delta 방향이 reason과 일치하지 않습니다.");
         }
     }
 
@@ -144,31 +118,16 @@ public record GameResult(
         public StatusEffectUpdated {
             Objects.requireNonNull(previous, "previous status effect는 필수입니다.");
             Objects.requireNonNull(next, "next status effect는 필수입니다.");
-            if (!previous.definitionId().equals(next.definitionId())) {
-                throw new IllegalArgumentException("status effect update는 같은 definitionId를 사용해야 합니다.");
-            }
-            if (previous.expiryTrigger() != next.expiryTrigger()
-                    || previous.incapacitating() != next.incapacitating()) {
-                throw new IllegalArgumentException("status effect update로 definition metadata를 변경할 수 없습니다.");
-            }
-            if (previous.equals(next)) {
-                throw new IllegalArgumentException("status effect update는 실제 상태를 변경해야 합니다.");
-            }
+            if (!previous.definitionId().equals(next.definitionId())) throw new IllegalArgumentException("status effect update는 같은 definitionId를 사용해야 합니다.");
+            if (previous.expiryTrigger() != next.expiryTrigger() || previous.incapacitating() != next.incapacitating()) throw new IllegalArgumentException("status effect update로 definition metadata를 변경할 수 없습니다.");
+            if (previous.equals(next)) throw new IllegalArgumentException("status effect update는 실제 상태를 변경해야 합니다.");
         }
     }
 
-    public record StatusDurationChanged(
-            String definitionId,
-            int previousRemainingTurns,
-            int nextRemainingTurns
-    ) implements StateChange {
+    public record StatusDurationChanged(String definitionId, int previousRemainingTurns, int nextRemainingTurns) implements StateChange {
         public StatusDurationChanged {
-            if (definitionId == null || definitionId.isBlank()) {
-                throw new IllegalArgumentException("status effect definitionId는 비어 있을 수 없습니다.");
-            }
-            if (previousRemainingTurns < 2 || nextRemainingTurns != previousRemainingTurns - 1) {
-                throw new IllegalArgumentException("status duration state change가 올바르지 않습니다.");
-            }
+            if (definitionId == null || definitionId.isBlank()) throw new IllegalArgumentException("status effect definitionId는 비어 있을 수 없습니다.");
+            if (previousRemainingTurns < 2 || nextRemainingTurns != previousRemainingTurns - 1) throw new IllegalArgumentException("status duration state change가 올바르지 않습니다.");
         }
     }
 
@@ -176,15 +135,21 @@ public record GameResult(
         public StatusEffectRemoved {
             Objects.requireNonNull(effect, "removed status effect는 필수입니다.");
             Objects.requireNonNull(reason, "status removal reason은 필수입니다.");
-            if (reason == StatusRemovalReason.EXPIRED && effect.remainingTurns() != 1) {
-                throw new IllegalArgumentException("만료 제거되는 status effect의 remainingTurns는 1이어야 합니다.");
-            }
+            if (reason == StatusRemovalReason.EXPIRED && effect.remainingTurns() != 1) throw new IllegalArgumentException("만료 제거되는 status effect의 remainingTurns는 1이어야 합니다.");
+        }
+    }
+
+    public record CombatEncounterChanged(
+            CombatEncounter previousEncounter,
+            CombatEncounter nextEncounter,
+            CombatChangeReason reason
+    ) implements StateChange {
+        public CombatEncounterChanged {
+            CombatRules.validateChange(previousEncounter, nextEncounter, reason);
         }
     }
 
     private static void validateItemReference(String itemId, String definitionId) {
-        if (itemId == null || itemId.isBlank() || definitionId == null || definitionId.isBlank()) {
-            throw new IllegalArgumentException("item state change 식별자가 올바르지 않습니다.");
-        }
+        if (itemId == null || itemId.isBlank() || definitionId == null || definitionId.isBlank()) throw new IllegalArgumentException("item state change 식별자가 올바르지 않습니다.");
     }
 }

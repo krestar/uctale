@@ -15,35 +15,23 @@ public class GameStateUpgrader {
         while (versionedState.schemaVersion() < GameStateSnapshotFormat.CURRENT_SCHEMA_VERSION) {
             versionedState = upgradeOneVersion(versionedState);
         }
+        validateCurrentShape(versionedState.state());
         return new UpgradedSnapshot(versionedState.schemaVersion(), versionedState.rulesetVersion(), versionedState.state());
     }
 
     private VersionedState readSourceVersion(JsonNode snapshotJson) {
-        if (snapshotJson == null || !snapshotJson.isObject()) {
-            throw new GameStateSnapshotException("GameState snapshot JSON object가 필요합니다.");
-        }
+        if (snapshotJson == null || !snapshotJson.isObject()) throw new GameStateSnapshotException("GameState snapshot JSON object가 필요합니다.");
         if (!snapshotJson.has("schemaVersion")) {
-            if (!looksLikeLegacyState(snapshotJson)) {
-                throw new GameStateSnapshotException("snapshot schemaVersion이 누락되었습니다.");
-            }
-            return new VersionedState(GameStateSnapshotFormat.LEGACY_SCHEMA_VERSION,
-                    GameStateSnapshotFormat.LEGACY_RULESET_VERSION, snapshotJson);
+            if (!looksLikeLegacyState(snapshotJson)) throw new GameStateSnapshotException("snapshot schemaVersion이 누락되었습니다.");
+            return new VersionedState(GameStateSnapshotFormat.LEGACY_SCHEMA_VERSION, GameStateSnapshotFormat.LEGACY_RULESET_VERSION, snapshotJson);
         }
-
         int schemaVersion = requiredInteger(snapshotJson, "schemaVersion");
-        if (schemaVersion > GameStateSnapshotFormat.CURRENT_SCHEMA_VERSION) {
-            throw new GameStateSnapshotException("지원하지 않는 미래 snapshot schemaVersion입니다: " + schemaVersion);
-        }
+        if (schemaVersion > GameStateSnapshotFormat.CURRENT_SCHEMA_VERSION) throw new GameStateSnapshotException("지원하지 않는 미래 snapshot schemaVersion입니다: " + schemaVersion);
         if (schemaVersion < 1) throw new GameStateSnapshotException("유효하지 않은 snapshot schemaVersion입니다: " + schemaVersion);
-
         int rulesetVersion = requiredInteger(snapshotJson, "rulesetVersion");
-        if (rulesetVersion != GameStateSnapshotFormat.CURRENT_RULESET_VERSION) {
-            throw new GameStateSnapshotException("지원하지 않는 snapshot rulesetVersion입니다: " + rulesetVersion);
-        }
+        if (rulesetVersion != GameStateSnapshotFormat.CURRENT_RULESET_VERSION) throw new GameStateSnapshotException("지원하지 않는 snapshot rulesetVersion입니다: " + rulesetVersion);
         JsonNode state = snapshotJson.get("state");
-        if (state == null || !state.isObject()) {
-            throw new GameStateSnapshotException("snapshot state가 누락되었거나 손상되었습니다.");
-        }
+        if (state == null || !state.isObject()) throw new GameStateSnapshotException("snapshot state가 누락되었거나 손상되었습니다.");
         return new VersionedState(schemaVersion, rulesetVersion, state);
     }
 
@@ -53,9 +41,8 @@ public class GameStateUpgrader {
             case 1 -> upgradeV1ToV2(source);
             case 2 -> upgradeV2ToV3(source);
             case 3 -> upgradeV3ToV4(source);
-            default -> throw new GameStateSnapshotException(
-                    "snapshot schemaVersion " + source.schemaVersion() + "의 다음 upgrade 경로가 없습니다."
-            );
+            case 4 -> upgradeV4ToV5(source);
+            default -> throw new GameStateSnapshotException("snapshot schemaVersion " + source.schemaVersion() + "의 다음 upgrade 경로가 없습니다.");
         };
     }
 
@@ -64,19 +51,11 @@ public class GameStateUpgrader {
     }
 
     private VersionedState upgradeV1ToV2(VersionedState source) {
-        if (!(source.state().deepCopy() instanceof ObjectNode state)) {
-            throw new GameStateSnapshotException("snapshot state가 object가 아닙니다.");
-        }
+        ObjectNode state = objectCopy(source.state());
         JsonNode playerNode = state.get("playerCharacter");
-        if (!(playerNode instanceof ObjectNode playerCharacter)) {
-            throw new GameStateSnapshotException("snapshot playerCharacter가 누락되었거나 손상되었습니다.");
-        }
-
+        if (!(playerNode instanceof ObjectNode playerCharacter)) throw new GameStateSnapshotException("snapshot playerCharacter가 누락되었거나 손상되었습니다.");
         JsonNode legacyStats = playerCharacter.get("stats");
-        if (legacyStats != null && !legacyStats.isObject()) {
-            throw new GameStateSnapshotException("snapshot playerCharacter.stats가 object가 아닙니다.");
-        }
-
+        if (legacyStats != null && !legacyStats.isObject()) throw new GameStateSnapshotException("snapshot playerCharacter.stats가 object가 아닙니다.");
         ObjectNode normalizedStats = JsonNodeFactory.instance.objectNode();
         normalizedStats.put("might", legacyScore(legacyStats, "MIGHT", "might"));
         normalizedStats.put("agility", legacyScore(legacyStats, "AGILITY", "agility"));
@@ -88,12 +67,8 @@ public class GameStateUpgrader {
     }
 
     private VersionedState upgradeV2ToV3(VersionedState source) {
-        if (!(source.state().deepCopy() instanceof ObjectNode state)) {
-            throw new GameStateSnapshotException("snapshot state가 object가 아닙니다.");
-        }
-        if (state.has("inventory")) {
-            throw new GameStateSnapshotException("schema v2 snapshot에는 inventory 필드가 정의되어 있지 않습니다.");
-        }
+        ObjectNode state = objectCopy(source.state());
+        if (state.has("inventory")) throw new GameStateSnapshotException("schema v2 snapshot에는 inventory 필드가 정의되어 있지 않습니다.");
         ObjectNode emptyInventory = JsonNodeFactory.instance.objectNode();
         emptyInventory.set("items", JsonNodeFactory.instance.objectNode());
         ObjectNode equipment = JsonNodeFactory.instance.objectNode();
@@ -104,22 +79,32 @@ public class GameStateUpgrader {
     }
 
     private VersionedState upgradeV3ToV4(VersionedState source) {
-        if (!(source.state().deepCopy() instanceof ObjectNode state)) {
-            throw new GameStateSnapshotException("snapshot state가 object가 아닙니다.");
-        }
+        ObjectNode state = objectCopy(source.state());
         JsonNode playerNode = state.get("playerCharacter");
-        if (!(playerNode instanceof ObjectNode playerCharacter)) {
-            throw new GameStateSnapshotException("snapshot playerCharacter가 누락되었거나 손상되었습니다.");
-        }
-        if (playerCharacter.has("vitals")) {
-            throw new GameStateSnapshotException("schema v3 snapshot에는 playerCharacter.vitals 필드가 정의되어 있지 않습니다.");
-        }
+        if (!(playerNode instanceof ObjectNode playerCharacter)) throw new GameStateSnapshotException("snapshot playerCharacter가 누락되었거나 손상되었습니다.");
+        if (playerCharacter.has("vitals")) throw new GameStateSnapshotException("schema v3 snapshot에는 playerCharacter.vitals 필드가 정의되어 있지 않습니다.");
         ObjectNode vitals = JsonNodeFactory.instance.objectNode();
         vitals.set("hp", fullPool(CharacterVitals.DEFAULT_MAX_HP));
         vitals.set("mp", fullPool(CharacterVitals.DEFAULT_MAX_MP));
         vitals.set("statusEffects", JsonNodeFactory.instance.objectNode());
         playerCharacter.set("vitals", vitals);
         return new VersionedState(4, source.rulesetVersion(), state);
+    }
+
+    private VersionedState upgradeV4ToV5(VersionedState source) {
+        ObjectNode state = objectCopy(source.state());
+        if (state.has("combatEncounter")) throw new GameStateSnapshotException("schema v4 snapshot에는 combatEncounter 필드가 정의되어 있지 않습니다.");
+        state.set("combatEncounter", JsonNodeFactory.instance.nullNode());
+        return new VersionedState(5, source.rulesetVersion(), state);
+    }
+
+    private void validateCurrentShape(JsonNode state) {
+        if (!state.has("combatEncounter")) throw new GameStateSnapshotException("현재 schema snapshot combatEncounter 필드가 누락되었습니다.");
+    }
+
+    private ObjectNode objectCopy(JsonNode state) {
+        if (!(state.deepCopy() instanceof ObjectNode copy)) throw new GameStateSnapshotException("snapshot state가 object가 아닙니다.");
+        return copy;
     }
 
     private ObjectNode fullPool(int max) {
@@ -136,30 +121,20 @@ public class GameStateUpgrader {
         if (value == null) return CharacterStats.DEFAULT_SCORE;
         if (!value.isIntegralNumber()) throw new GameStateSnapshotException("snapshot 능력치 " + enumKey + "가 정수가 아닙니다.");
         long score = value.asLong();
-        if (score < CharacterStats.MIN_SCORE || score > CharacterStats.MAX_SCORE) {
-            throw new GameStateSnapshotException("snapshot 능력치 " + enumKey + "가 허용 범위를 벗어났습니다: " + score);
-        }
+        if (score < CharacterStats.MIN_SCORE || score > CharacterStats.MAX_SCORE) throw new GameStateSnapshotException("snapshot 능력치 " + enumKey + "가 허용 범위를 벗어났습니다: " + score);
         return (int) score;
     }
 
     private boolean looksLikeLegacyState(JsonNode snapshotJson) {
-        return snapshotJson.has("turnNumber")
-                && snapshotJson.has("playerCharacter")
-                && snapshotJson.has("worldState")
-                && snapshotJson.has("storyMemory")
-                && !snapshotJson.has("rulesetVersion")
-                && !snapshotJson.has("state");
+        return snapshotJson.has("turnNumber") && snapshotJson.has("playerCharacter") && snapshotJson.has("worldState")
+                && snapshotJson.has("storyMemory") && !snapshotJson.has("rulesetVersion") && !snapshotJson.has("state");
     }
 
     private int requiredInteger(JsonNode snapshotJson, String fieldName) {
         JsonNode value = snapshotJson.get(fieldName);
-        if (value == null || !value.isIntegralNumber()) {
-            throw new GameStateSnapshotException("snapshot " + fieldName + "이 누락되었거나 정수가 아닙니다.");
-        }
+        if (value == null || !value.isIntegralNumber()) throw new GameStateSnapshotException("snapshot " + fieldName + "이 누락되었거나 정수가 아닙니다.");
         long version = value.asLong();
-        if (version < Integer.MIN_VALUE || version > Integer.MAX_VALUE) {
-            throw new GameStateSnapshotException("snapshot " + fieldName + "이 지원 범위를 벗어났습니다: " + version);
-        }
+        if (version < Integer.MIN_VALUE || version > Integer.MAX_VALUE) throw new GameStateSnapshotException("snapshot " + fieldName + "이 지원 범위를 벗어났습니다: " + version);
         return (int) version;
     }
 
