@@ -8,11 +8,11 @@ snapshot 구조는 `state_json` 내부에서 진화하고, 별도의 audit이 �
 
 ## 현재 snapshot 형식
 
-새 write는 schema `4`, ruleset `1`을 사용합니다.
+새 write는 schema `5`, ruleset `1`을 사용합니다.
 
 ```json
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "rulesetVersion": 1,
   "state": {
     "turnNumber": 1,
@@ -36,7 +36,8 @@ snapshot 구조는 `state_json` 내부에서 진화하고, 별도의 audit이 �
     "inventory": {
       "items": {},
       "equipment": {"slots": {}}
-    }
+    },
+    "combatEncounter": null
   }
 }
 ```
@@ -45,13 +46,13 @@ snapshot 구조는 `state_json` 내부에서 진화하고, 별도의 audit이 �
 - `rulesetVersion`: 저장 상태를 해석하는 결정적 게임 규칙 계약 version
 - `state`: canonical `GameState`
 
-schema와 ruleset version은 서로 다른 축입니다. typed stats, inventory aggregate, vitals/status aggregate 추가는 저장 JSON 구조 변경이므로 schema를 각각 2, 3, 4로 올렸지만 과거 결과를 새로운 규칙으로 재판정하지 않으므로 ruleset은 1을 유지합니다.
+schema와 ruleset version은 서로 다른 축입니다. typed stats, inventory aggregate, vitals/status aggregate, combat encounter aggregate 추가는 저장 JSON 구조 변경이므로 schema를 각각 2, 3, 4, 5로 올렸지만 과거 결과를 새로운 규칙으로 재판정하지 않으므로 ruleset은 1을 유지합니다.
 
 ## 지원 경로
 
 ### v0 raw GameState
 
-#31 이전 production 형식은 envelope 없이 `GameState` 자체를 저장했습니다. logical schema v0, legacy ruleset baseline 1로 취급합니다. v0은 v1, v2, v3, v4 순서로 한 단계씩 승격합니다.
+#31 이전 production 형식은 envelope 없이 `GameState` 자체를 저장했습니다. logical schema v0, legacy ruleset baseline 1로 취급합니다. v0은 v1, v2, v3, v4, v5 순서로 한 단계씩 승격합니다.
 
 ### v1 -> v2 typed stats
 
@@ -80,7 +81,16 @@ v3에는 vitals 의미가 존재하지 않았으므로 안전한 baseline만 명
 - schema v3에 `playerCharacter.vitals`가 이미 있으면 정의되지 않은 의미를 추정하지 않고 실패
 - 과거 prose에서 부상, 마나, 상태 효과를 추론하지 않음
 
-현재 schema v4에서 stats, inventory, vitals 등 필수 구조가 누락되거나 손상되면 legacy로 간주하지 않고 역직렬화 실패로 처리합니다.
+### v4 -> v5 Combat Encounter / EnemyState
+
+v4에는 combat encounter의 canonical 의미가 존재하지 않았으므로 `combatEncounter: null`만 명시적으로 추가합니다.
+
+- 기존 세션을 전투 중이었다고 추정하지 않음
+- 과거 story prose에서 enemy, 참가자, 사망, 현재 actor를 추론하지 않음
+- schema v4에 `combatEncounter`가 이미 있으면 정의되지 않은 의미를 canonical v5로 승격하지 않고 실패
+- 현재 schema v5에서는 `combatEncounter` 필드 자체가 필수이며 `null`은 명시적인 비전투 상태를 의미함
+
+현재 schema v5에서 stats, inventory, vitals, combatEncounter 등 필수 구조가 누락되거나 손상되면 legacy로 간주하지 않고 역직렬화/shape validation 실패로 처리합니다.
 
 ## read / write 정책
 
@@ -90,7 +100,7 @@ v3에는 vitals 의미가 존재하지 않았으므로 안전한 baseline만 명
 - **미지원 ruleset:** 자동 재판정하지 않고 명시적 실패
 - **손상 snapshot:** legacy raw state로 명확히 식별되지 않으면 명시적 실패
 
-읽기만으로 DB를 즉시 다시 쓰지 않습니다. read-time upgrade는 메모리에서만 수행하고, 다음 정상 canonical turn commit에서 최신 v4 envelope로 자연스럽게 재작성합니다.
+읽기만으로 DB를 즉시 다시 쓰지 않습니다. read-time upgrade는 메모리에서만 수행하고, 다음 정상 canonical turn commit에서 최신 v5 envelope로 자연스럽게 재작성합니다.
 
 ## GameLog state version과의 관계
 
@@ -100,11 +110,11 @@ v3에는 vitals 의미가 존재하지 않았으므로 안전한 baseline만 명
 
 서로 비교하거나 대체하지 않습니다.
 
-Inventory/equipment 변화는 `game_log.inventory_changes_json`, HP/MP/status 변화는 `game_log.vitals_changes_json`에 typed audit을 별도로 기록합니다. snapshot이 사라진 session은 이 audit들을 turn 순서대로 replay해 canonical 상태를 복구합니다. legacy/opening log의 audit `NULL`은 변화 없음입니다.
+Inventory/equipment 변화는 `game_log.inventory_changes_json`, HP/MP/status 변화는 `game_log.vitals_changes_json`, combat lifecycle/participant/current actor 변화는 `game_log.combat_changes_json`에 typed audit을 별도로 기록합니다. snapshot이 사라진 session은 이 audit들을 turn 순서대로 replay해 canonical 상태를 복구합니다. legacy/opening log의 audit `NULL`은 변화 없음입니다.
 
 ## snapshot 없는 session
 
-snapshot이 없으면 append-only `GameLog`를 통해 `GameStateRecovery`가 현재 상태를 복구합니다. legacy log에는 신규 audit이 없으므로 기본 inventory/vitals에서 시작하고, audit이 있는 turn부터 typed state change를 replay합니다. 복구 뒤 다음 정상 write에서 schema v4 snapshot이 생성됩니다.
+snapshot이 없으면 append-only `GameLog`를 통해 `GameStateRecovery`가 현재 상태를 복구합니다. legacy log에는 신규 audit이 없으므로 기본 inventory/vitals와 no-combat에서 시작하고, audit이 있는 turn부터 typed state change를 replay합니다. 복구 뒤 다음 정상 write에서 schema v5 snapshot이 생성됩니다.
 
 ## 향후 규칙
 

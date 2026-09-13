@@ -2,6 +2,8 @@ package com.uctale.uctale.application.game;
 
 import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.domain.game.CharacterVitals;
+import com.uctale.uctale.domain.game.CombatEncounter;
+import com.uctale.uctale.domain.game.CombatRules;
 import com.uctale.uctale.domain.game.GameResult;
 import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.domain.game.Inventory;
@@ -45,11 +47,15 @@ public record GameTurnCommit(
         if (!replayedInventory.equals(stateTransition.nextState().inventory())) {
             throw new IllegalArgumentException("stateChanges의 inventory audit이 StateTransition과 일치하지 않습니다.");
         }
-        CharacterVitals replayedVitals = VitalsRules.replay(
-                stateTransition.previousState().playerCharacter().vitals(), stateChanges
-        );
+        CharacterVitals replayedVitals = VitalsRules.replay(stateTransition.previousState().playerCharacter().vitals(), stateChanges);
         if (!replayedVitals.equals(stateTransition.nextState().playerCharacter().vitals())) {
             throw new IllegalArgumentException("stateChanges의 vitals/status audit이 StateTransition과 일치하지 않습니다.");
+        }
+        CombatEncounter replayedCombat = CombatRules.replay(
+                stateTransition.previousState().combatEncounter(), stateChanges, replayedVitals
+        );
+        if (!java.util.Objects.equals(replayedCombat, stateTransition.nextState().combatEncounter())) {
+            throw new IllegalArgumentException("stateChanges의 combat audit이 StateTransition과 일치하지 않습니다.");
         }
     }
 
@@ -89,8 +95,6 @@ public record GameTurnCommit(
 
     private static void validateLinkId(String name, String value) {
         if (value == null) return;
-        if (value.isBlank() || value.length() > MAX_LINK_ID_LENGTH) {
-            throw new IllegalArgumentException(name + "가 올바르지 않습니다.");
-        }
+        if (value.isBlank() || value.length() > MAX_LINK_ID_LENGTH) throw new IllegalArgumentException(name + "가 올바르지 않습니다.");
     }
 }

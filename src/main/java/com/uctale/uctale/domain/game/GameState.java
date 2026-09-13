@@ -5,7 +5,8 @@ public record GameState(
         PlayerCharacter playerCharacter,
         WorldState worldState,
         StoryMemory storyMemory,
-        Inventory inventory
+        Inventory inventory,
+        CombatEncounter combatEncounter
 ) {
     public GameState {
         if (turnNumber < 1) {
@@ -14,6 +15,19 @@ public record GameState(
         if (playerCharacter == null || worldState == null || storyMemory == null || inventory == null) {
             throw new IllegalArgumentException("GameState 구성 요소는 null일 수 없습니다.");
         }
+        if (combatEncounter != null) {
+            CombatRules.validateState(combatEncounter, playerCharacter.vitals());
+        }
+    }
+
+    public GameState(
+            int turnNumber,
+            PlayerCharacter playerCharacter,
+            WorldState worldState,
+            StoryMemory storyMemory,
+            Inventory inventory
+    ) {
+        this(turnNumber, playerCharacter, worldState, storyMemory, inventory, null);
     }
 
     public GameState(
@@ -22,7 +36,7 @@ public record GameState(
             WorldState worldState,
             StoryMemory storyMemory
     ) {
-        this(turnNumber, playerCharacter, worldState, storyMemory, Inventory.empty());
+        this(turnNumber, playerCharacter, worldState, storyMemory, Inventory.empty(), null);
     }
 
     public static GameState initial(String worldSetting, String characterSetting, String openingStory) {
@@ -31,7 +45,8 @@ public record GameState(
                 PlayerCharacter.initial(characterSetting),
                 WorldState.initial(worldSetting),
                 StoryMemory.initial(worldSetting, characterSetting, openingStory),
-                Inventory.empty()
+                Inventory.empty(),
+                null
         );
     }
 
@@ -39,19 +54,35 @@ public record GameState(
         if (nextInventory == null) {
             throw new IllegalArgumentException("inventory는 null일 수 없습니다.");
         }
-        return new GameState(turnNumber, playerCharacter, worldState, storyMemory, nextInventory);
+        return new GameState(turnNumber, playerCharacter, worldState, storyMemory, nextInventory, combatEncounter);
     }
 
     public GameState withPlayerVitals(CharacterVitals nextVitals) {
         if (nextVitals == null) {
             throw new IllegalArgumentException("player vitals는 null일 수 없습니다.");
         }
+        return withRuleState(inventory, nextVitals, combatEncounter);
+    }
+
+    public GameState withCombatEncounter(CombatEncounter nextCombatEncounter) {
+        return withRuleState(inventory, playerCharacter.vitals(), nextCombatEncounter);
+    }
+
+    public GameState withRuleState(
+            Inventory nextInventory,
+            CharacterVitals nextVitals,
+            CombatEncounter nextCombatEncounter
+    ) {
+        if (nextInventory == null || nextVitals == null) {
+            throw new IllegalArgumentException("rule state 구성 요소는 null일 수 없습니다.");
+        }
         return new GameState(
                 turnNumber,
                 playerCharacter.withVitals(nextVitals),
                 worldState,
                 storyMemory,
-                inventory
+                nextInventory,
+                nextCombatEncounter
         );
     }
 
@@ -61,7 +92,8 @@ public record GameState(
                 playerCharacter,
                 worldState,
                 storyMemory,
-                inventory
+                inventory,
+                combatEncounter
         );
     }
 
@@ -75,7 +107,8 @@ public record GameState(
                 playerCharacter,
                 worldState,
                 storyMemory.append(new GameTurn(turnNumber, playerAction, storyText)),
-                inventory
+                inventory,
+                combatEncounter
         );
     }
 

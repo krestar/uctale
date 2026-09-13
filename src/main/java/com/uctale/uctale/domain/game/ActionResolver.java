@@ -20,9 +20,7 @@ public final class ActionResolver {
 
     public SkillCheckResult rollSkillCheck(GameState state, PlayerAction action, RandomSource randomSource) {
         validateBase(state, action);
-        if (action.type() != ActionType.SKILL_CHECK) {
-            throw new IllegalArgumentException("Skill Check가 필요하지 않은 action입니다.");
-        }
+        if (action.type() != ActionType.SKILL_CHECK) throw new IllegalArgumentException("Skill Check가 필요하지 않은 action입니다.");
         SkillCheck skillCheck = parseSkillCheck(action);
         return skillCheck.resolve(state.playerCharacter().stats(), randomSource);
     }
@@ -39,17 +37,11 @@ public final class ActionResolver {
         return resolveWithEffects(state, action, List.of(), vitalsCommands);
     }
 
-    public TurnResolution resolveWithEffects(
-            GameState state,
-            PlayerAction action,
-            List<InventoryCommand> inventoryCommands,
-            List<VitalsCommand> vitalsCommands
-    ) {
+    public TurnResolution resolveWithEffects(GameState state, PlayerAction action,
+            List<InventoryCommand> inventoryCommands, List<VitalsCommand> vitalsCommands) {
         validateBase(state, action);
-        if (action.type() == ActionType.SKILL_CHECK) {
-            throw new IllegalArgumentException("SKILL_CHECK action에는 서버가 확정한 SkillCheckResult가 필요합니다.");
-        }
-        validateNarrativeChoice(action);
+        if (action.type() == ActionType.SKILL_CHECK) throw new IllegalArgumentException("SKILL_CHECK action에는 서버가 확정한 SkillCheckResult가 필요합니다.");
+        validateActionArguments(state, action);
         return resolved(state, action, null, inventoryCommands, vitalsCommands);
     }
 
@@ -57,37 +49,22 @@ public final class ActionResolver {
         return resolveWithEffects(state, action, skillCheckResult, List.of(), List.of());
     }
 
-    public TurnResolution resolveWithInventory(
-            GameState state,
-            PlayerAction action,
-            SkillCheckResult skillCheckResult,
-            List<InventoryCommand> inventoryCommands
-    ) {
+    public TurnResolution resolveWithInventory(GameState state, PlayerAction action, SkillCheckResult skillCheckResult,
+            List<InventoryCommand> inventoryCommands) {
         return resolveWithEffects(state, action, skillCheckResult, inventoryCommands, List.of());
     }
 
-    public TurnResolution resolveWithVitals(
-            GameState state,
-            PlayerAction action,
-            SkillCheckResult skillCheckResult,
-            List<VitalsCommand> vitalsCommands
-    ) {
+    public TurnResolution resolveWithVitals(GameState state, PlayerAction action, SkillCheckResult skillCheckResult,
+            List<VitalsCommand> vitalsCommands) {
         return resolveWithEffects(state, action, skillCheckResult, List.of(), vitalsCommands);
     }
 
-    public TurnResolution resolveWithEffects(
-            GameState state,
-            PlayerAction action,
-            SkillCheckResult skillCheckResult,
-            List<InventoryCommand> inventoryCommands,
-            List<VitalsCommand> vitalsCommands
-    ) {
+    public TurnResolution resolveWithEffects(GameState state, PlayerAction action, SkillCheckResult skillCheckResult,
+            List<InventoryCommand> inventoryCommands, List<VitalsCommand> vitalsCommands) {
         validateBase(state, action);
         if (action.type() != ActionType.SKILL_CHECK) {
-            if (skillCheckResult != null) {
-                throw new IllegalArgumentException("Skill Check가 아닌 action에 판정 결과를 연결할 수 없습니다.");
-            }
-            validateNarrativeChoice(action);
+            if (skillCheckResult != null) throw new IllegalArgumentException("Skill Check가 아닌 action에 판정 결과를 연결할 수 없습니다.");
+            validateActionArguments(state, action);
             return resolved(state, action, null, inventoryCommands, vitalsCommands);
         }
         Objects.requireNonNull(skillCheckResult, "SkillCheckResult는 필수입니다.");
@@ -96,40 +73,51 @@ public final class ActionResolver {
         return resolved(state, action, skillCheckResult, inventoryCommands, vitalsCommands);
     }
 
-    private TurnResolution resolved(
-            GameState state,
-            PlayerAction action,
-            SkillCheckResult skillCheckResult,
-            List<InventoryCommand> inventoryCommands,
-            List<VitalsCommand> vitalsCommands
-    ) {
+    private TurnResolution resolved(GameState state, PlayerAction action, SkillCheckResult skillCheckResult,
+            List<InventoryCommand> inventoryCommands, List<VitalsCommand> vitalsCommands) {
         InventoryRules.Result inventoryResult = inventoryRules.apply(state.inventory(), inventoryCommands);
-        VitalsRules.Result vitalsResult = vitalsRules.apply(
-                state.playerCharacter().vitals(),
-                withTurnEndTiming(vitalsCommands)
-        );
-        GameState nextState = state
-                .withInventory(inventoryResult.inventory())
-                .withPlayerVitals(vitalsResult.vitals())
-                .advanceTurn();
+        VitalsRules.Result vitalsResult = vitalsRules.apply(state.playerCharacter().vitals(), withTurnEndTiming(vitalsCommands));
+
+        CombatEncounter nextCombat = state.combatEncounter();
+        List<GameResult.StateChange> combatChanges = List.of();
+        if (action.type() == ActionType.COMBAT_PASS) {
+            CombatRules.Result result = CombatRules.advanceActor(nextCombat, vitalsResult.vitals());
+            nextCombat = result.encounter();
+            combatChanges = result.stateChanges();
+        } else if (action.type() == ActionType.COMBAT_ESCAPE) {
+            CombatRules.Result result = CombatRules.escape(nextCombat, vitalsResult.vitals());
+            nextCombat = result.encounter();
+            combatChanges = result.stateChanges();
+        } else if (nextCombat != null && nextCombat.active()) {
+            CombatRules.Result reconciliation = reconcilePlayerVitals(nextCombat, vitalsResult.vitals());
+            if (reconciliation != null) {
+                nextCombat = reconciliation.encounter();
+                combatChanges = reconciliation.stateChanges();
+            }
+        }
+
+        GameState nextState = state.withRuleState(inventoryResult.inventory(), vitalsResult.vitals(), nextCombat).advanceTurn();
         List<GameResult.GameEvent> events = new ArrayList<>();
         events.add(GameResult.GameEvent.ACTION_RESOLVED);
-        if (skillCheckResult != null) {
-            events.add(GameResult.GameEvent.SKILL_CHECK_RESOLVED);
-        }
+        if (skillCheckResult != null) events.add(GameResult.GameEvent.SKILL_CHECK_RESOLVED);
+        if (isCombatAction(action.type())) events.add(GameResult.GameEvent.COMBAT_ACTION_RESOLVED);
+        if (!combatChanges.isEmpty()) events.add(GameResult.GameEvent.COMBAT_ENCOUNTER_CHANGED);
+
         List<GameResult.StateChange> stateChanges = new ArrayList<>(inventoryResult.stateChanges());
         stateChanges.addAll(vitalsResult.stateChanges());
+        stateChanges.addAll(combatChanges);
         stateChanges.add(new GameResult.TurnAdvanced(state.turnNumber(), nextState.turnNumber()));
-        GameResult result = new GameResult(
-                action,
-                GameResult.Outcome.RESOLVED,
-                skillCheckResult,
-                List.of(),
-                events,
-                stateChanges,
-                List.of(action.displayText())
-        );
+        GameResult result = new GameResult(action, GameResult.Outcome.RESOLVED, skillCheckResult, List.of(), events,
+                stateChanges, List.of(action.displayText()));
         return new TurnResolution(result, new StateTransition(state, nextState));
+    }
+
+    private CombatRules.Result reconcilePlayerVitals(CombatEncounter encounter, CharacterVitals nextVitals) {
+        if (CombatRules.shouldResolve(nextVitals, encounter.enemies())) return CombatRules.resolve(encounter, nextVitals);
+        if (CombatEncounter.PLAYER_ACTOR_ID.equals(encounter.currentActorId()) && nextVitals.incapacitated()) {
+            return CombatRules.advanceActor(encounter, nextVitals);
+        }
+        return null;
     }
 
     private List<VitalsCommand> withTurnEndTiming(List<VitalsCommand> commands) {
@@ -137,9 +125,7 @@ public final class ActionResolver {
         if (commands != null) {
             for (VitalsCommand command : commands) {
                 Objects.requireNonNull(command, "vitals command는 null일 수 없습니다.");
-                if (command instanceof VitalsCommand.AdvanceStatusDurations) {
-                    throw new IllegalArgumentException("status duration timing은 ActionResolver가 소유합니다.");
-                }
+                if (command instanceof VitalsCommand.AdvanceStatusDurations) throw new IllegalArgumentException("status duration timing은 ActionResolver가 소유합니다.");
                 result.add(command);
             }
         }
@@ -150,28 +136,50 @@ public final class ActionResolver {
     private void validateBase(GameState state, PlayerAction action) {
         Objects.requireNonNull(state, "GameState는 필수입니다.");
         Objects.requireNonNull(action, "PlayerAction은 필수입니다.");
-        if (action.sourceTurn() != state.turnNumber()) {
-            throw new IllegalArgumentException("PlayerAction source turn이 현재 GameState와 일치하지 않습니다.");
-        }
-        if (action.type() != ActionType.NARRATIVE_CHOICE && action.type() != ActionType.SKILL_CHECK) {
+        if (action.sourceTurn() != state.turnNumber()) throw new IllegalArgumentException("PlayerAction source turn이 현재 GameState와 일치하지 않습니다.");
+        if (action.type() != ActionType.NARRATIVE_CHOICE && action.type() != ActionType.SKILL_CHECK && !isCombatAction(action.type())) {
             throw new IllegalArgumentException("지원하지 않는 action type입니다: " + action.type());
         }
+        CombatEncounter encounter = state.combatEncounter();
+        if (encounter != null && encounter.active() && !isCombatAction(action.type())) {
+            throw new IllegalArgumentException("활성 combat encounter에서는 combat action만 실행할 수 있습니다.");
+        }
+        if (isCombatAction(action.type())) validateActivePlayerTurn(state);
+    }
+
+    private void validateActionArguments(GameState state, PlayerAction action) {
+        if (action.type() == ActionType.NARRATIVE_CHOICE) validateNarrativeChoice(action);
+        else if (isCombatAction(action.type())) validateCombatAction(state, action);
+    }
+
+    private void validateActivePlayerTurn(GameState state) {
+        CombatEncounter encounter = state.combatEncounter();
+        if (encounter == null || !encounter.active()) throw new IllegalArgumentException("활성 combat encounter가 필요합니다.");
+        if (!CombatEncounter.PLAYER_ACTOR_ID.equals(encounter.currentActorId())) throw new IllegalArgumentException("현재 combat actor가 player가 아닙니다.");
+        if (state.playerCharacter().vitals().incapacitated()) throw new IllegalArgumentException("행동 불가능한 player는 combat action을 실행할 수 없습니다.");
+    }
+
+    private void validateCombatAction(GameState state, PlayerAction action) {
+        Map<String, String> arguments = action.arguments();
+        CombatEncounter encounter = state.combatEncounter();
+        if (arguments.size() != 1 || encounter == null || !encounter.encounterId().equals(arguments.get("encounterId"))) {
+            throw new IllegalArgumentException("combat action arguments가 현재 encounter와 일치하지 않습니다.");
+        }
+    }
+
+    private boolean isCombatAction(ActionType type) {
+        return type == ActionType.COMBAT_PASS || type == ActionType.COMBAT_ESCAPE;
     }
 
     private void validateNarrativeChoice(PlayerAction action) {
         Map<String, String> arguments = action.arguments();
         String choiceId = arguments.get("choiceId");
-        if (arguments.size() != 1 || !Integer.toString(action.legacyChoiceId()).equals(choiceId)) {
-            throw new IllegalArgumentException("NARRATIVE_CHOICE arguments가 action과 일치하지 않습니다.");
-        }
+        if (arguments.size() != 1 || !Integer.toString(action.legacyChoiceId()).equals(choiceId)) throw new IllegalArgumentException("NARRATIVE_CHOICE arguments가 action과 일치하지 않습니다.");
     }
 
     private SkillCheck parseSkillCheck(PlayerAction action) {
         Map<String, String> arguments = action.arguments();
-        if (arguments.size() != 4
-                || !Integer.toString(action.legacyChoiceId()).equals(arguments.get("choiceId"))) {
-            throw new IllegalArgumentException("SKILL_CHECK arguments가 action과 일치하지 않습니다.");
-        }
+        if (arguments.size() != 4 || !Integer.toString(action.legacyChoiceId()).equals(arguments.get("choiceId"))) throw new IllegalArgumentException("SKILL_CHECK arguments가 action과 일치하지 않습니다.");
         try {
             StatType statType = StatType.valueOf(arguments.get("statType"));
             int dc = Integer.parseInt(arguments.get("dc"));
@@ -182,19 +190,10 @@ public final class ActionResolver {
         }
     }
 
-    private void validateSkillCheckResult(
-            GameState state,
-            SkillCheck skillCheck,
-            SkillCheckResult result
-    ) {
-        if (result.statType() != skillCheck.statType()
-                || result.dc() != skillCheck.difficulty().dc()
-                || result.situationalModifier() != skillCheck.situationalModifier()) {
-            throw new IllegalArgumentException("저장된 Skill Check 결과가 action 규칙과 일치하지 않습니다.");
-        }
+    private void validateSkillCheckResult(GameState state, SkillCheck skillCheck, SkillCheckResult result) {
+        if (result.statType() != skillCheck.statType() || result.dc() != skillCheck.difficulty().dc()
+                || result.situationalModifier() != skillCheck.situationalModifier()) throw new IllegalArgumentException("저장된 Skill Check 결과가 action 규칙과 일치하지 않습니다.");
         int expectedStatModifier = state.playerCharacter().stats().modifier(skillCheck.statType());
-        if (result.statModifier() != expectedStatModifier) {
-            throw new IllegalArgumentException("저장된 Skill Check 결과가 현재 canonical 능력치와 일치하지 않습니다.");
-        }
+        if (result.statModifier() != expectedStatModifier) throw new IllegalArgumentException("저장된 Skill Check 결과가 현재 canonical 능력치와 일치하지 않습니다.");
     }
 }
