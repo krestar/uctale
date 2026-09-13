@@ -54,7 +54,7 @@ class PostgresVitalsPersistenceTest extends PostgresIntegrationTestSupport {
         String auditJson = jdbcTemplate.queryForObject("select vitals_changes_json from game_log where session_id = ? and turn_number = 2", String.class, session.getId());
         assertThat(auditJson).contains("VITALS_CHANGED").contains("STATUS_EFFECT_APPLIED");
         JsonNode snapshot = objectMapper.readTree(jdbcTemplate.queryForObject("select state_json from game_state_snapshot where session_id = ?", String.class, session.getId()));
-        assertThat(snapshot.get("schemaVersion").asInt()).isEqualTo(5);
+        assertThat(snapshot.get("schemaVersion").asInt()).isEqualTo(6);
         assertThat(snapshot.get("state").get("playerCharacter").get("vitals").get("hp").get("current").asInt()).isEqualTo(6);
         assertThatThrownBy(() -> persistenceService.saveNextTurn(OWNER_KEY, session.getId(), commit)).isInstanceOf(TurnConflictException.class);
         jdbcTemplate.update("delete from game_state_snapshot where session_id = ?", session.getId());

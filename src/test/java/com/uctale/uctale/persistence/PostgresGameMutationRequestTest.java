@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -19,9 +20,12 @@ class PostgresGameMutationRequestTest extends PostgresIntegrationTestSupport {
 
     @Autowired
     private GameMutationRequestRepository repository;
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @BeforeEach
     void cleanUp() {
+        jdbcTemplate.update("DELETE FROM game_turn_reservation");
         repository.deleteAll();
     }
 
