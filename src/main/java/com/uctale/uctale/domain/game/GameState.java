@@ -42,6 +42,19 @@ public record GameState(
         return new GameState(turnNumber, playerCharacter, worldState, storyMemory, nextInventory);
     }
 
+    public GameState withPlayerVitals(CharacterVitals nextVitals) {
+        if (nextVitals == null) {
+            throw new IllegalArgumentException("player vitals는 null일 수 없습니다.");
+        }
+        return new GameState(
+                turnNumber,
+                playerCharacter.withVitals(nextVitals),
+                worldState,
+                storyMemory,
+                inventory
+        );
+    }
+
     public GameState advanceTurn() {
         return new GameState(
                 turnNumber + 1,

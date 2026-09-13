@@ -4,6 +4,7 @@ import com.uctale.uctale.domain.GameLog;
 import com.uctale.uctale.domain.GameSession;
 import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.domain.game.InventoryRules;
+import com.uctale.uctale.domain.game.VitalsRules;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -12,15 +13,15 @@ import java.util.List;
 public class GameStateRecovery {
 
     private final InventoryAuditCodec inventoryAuditCodec;
+    private final VitalsAuditCodec vitalsAuditCodec;
 
-    public GameStateRecovery(InventoryAuditCodec inventoryAuditCodec) {
+    public GameStateRecovery(InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec) {
         this.inventoryAuditCodec = inventoryAuditCodec;
+        this.vitalsAuditCodec = vitalsAuditCodec;
     }
 
     public GameState recover(GameSession session, List<GameLog> logs) {
-        if (logs.isEmpty()) {
-            throw new IllegalStateException("GameState를 복구할 게임 로그가 없습니다.");
-        }
+        if (logs.isEmpty()) throw new IllegalStateException("GameState를 복구할 게임 로그가 없습니다.");
 
         GameLog opening = logs.getFirst();
         if (opening.getTurnNumber() != 1 || opening.getPreviousStateVersion() != 0 || opening.getStateVersion() != 1) {
@@ -29,12 +30,11 @@ public class GameStateRecovery {
         if (!inventoryAuditCodec.deserialize(opening.getInventoryChangesJson()).isEmpty()) {
             throw new IllegalStateException("Opening GameLog에는 inventory state change가 있을 수 없습니다.");
         }
+        if (!vitalsAuditCodec.deserialize(opening.getVitalsChangesJson()).isEmpty()) {
+            throw new IllegalStateException("Opening GameLog에는 vitals/status state change가 있을 수 없습니다.");
+        }
 
-        GameState state = GameState.initial(
-                session.getWorldSetting(),
-                session.getCharacterSetting(),
-                opening.getStoryText()
-        );
+        GameState state = GameState.initial(session.getWorldSetting(), session.getCharacterSetting(), opening.getStoryText());
         for (int i = 1; i < logs.size(); i++) {
             GameLog log = logs.get(i);
             if (log.getTurnNumber() != state.turnNumber() + 1
@@ -45,8 +45,10 @@ public class GameStateRecovery {
                 throw new IllegalStateException("GameLog state transition을 복구할 수 없습니다.");
             }
             state = state.withInventory(InventoryRules.replay(
-                    state.inventory(),
-                    inventoryAuditCodec.deserialize(log.getInventoryChangesJson())
+                    state.inventory(), inventoryAuditCodec.deserialize(log.getInventoryChangesJson())
+            ));
+            state = state.withPlayerVitals(VitalsRules.replay(
+                    state.playerCharacter().vitals(), vitalsAuditCodec.deserialize(log.getVitalsChangesJson())
             ));
             state = state.advance(log.getInputChoiceText(), log.getStoryText());
         }

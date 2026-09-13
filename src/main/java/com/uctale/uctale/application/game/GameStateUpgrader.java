@@ -1,6 +1,7 @@
 package com.uctale.uctale.application.game;
 
 import com.uctale.uctale.domain.game.CharacterStats;
+import com.uctale.uctale.domain.game.CharacterVitals;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.JsonNodeFactory;
@@ -14,36 +15,26 @@ public class GameStateUpgrader {
         while (versionedState.schemaVersion() < GameStateSnapshotFormat.CURRENT_SCHEMA_VERSION) {
             versionedState = upgradeOneVersion(versionedState);
         }
-        return new UpgradedSnapshot(
-                versionedState.schemaVersion(),
-                versionedState.rulesetVersion(),
-                versionedState.state()
-        );
+        return new UpgradedSnapshot(versionedState.schemaVersion(), versionedState.rulesetVersion(), versionedState.state());
     }
 
     private VersionedState readSourceVersion(JsonNode snapshotJson) {
         if (snapshotJson == null || !snapshotJson.isObject()) {
             throw new GameStateSnapshotException("GameState snapshot JSON object가 필요합니다.");
         }
-
         if (!snapshotJson.has("schemaVersion")) {
             if (!looksLikeLegacyState(snapshotJson)) {
                 throw new GameStateSnapshotException("snapshot schemaVersion이 누락되었습니다.");
             }
-            return new VersionedState(
-                    GameStateSnapshotFormat.LEGACY_SCHEMA_VERSION,
-                    GameStateSnapshotFormat.LEGACY_RULESET_VERSION,
-                    snapshotJson
-            );
+            return new VersionedState(GameStateSnapshotFormat.LEGACY_SCHEMA_VERSION,
+                    GameStateSnapshotFormat.LEGACY_RULESET_VERSION, snapshotJson);
         }
 
         int schemaVersion = requiredInteger(snapshotJson, "schemaVersion");
         if (schemaVersion > GameStateSnapshotFormat.CURRENT_SCHEMA_VERSION) {
             throw new GameStateSnapshotException("지원하지 않는 미래 snapshot schemaVersion입니다: " + schemaVersion);
         }
-        if (schemaVersion < 1) {
-            throw new GameStateSnapshotException("유효하지 않은 snapshot schemaVersion입니다: " + schemaVersion);
-        }
+        if (schemaVersion < 1) throw new GameStateSnapshotException("유효하지 않은 snapshot schemaVersion입니다: " + schemaVersion);
 
         int rulesetVersion = requiredInteger(snapshotJson, "rulesetVersion");
         if (rulesetVersion != GameStateSnapshotFormat.CURRENT_RULESET_VERSION) {
@@ -61,6 +52,7 @@ public class GameStateUpgrader {
             case GameStateSnapshotFormat.LEGACY_SCHEMA_VERSION -> upgradeV0ToV1(source);
             case 1 -> upgradeV1ToV2(source);
             case 2 -> upgradeV2ToV3(source);
+            case 3 -> upgradeV3ToV4(source);
             default -> throw new GameStateSnapshotException(
                     "snapshot schemaVersion " + source.schemaVersion() + "의 다음 upgrade 경로가 없습니다."
             );
@@ -92,7 +84,6 @@ public class GameStateUpgrader {
         normalizedStats.put("will", legacyScore(legacyStats, "WILL", "will"));
         normalizedStats.put("presence", legacyScore(legacyStats, "PRESENCE", "presence"));
         playerCharacter.set("stats", normalizedStats);
-
         return new VersionedState(2, source.rulesetVersion(), state);
     }
 
@@ -103,7 +94,6 @@ public class GameStateUpgrader {
         if (state.has("inventory")) {
             throw new GameStateSnapshotException("schema v2 snapshot에는 inventory 필드가 정의되어 있지 않습니다.");
         }
-
         ObjectNode emptyInventory = JsonNodeFactory.instance.objectNode();
         emptyInventory.set("items", JsonNodeFactory.instance.objectNode());
         ObjectNode equipment = JsonNodeFactory.instance.objectNode();
@@ -113,20 +103,38 @@ public class GameStateUpgrader {
         return new VersionedState(3, source.rulesetVersion(), state);
     }
 
+    private VersionedState upgradeV3ToV4(VersionedState source) {
+        if (!(source.state().deepCopy() instanceof ObjectNode state)) {
+            throw new GameStateSnapshotException("snapshot state가 object가 아닙니다.");
+        }
+        JsonNode playerNode = state.get("playerCharacter");
+        if (!(playerNode instanceof ObjectNode playerCharacter)) {
+            throw new GameStateSnapshotException("snapshot playerCharacter가 누락되었거나 손상되었습니다.");
+        }
+        if (playerCharacter.has("vitals")) {
+            throw new GameStateSnapshotException("schema v3 snapshot에는 playerCharacter.vitals 필드가 정의되어 있지 않습니다.");
+        }
+        ObjectNode vitals = JsonNodeFactory.instance.objectNode();
+        vitals.set("hp", fullPool(CharacterVitals.DEFAULT_MAX_HP));
+        vitals.set("mp", fullPool(CharacterVitals.DEFAULT_MAX_MP));
+        vitals.set("statusEffects", JsonNodeFactory.instance.objectNode());
+        playerCharacter.set("vitals", vitals);
+        return new VersionedState(4, source.rulesetVersion(), state);
+    }
+
+    private ObjectNode fullPool(int max) {
+        ObjectNode pool = JsonNodeFactory.instance.objectNode();
+        pool.put("current", max);
+        pool.put("max", max);
+        return pool;
+    }
+
     private int legacyScore(JsonNode stats, String enumKey, String fieldKey) {
-        if (stats == null) {
-            return CharacterStats.DEFAULT_SCORE;
-        }
+        if (stats == null) return CharacterStats.DEFAULT_SCORE;
         JsonNode value = stats.get(fieldKey);
-        if (value == null) {
-            value = stats.get(enumKey);
-        }
-        if (value == null) {
-            return CharacterStats.DEFAULT_SCORE;
-        }
-        if (!value.isIntegralNumber()) {
-            throw new GameStateSnapshotException("snapshot 능력치 " + enumKey + "가 정수가 아닙니다.");
-        }
+        if (value == null) value = stats.get(enumKey);
+        if (value == null) return CharacterStats.DEFAULT_SCORE;
+        if (!value.isIntegralNumber()) throw new GameStateSnapshotException("snapshot 능력치 " + enumKey + "가 정수가 아닙니다.");
         long score = value.asLong();
         if (score < CharacterStats.MIN_SCORE || score > CharacterStats.MAX_SCORE) {
             throw new GameStateSnapshotException("snapshot 능력치 " + enumKey + "가 허용 범위를 벗어났습니다: " + score);
@@ -155,9 +163,6 @@ public class GameStateUpgrader {
         return (int) version;
     }
 
-    private record VersionedState(int schemaVersion, int rulesetVersion, JsonNode state) {
-    }
-
-    public record UpgradedSnapshot(int schemaVersion, int rulesetVersion, JsonNode state) {
-    }
+    private record VersionedState(int schemaVersion, int rulesetVersion, JsonNode state) {}
+    public record UpgradedSnapshot(int schemaVersion, int rulesetVersion, JsonNode state) {}
 }

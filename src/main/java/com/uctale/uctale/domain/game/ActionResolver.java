@@ -11,6 +11,7 @@ import java.util.Objects;
 public final class ActionResolver {
 
     private final InventoryRules inventoryRules = new InventoryRules();
+    private final VitalsRules vitalsRules = new VitalsRules();
 
     public boolean requiresSkillCheck(PlayerAction action) {
         Objects.requireNonNull(action, "PlayerAction은 필수입니다.");
@@ -27,20 +28,33 @@ public final class ActionResolver {
     }
 
     public TurnResolution resolve(GameState state, PlayerAction action) {
-        return resolveWithInventory(state, action, List.of());
+        return resolveWithEffects(state, action, List.of(), List.of());
     }
 
     public TurnResolution resolveWithInventory(GameState state, PlayerAction action, List<InventoryCommand> inventoryCommands) {
+        return resolveWithEffects(state, action, inventoryCommands, List.of());
+    }
+
+    public TurnResolution resolveWithVitals(GameState state, PlayerAction action, List<VitalsCommand> vitalsCommands) {
+        return resolveWithEffects(state, action, List.of(), vitalsCommands);
+    }
+
+    public TurnResolution resolveWithEffects(
+            GameState state,
+            PlayerAction action,
+            List<InventoryCommand> inventoryCommands,
+            List<VitalsCommand> vitalsCommands
+    ) {
         validateBase(state, action);
         if (action.type() == ActionType.SKILL_CHECK) {
             throw new IllegalArgumentException("SKILL_CHECK action에는 서버가 확정한 SkillCheckResult가 필요합니다.");
         }
         validateNarrativeChoice(action);
-        return resolved(state, action, null, inventoryCommands);
+        return resolved(state, action, null, inventoryCommands, vitalsCommands);
     }
 
     public TurnResolution resolve(GameState state, PlayerAction action, SkillCheckResult skillCheckResult) {
-        return resolveWithInventory(state, action, skillCheckResult, List.of());
+        return resolveWithEffects(state, action, skillCheckResult, List.of(), List.of());
     }
 
     public TurnResolution resolveWithInventory(
@@ -49,34 +63,62 @@ public final class ActionResolver {
             SkillCheckResult skillCheckResult,
             List<InventoryCommand> inventoryCommands
     ) {
+        return resolveWithEffects(state, action, skillCheckResult, inventoryCommands, List.of());
+    }
+
+    public TurnResolution resolveWithVitals(
+            GameState state,
+            PlayerAction action,
+            SkillCheckResult skillCheckResult,
+            List<VitalsCommand> vitalsCommands
+    ) {
+        return resolveWithEffects(state, action, skillCheckResult, List.of(), vitalsCommands);
+    }
+
+    public TurnResolution resolveWithEffects(
+            GameState state,
+            PlayerAction action,
+            SkillCheckResult skillCheckResult,
+            List<InventoryCommand> inventoryCommands,
+            List<VitalsCommand> vitalsCommands
+    ) {
         validateBase(state, action);
         if (action.type() != ActionType.SKILL_CHECK) {
             if (skillCheckResult != null) {
                 throw new IllegalArgumentException("Skill Check가 아닌 action에 판정 결과를 연결할 수 없습니다.");
             }
             validateNarrativeChoice(action);
-            return resolved(state, action, null, inventoryCommands);
+            return resolved(state, action, null, inventoryCommands, vitalsCommands);
         }
         Objects.requireNonNull(skillCheckResult, "SkillCheckResult는 필수입니다.");
         SkillCheck skillCheck = parseSkillCheck(action);
         validateSkillCheckResult(state, skillCheck, skillCheckResult);
-        return resolved(state, action, skillCheckResult, inventoryCommands);
+        return resolved(state, action, skillCheckResult, inventoryCommands, vitalsCommands);
     }
 
     private TurnResolution resolved(
             GameState state,
             PlayerAction action,
             SkillCheckResult skillCheckResult,
-            List<InventoryCommand> inventoryCommands
+            List<InventoryCommand> inventoryCommands,
+            List<VitalsCommand> vitalsCommands
     ) {
         InventoryRules.Result inventoryResult = inventoryRules.apply(state.inventory(), inventoryCommands);
-        GameState nextState = state.withInventory(inventoryResult.inventory()).advanceTurn();
+        VitalsRules.Result vitalsResult = vitalsRules.apply(
+                state.playerCharacter().vitals(),
+                withTurnEndTiming(vitalsCommands)
+        );
+        GameState nextState = state
+                .withInventory(inventoryResult.inventory())
+                .withPlayerVitals(vitalsResult.vitals())
+                .advanceTurn();
         List<GameResult.GameEvent> events = new ArrayList<>();
         events.add(GameResult.GameEvent.ACTION_RESOLVED);
         if (skillCheckResult != null) {
             events.add(GameResult.GameEvent.SKILL_CHECK_RESOLVED);
         }
         List<GameResult.StateChange> stateChanges = new ArrayList<>(inventoryResult.stateChanges());
+        stateChanges.addAll(vitalsResult.stateChanges());
         stateChanges.add(new GameResult.TurnAdvanced(state.turnNumber(), nextState.turnNumber()));
         GameResult result = new GameResult(
                 action,
@@ -88,6 +130,21 @@ public final class ActionResolver {
                 List.of(action.displayText())
         );
         return new TurnResolution(result, new StateTransition(state, nextState));
+    }
+
+    private List<VitalsCommand> withTurnEndTiming(List<VitalsCommand> commands) {
+        List<VitalsCommand> result = new ArrayList<>();
+        if (commands != null) {
+            for (VitalsCommand command : commands) {
+                Objects.requireNonNull(command, "vitals command는 null일 수 없습니다.");
+                if (command instanceof VitalsCommand.AdvanceStatusDurations) {
+                    throw new IllegalArgumentException("status duration timing은 ActionResolver가 소유합니다.");
+                }
+                result.add(command);
+            }
+        }
+        result.add(new VitalsCommand.AdvanceStatusDurations(StatusExpiryTrigger.END_OF_TURN));
+        return List.copyOf(result);
     }
 
     private void validateBase(GameState state, PlayerAction action) {
