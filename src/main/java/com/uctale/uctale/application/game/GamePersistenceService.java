@@ -32,12 +32,13 @@ public class GamePersistenceService {
     private final GameStateCodec gameStateCodec;
     private final GameStateRecovery gameStateRecovery;
     private final InventoryAuditCodec inventoryAuditCodec;
+    private final VitalsAuditCodec vitalsAuditCodec;
 
     @Autowired
     public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
             GameStateSnapshotRepository gameStateSnapshotRepository, ImageAssetRepository imageAssetRepository,
             GameMutationRequestRepository gameMutationRequestRepository, GameStateCodec gameStateCodec,
-            GameStateRecovery gameStateRecovery, InventoryAuditCodec inventoryAuditCodec) {
+            GameStateRecovery gameStateRecovery, InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec) {
         this.gameSessionRepository = gameSessionRepository;
         this.gameLogRepository = gameLogRepository;
         this.gameStateSnapshotRepository = gameStateSnapshotRepository;
@@ -46,22 +47,25 @@ public class GamePersistenceService {
         this.gameStateCodec = gameStateCodec;
         this.gameStateRecovery = gameStateRecovery;
         this.inventoryAuditCodec = inventoryAuditCodec;
+        this.vitalsAuditCodec = vitalsAuditCodec;
+    }
+
+    public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
+            GameStateSnapshotRepository gameStateSnapshotRepository, ImageAssetRepository imageAssetRepository,
+            GameMutationRequestRepository gameMutationRequestRepository, GameStateCodec gameStateCodec,
+            GameStateRecovery gameStateRecovery, InventoryAuditCodec inventoryAuditCodec) {
+        this(gameSessionRepository, gameLogRepository, gameStateSnapshotRepository, imageAssetRepository,
+                gameMutationRequestRepository, gameStateCodec, gameStateRecovery, inventoryAuditCodec,
+                new VitalsAuditCodec(new ObjectMapper()));
     }
 
     public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
             GameStateSnapshotRepository gameStateSnapshotRepository, ImageAssetRepository imageAssetRepository,
             GameMutationRequestRepository gameMutationRequestRepository, GameStateCodec gameStateCodec,
             GameStateRecovery gameStateRecovery) {
-        this(
-                gameSessionRepository,
-                gameLogRepository,
-                gameStateSnapshotRepository,
-                imageAssetRepository,
-                gameMutationRequestRepository,
-                gameStateCodec,
-                gameStateRecovery,
-                new InventoryAuditCodec(new ObjectMapper())
-        );
+        this(gameSessionRepository, gameLogRepository, gameStateSnapshotRepository, imageAssetRepository,
+                gameMutationRequestRepository, gameStateCodec, gameStateRecovery,
+                new InventoryAuditCodec(new ObjectMapper()), new VitalsAuditCodec(new ObjectMapper()));
     }
 
     @Transactional
@@ -108,13 +112,7 @@ public class GamePersistenceService {
         GameLog log = gameLogRepository.findByGameSessionAndTurnNumber(session, turnNumber)
                 .orElseThrow(() -> new IllegalStateException("완료된 게임 로그를 찾을 수 없습니다."));
         GameState gameState = loadOrRecoverState(session);
-        return new CommittedTurn(
-                log.getStoryText(),
-                log.getChoicesJson(),
-                log.getImageUrl(),
-                gameState,
-                SkillCheckAudit.from(log)
-        );
+        return new CommittedTurn(log.getStoryText(), log.getChoicesJson(), log.getImageUrl(), gameState, SkillCheckAudit.from(log));
     }
 
     @Transactional
@@ -147,11 +145,12 @@ public class GamePersistenceService {
             String imageUrl = commit.imageAsset() == null ? previousLog.getImageUrl()
                     : persistImageAsset(session, commit.nextStateVersion(), commit.imageAsset());
             String inventoryChangesJson = inventoryAuditCodec.serialize(commit.stateChanges());
+            String vitalsChangesJson = vitalsAuditCodec.serialize(commit.stateChanges());
             gameSessionRepository.save(session);
             gameLogRepository.save(GameLog.committedTurn(session, commit.nextStateVersion(), commit.inputChoiceId(),
                     commit.inputChoiceText(), commit.previousStateVersion(), commit.nextStateVersion(),
                     commit.canonicalResultId(), commit.generatedStoryId(), commit.skillCheckResult(), inventoryChangesJson,
-                    commit.storyText(), commit.choicesJson(), imageUrl));
+                    vitalsChangesJson, commit.storyText(), commit.choicesJson(), imageUrl));
             GameStateSnapshot snapshot = gameStateSnapshotRepository.findById(sessionId)
                     .orElseGet(() -> new GameStateSnapshot(session, gameStateCodec.serialize(commit.previousState())));
             snapshot.updateStateJson(gameStateCodec.serialize(commit.nextState()));
@@ -215,7 +214,8 @@ public class GamePersistenceService {
     }
 
     private GameState loadOrRecoverState(GameSession session) {
-        return gameStateSnapshotRepository.findById(session.getId()).map(snapshot -> gameStateCodec.deserialize(snapshot.getStateJson()))
+        return gameStateSnapshotRepository.findById(session.getId())
+                .map(snapshot -> gameStateCodec.deserialize(snapshot.getStateJson()))
                 .orElseGet(() -> gameStateRecovery.recover(session, gameLogRepository.findByGameSessionOrderByTurnNumberAsc(session)));
     }
 
@@ -230,40 +230,20 @@ public class GamePersistenceService {
     public record LoadedTurn(Long sessionId, int turnNumber, String worldSetting, String characterSetting,
             String storyText, String choicesJson, String imageUrl, GameState gameState) {}
 
-    public record CommittedTurn(
-            String storyText,
-            String choicesJson,
-            String imageUrl,
-            GameState gameState,
-            SkillCheckAudit skillCheckAudit
-    ) {
+    public record CommittedTurn(String storyText, String choicesJson, String imageUrl,
+                                GameState gameState, SkillCheckAudit skillCheckAudit) {
         public CommittedTurn(String storyText, String choicesJson, String imageUrl) {
             this(storyText, choicesJson, imageUrl, null, null);
         }
     }
 
-    public record SkillCheckAudit(
-            String statType,
-            Integer rawRoll,
-            Integer statModifier,
-            Integer situationalModifier,
-            Integer dc,
-            Integer total,
-            String outcome,
-            Integer rulesetVersion
-    ) {
+    public record SkillCheckAudit(String statType, Integer rawRoll, Integer statModifier,
+            Integer situationalModifier, Integer dc, Integer total, String outcome, Integer rulesetVersion) {
         static SkillCheckAudit from(GameLog log) {
             if (log.getSkillCheckStatType() == null) return null;
-            return new SkillCheckAudit(
-                    log.getSkillCheckStatType(),
-                    log.getSkillCheckRawRoll(),
-                    log.getSkillCheckStatModifier(),
-                    log.getSkillCheckSituationalModifier(),
-                    log.getSkillCheckDc(),
-                    log.getSkillCheckTotal(),
-                    log.getSkillCheckOutcome(),
-                    log.getSkillCheckRulesetVersion()
-            );
+            return new SkillCheckAudit(log.getSkillCheckStatType(), log.getSkillCheckRawRoll(),
+                    log.getSkillCheckStatModifier(), log.getSkillCheckSituationalModifier(), log.getSkillCheckDc(),
+                    log.getSkillCheckTotal(), log.getSkillCheckOutcome(), log.getSkillCheckRulesetVersion());
         }
     }
 }
