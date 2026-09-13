@@ -44,16 +44,18 @@ public record GameResult(
         SKILL_CHECK_RESOLVED,
         COMBAT_ACTION_RESOLVED,
         ATTACK_RESOLVED,
+        ABILITY_RESOLVED,
         COMBAT_ENCOUNTER_CHANGED
     }
     public enum VitalResource { HP, MP }
     public enum VitalsChangeReason { DAMAGE, HEAL, SPEND, RESTORE }
     public enum StatusRemovalReason { EXPLICIT, EXPIRED }
+    public enum AbilityCooldownChangeReason { USED, TURN_ENDED }
 
     public sealed interface StateChange permits TurnAdvanced, ItemAcquired, ItemRemoved,
             ItemQuantityChanged, ItemConsumed, ItemEquipped, ItemUnequipped, VitalsChanged,
             StatusEffectApplied, StatusEffectUpdated, StatusDurationChanged, StatusEffectRemoved,
-            AttackResolved, CombatEncounterChanged {
+            AttackResolved, AbilityResolved, AbilityCooldownChanged, CombatEncounterChanged {
         default String getType() {
             if (this instanceof TurnAdvanced) return "TURN_ADVANCED";
             if (this instanceof ItemAcquired) return "ITEM_ACQUIRED";
@@ -68,6 +70,8 @@ public record GameResult(
             if (this instanceof StatusDurationChanged) return "STATUS_DURATION_CHANGED";
             if (this instanceof StatusEffectRemoved) return "STATUS_EFFECT_REMOVED";
             if (this instanceof AttackResolved) return "ATTACK_RESOLVED";
+            if (this instanceof AbilityResolved) return "ABILITY_RESOLVED";
+            if (this instanceof AbilityCooldownChanged) return "ABILITY_COOLDOWN_CHANGED";
             if (this instanceof CombatEncounterChanged) return "COMBAT_ENCOUNTER_CHANGED";
             throw new IllegalStateException("지원하지 않는 state change입니다.");
         }
@@ -75,9 +79,7 @@ public record GameResult(
 
     public record TurnAdvanced(int previousTurn, int nextTurn) implements StateChange {
         public TurnAdvanced {
-            if (previousTurn < 1 || nextTurn != previousTurn + 1) {
-                throw new IllegalArgumentException("turn state change가 올바르지 않습니다.");
-            }
+            if (previousTurn < 1 || nextTurn != previousTurn + 1) throw new IllegalArgumentException("turn state change가 올바르지 않습니다.");
         }
     }
 
@@ -157,16 +159,31 @@ public record GameResult(
     }
 
     public record AttackResolved(AttackResult result) implements StateChange {
-        public AttackResolved {
-            Objects.requireNonNull(result, "attack result는 필수입니다.");
+        public AttackResolved { Objects.requireNonNull(result, "attack result는 필수입니다."); }
+    }
+
+    public record AbilityResolved(AbilityResult result) implements StateChange {
+        public AbilityResolved { Objects.requireNonNull(result, "ability result는 필수입니다."); }
+    }
+
+    public record AbilityCooldownChanged(String definitionId, int previousRemainingTurns, int nextRemainingTurns,
+                                         AbilityCooldownChangeReason reason) implements StateChange {
+        public AbilityCooldownChanged {
+            if (definitionId == null || definitionId.isBlank()) throw new IllegalArgumentException("ability definitionId는 비어 있을 수 없습니다.");
+            Objects.requireNonNull(reason, "ability cooldown reason은 필수입니다.");
+            if (previousRemainingTurns < 0 || nextRemainingTurns < 0 || previousRemainingTurns == nextRemainingTurns) {
+                throw new IllegalArgumentException("ability cooldown state change 값이 올바르지 않습니다.");
+            }
+            if (reason == AbilityCooldownChangeReason.USED) {
+                if (previousRemainingTurns != 0 || nextRemainingTurns < 1) throw new IllegalArgumentException("USED cooldown change가 올바르지 않습니다.");
+            } else if (previousRemainingTurns < 1 || nextRemainingTurns != previousRemainingTurns - 1) {
+                throw new IllegalArgumentException("TURN_ENDED cooldown change가 올바르지 않습니다.");
+            }
         }
     }
 
-    public record CombatEncounterChanged(
-            CombatEncounter previousEncounter,
-            CombatEncounter nextEncounter,
-            CombatChangeReason reason
-    ) implements StateChange {
+    public record CombatEncounterChanged(CombatEncounter previousEncounter, CombatEncounter nextEncounter,
+                                         CombatChangeReason reason) implements StateChange {
         public CombatEncounterChanged {
             CombatRules.validateChange(previousEncounter, nextEncounter, reason);
             validateCombatDelta(previousEncounter, nextEncounter, reason);
@@ -177,32 +194,18 @@ public record GameResult(
         if (previous == null) return;
         switch (reason) {
             case PARTICIPANT_JOINED -> {
-                if (next.enemies().size() != previous.enemies().size() + 1
-                        || !next.enemies().entrySet().containsAll(previous.enemies().entrySet())) {
-                    throw new IllegalArgumentException("PARTICIPANT_JOINED는 정확히 한 enemy만 추가해야 합니다.");
-                }
+                if (next.enemies().size() != previous.enemies().size() + 1 || !next.enemies().entrySet().containsAll(previous.enemies().entrySet())) throw new IllegalArgumentException("PARTICIPANT_JOINED는 정확히 한 enemy만 추가해야 합니다.");
             }
             case PARTICIPANT_LEFT -> {
-                if (next.enemies().size() != previous.enemies().size() - 1
-                        || !previous.enemies().entrySet().containsAll(next.enemies().entrySet())) {
-                    throw new IllegalArgumentException("PARTICIPANT_LEFT는 정확히 한 enemy만 제거해야 합니다.");
-                }
+                if (next.enemies().size() != previous.enemies().size() - 1 || !previous.enemies().entrySet().containsAll(next.enemies().entrySet())) throw new IllegalArgumentException("PARTICIPANT_LEFT는 정확히 한 enemy만 제거해야 합니다.");
             }
             case ACTIVATED, ACTOR_ADVANCED, RESOLVED, ESCAPED -> {
-                if (!previous.enemies().equals(next.enemies())) {
-                    throw new IllegalArgumentException(reason + " change로 enemy 상태나 참가자를 변경할 수 없습니다.");
-                }
+                if (!previous.enemies().equals(next.enemies())) throw new IllegalArgumentException(reason + " change로 enemy 상태나 참가자를 변경할 수 없습니다.");
             }
             case ENEMY_UPDATED -> {
-                if (!previous.enemies().keySet().equals(next.enemies().keySet())) {
-                    throw new IllegalArgumentException("ENEMY_UPDATED로 참가자 집합을 변경할 수 없습니다.");
-                }
-                long changed = previous.enemies().keySet().stream()
-                        .filter(id -> !previous.enemies().get(id).equals(next.enemies().get(id)))
-                        .count();
-                if (changed != 1) {
-                    throw new IllegalArgumentException("ENEMY_UPDATED는 정확히 한 enemy 상태만 변경해야 합니다.");
-                }
+                if (!previous.enemies().keySet().equals(next.enemies().keySet())) throw new IllegalArgumentException("ENEMY_UPDATED로 참가자 집합을 변경할 수 없습니다.");
+                long changed = previous.enemies().keySet().stream().filter(id -> !previous.enemies().get(id).equals(next.enemies().get(id))).count();
+                if (changed != 1) throw new IllegalArgumentException("ENEMY_UPDATED는 정확히 한 enemy 상태만 변경해야 합니다.");
             }
             case STARTED -> { }
         }

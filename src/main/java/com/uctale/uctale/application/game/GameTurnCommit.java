@@ -1,6 +1,8 @@
 package com.uctale.uctale.application.game;
 
 import com.uctale.uctale.application.image.ImageAssetService;
+import com.uctale.uctale.domain.game.AbilityRules;
+import com.uctale.uctale.domain.game.AbilityState;
 import com.uctale.uctale.domain.game.CharacterVitals;
 import com.uctale.uctale.domain.game.CombatEncounter;
 import com.uctale.uctale.domain.game.CombatRules;
@@ -44,19 +46,13 @@ public record GameTurnCommit(
         stateChanges = stateChanges == null ? List.of() : List.copyOf(stateChanges);
 
         Inventory replayedInventory = InventoryRules.replay(stateTransition.previousState().inventory(), stateChanges);
-        if (!replayedInventory.equals(stateTransition.nextState().inventory())) {
-            throw new IllegalArgumentException("stateChanges의 inventory audit이 StateTransition과 일치하지 않습니다.");
-        }
+        if (!replayedInventory.equals(stateTransition.nextState().inventory())) throw new IllegalArgumentException("stateChanges의 inventory audit이 StateTransition과 일치하지 않습니다.");
         CharacterVitals replayedVitals = VitalsRules.replay(stateTransition.previousState().playerCharacter().vitals(), stateChanges);
-        if (!replayedVitals.equals(stateTransition.nextState().playerCharacter().vitals())) {
-            throw new IllegalArgumentException("stateChanges의 vitals/status audit이 StateTransition과 일치하지 않습니다.");
-        }
-        CombatEncounter replayedCombat = CombatRules.replay(
-                stateTransition.previousState().combatEncounter(), stateChanges, replayedVitals
-        );
-        if (!java.util.Objects.equals(replayedCombat, stateTransition.nextState().combatEncounter())) {
-            throw new IllegalArgumentException("stateChanges의 combat audit이 StateTransition과 일치하지 않습니다.");
-        }
+        if (!replayedVitals.equals(stateTransition.nextState().playerCharacter().vitals())) throw new IllegalArgumentException("stateChanges의 vitals/status audit이 StateTransition과 일치하지 않습니다.");
+        CombatEncounter replayedCombat = CombatRules.replay(stateTransition.previousState().combatEncounter(), stateChanges, replayedVitals);
+        if (!java.util.Objects.equals(replayedCombat, stateTransition.nextState().combatEncounter())) throw new IllegalArgumentException("stateChanges의 combat audit이 StateTransition과 일치하지 않습니다.");
+        AbilityState replayedAbilityState = AbilityRules.replay(stateTransition.previousState().abilityState(), stateChanges);
+        if (!replayedAbilityState.equals(stateTransition.nextState().abilityState())) throw new IllegalArgumentException("stateChanges의 ability cooldown audit이 StateTransition과 일치하지 않습니다.");
     }
 
     public GameTurnCommit(int expectedTurn, int inputChoiceId, String inputChoiceText, StateTransition stateTransition,
@@ -80,10 +76,9 @@ public record GameTurnCommit(
     }
 
     public GameTurnCommit(int expectedTurn, int inputChoiceId, String inputChoiceText, GameState previousState,
-                          GameState nextState, String storyText, String choicesJson,
-                          ImageAssetService.AssetReference imageAsset) {
-        this(expectedTurn, inputChoiceId, inputChoiceText, new StateTransition(previousState, nextState),
-                storyText, choicesJson, null, null, null, List.of(), imageAsset);
+                          GameState nextState, String storyText, String choicesJson, ImageAssetService.AssetReference imageAsset) {
+        this(expectedTurn, inputChoiceId, inputChoiceText, new StateTransition(previousState, nextState), storyText,
+                choicesJson, null, null, null, List.of(), imageAsset);
     }
 
     public GameState previousState() { return stateTransition.previousState(); }

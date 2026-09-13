@@ -45,6 +45,7 @@ public class GameStateUpgrader {
             case 3 -> upgradeV3ToV4(source);
             case 4 -> upgradeV4ToV5(source);
             case 5 -> upgradeV5ToV6(source);
+            case 6 -> upgradeV6ToV7(source);
             default -> throw new GameStateSnapshotException("snapshot schemaVersion " + source.schemaVersion() + "의 다음 upgrade 경로가 없습니다.");
         };
     }
@@ -104,24 +105,14 @@ public class GameStateUpgrader {
     private VersionedState upgradeV5ToV6(VersionedState source) {
         ObjectNode state = objectCopy(source.state());
         JsonNode inventoryNode = state.get("inventory");
-        if (!(inventoryNode instanceof ObjectNode inventory)) {
-            throw new GameStateSnapshotException("schema v5 snapshot inventory가 누락되었거나 손상되었습니다.");
-        }
+        if (!(inventoryNode instanceof ObjectNode inventory)) throw new GameStateSnapshotException("schema v5 snapshot inventory가 누락되었거나 손상되었습니다.");
         JsonNode itemsNode = inventory.get("items");
-        if (!(itemsNode instanceof ObjectNode items)) {
-            throw new GameStateSnapshotException("schema v5 snapshot inventory.items가 누락되었거나 손상되었습니다.");
-        }
+        if (!(itemsNode instanceof ObjectNode items)) throw new GameStateSnapshotException("schema v5 snapshot inventory.items가 누락되었거나 손상되었습니다.");
         for (var entry : items.properties()) {
-            if (!(entry.getValue() instanceof ObjectNode item)) {
-                throw new GameStateSnapshotException("schema v5 snapshot inventory item이 object가 아닙니다.");
-            }
+            if (!(entry.getValue() instanceof ObjectNode item)) throw new GameStateSnapshotException("schema v5 snapshot inventory item이 object가 아닙니다.");
             JsonNode definitionNode = item.get("definition");
-            if (!(definitionNode instanceof ObjectNode definition)) {
-                throw new GameStateSnapshotException("schema v5 snapshot item definition이 누락되었거나 손상되었습니다.");
-            }
-            if (definition.has("combatModifiers")) {
-                throw new GameStateSnapshotException("schema v5 snapshot에는 item combatModifiers가 정의되어 있지 않습니다.");
-            }
+            if (!(definitionNode instanceof ObjectNode definition)) throw new GameStateSnapshotException("schema v5 snapshot item definition이 누락되었거나 손상되었습니다.");
+            if (definition.has("combatModifiers")) throw new GameStateSnapshotException("schema v5 snapshot에는 item combatModifiers가 정의되어 있지 않습니다.");
             ObjectNode modifiers = JsonNodeFactory.instance.objectNode();
             modifiers.put("attackBonus", ItemCombatModifiers.none().attackBonus());
             modifiers.put("damageBonus", ItemCombatModifiers.none().damageBonus());
@@ -129,24 +120,14 @@ public class GameStateUpgrader {
         }
 
         JsonNode combatNode = state.get("combatEncounter");
-        if (combatNode == null) {
-            throw new GameStateSnapshotException("schema v5 snapshot combatEncounter 필드가 누락되었습니다.");
-        }
+        if (combatNode == null) throw new GameStateSnapshotException("schema v5 snapshot combatEncounter 필드가 누락되었습니다.");
         if (!combatNode.isNull()) {
-            if (!(combatNode instanceof ObjectNode combat)) {
-                throw new GameStateSnapshotException("schema v5 snapshot combatEncounter가 object가 아닙니다.");
-            }
+            if (!(combatNode instanceof ObjectNode combat)) throw new GameStateSnapshotException("schema v5 snapshot combatEncounter가 object가 아닙니다.");
             JsonNode enemiesNode = combat.get("enemies");
-            if (!(enemiesNode instanceof ObjectNode enemies)) {
-                throw new GameStateSnapshotException("schema v5 snapshot combatEncounter.enemies가 누락되었거나 손상되었습니다.");
-            }
+            if (!(enemiesNode instanceof ObjectNode enemies)) throw new GameStateSnapshotException("schema v5 snapshot combatEncounter.enemies가 누락되었거나 손상되었습니다.");
             for (var entry : enemies.properties()) {
-                if (!(entry.getValue() instanceof ObjectNode enemy)) {
-                    throw new GameStateSnapshotException("schema v5 snapshot enemy가 object가 아닙니다.");
-                }
-                if (enemy.has("combatProfile")) {
-                    throw new GameStateSnapshotException("schema v5 snapshot에는 enemy combatProfile이 정의되어 있지 않습니다.");
-                }
+                if (!(entry.getValue() instanceof ObjectNode enemy)) throw new GameStateSnapshotException("schema v5 snapshot enemy가 object가 아닙니다.");
+                if (enemy.has("combatProfile")) throw new GameStateSnapshotException("schema v5 snapshot에는 enemy combatProfile이 정의되어 있지 않습니다.");
                 ObjectNode profile = JsonNodeFactory.instance.objectNode();
                 profile.put("defenseScore", EnemyCombatProfile.DEFAULT_DEFENSE_SCORE);
                 profile.put("damageReduction", EnemyCombatProfile.DEFAULT_DAMAGE_REDUCTION);
@@ -154,6 +135,15 @@ public class GameStateUpgrader {
             }
         }
         return new VersionedState(6, source.rulesetVersion(), state);
+    }
+
+    private VersionedState upgradeV6ToV7(VersionedState source) {
+        ObjectNode state = objectCopy(source.state());
+        if (state.has("abilityState")) throw new GameStateSnapshotException("schema v6 snapshot에는 abilityState 필드가 정의되어 있지 않습니다.");
+        ObjectNode abilityState = JsonNodeFactory.instance.objectNode();
+        abilityState.set("cooldowns", JsonNodeFactory.instance.objectNode());
+        state.set("abilityState", abilityState);
+        return new VersionedState(7, source.rulesetVersion(), state);
     }
 
     private void validateCurrentShape(JsonNode state) {
@@ -171,14 +161,21 @@ public class GameStateUpgrader {
         JsonNode combatNode = state.get("combatEncounter");
         if (combatNode != null && !combatNode.isNull()) {
             JsonNode enemies = combatNode.get("enemies");
-            if (enemies == null || !enemies.isObject()) {
-                throw new GameStateSnapshotException("현재 schema snapshot combat enemies가 누락되었거나 손상되었습니다.");
-            }
+            if (enemies == null || !enemies.isObject()) throw new GameStateSnapshotException("현재 schema snapshot combat enemies가 누락되었거나 손상되었습니다.");
             for (var entry : enemies.properties()) {
                 JsonNode enemy = entry.getValue();
-                if (enemy == null || !enemy.isObject() || !enemy.has("combatProfile")) {
-                    throw new GameStateSnapshotException("현재 schema snapshot enemy combatProfile이 누락되었습니다.");
-                }
+                if (enemy == null || !enemy.isObject() || !enemy.has("combatProfile")) throw new GameStateSnapshotException("현재 schema snapshot enemy combatProfile이 누락되었습니다.");
+            }
+        }
+        JsonNode abilityNode = state.get("abilityState");
+        if (!(abilityNode instanceof ObjectNode abilityState) || !(abilityState.get("cooldowns") instanceof ObjectNode cooldowns)) {
+            throw new GameStateSnapshotException("현재 schema snapshot abilityState/cooldowns가 누락되었거나 손상되었습니다.");
+        }
+        for (var entry : cooldowns.properties()) {
+            JsonNode remaining = entry.getValue();
+            if (entry.getKey() == null || entry.getKey().isBlank() || remaining == null || !remaining.isIntegralNumber()
+                    || remaining.asLong() < 1 || remaining.asLong() > Integer.MAX_VALUE) {
+                throw new GameStateSnapshotException("현재 schema snapshot ability cooldown이 손상되었습니다: " + entry.getKey());
             }
         }
     }
