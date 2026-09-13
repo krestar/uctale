@@ -5,12 +5,18 @@ import java.util.Objects;
 public record EnemyState(
         String enemyId,
         String displayName,
-        CharacterVitals vitals
+        CharacterVitals vitals,
+        EnemyCombatProfile combatProfile
 ) {
     public EnemyState {
         enemyId = requireText(enemyId, "enemyId");
         displayName = requireText(displayName, "enemy displayName");
         Objects.requireNonNull(vitals, "enemy vitals는 필수입니다.");
+        Objects.requireNonNull(combatProfile, "enemy combatProfile은 필수입니다.");
+    }
+
+    public EnemyState(String enemyId, String displayName, CharacterVitals vitals) {
+        this(enemyId, displayName, vitals, EnemyCombatProfile.defaults());
     }
 
     public EnemyState withVitals(CharacterVitals nextVitals) {
@@ -18,7 +24,7 @@ public record EnemyState(
         if (defeated() && !nextVitals.defeated()) {
             throw new IllegalStateException("defeated enemy는 명시적인 서버 부활 규칙 없이 되살릴 수 없습니다.");
         }
-        return new EnemyState(enemyId, displayName, nextVitals);
+        return new EnemyState(enemyId, displayName, nextVitals, combatProfile);
     }
 
     public boolean defeated() {

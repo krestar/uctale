@@ -1,7 +1,9 @@
 package com.uctale.uctale.application.game;
 
+import com.uctale.uctale.domain.game.AttackResult;
 import com.uctale.uctale.domain.game.CombatChangeReason;
 import com.uctale.uctale.domain.game.CombatEncounter;
+import com.uctale.uctale.domain.game.EnemyCombatProfile;
 import com.uctale.uctale.domain.game.GameResult;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
@@ -27,14 +29,20 @@ public final class CombatAuditCodec {
         try {
             if (stateChanges != null) {
                 for (GameResult.StateChange change : stateChanges) {
-                    if (!(change instanceof GameResult.CombatEncounterChanged combat)) continue;
-                    ObjectNode node = JsonNodeFactory.instance.objectNode();
-                    node.put("type", "COMBAT_ENCOUNTER_CHANGED");
-                    node.put("reason", combat.reason().name());
-                    if (combat.previousEncounter() == null) node.putNull("previousEncounter");
-                    else node.set("previousEncounter", objectMapper.readTree(objectMapper.writeValueAsString(combat.previousEncounter())));
-                    node.set("nextEncounter", objectMapper.readTree(objectMapper.writeValueAsString(combat.nextEncounter())));
-                    root.add(node);
+                    if (change instanceof GameResult.AttackResolved attack) {
+                        ObjectNode node = JsonNodeFactory.instance.objectNode();
+                        node.put("type", "ATTACK_RESOLVED");
+                        node.set("result", objectMapper.readTree(objectMapper.writeValueAsString(attack.result())));
+                        root.add(node);
+                    } else if (change instanceof GameResult.CombatEncounterChanged combat) {
+                        ObjectNode node = JsonNodeFactory.instance.objectNode();
+                        node.put("type", "COMBAT_ENCOUNTER_CHANGED");
+                        node.put("reason", combat.reason().name());
+                        if (combat.previousEncounter() == null) node.putNull("previousEncounter");
+                        else node.set("previousEncounter", objectMapper.readTree(objectMapper.writeValueAsString(combat.previousEncounter())));
+                        node.set("nextEncounter", objectMapper.readTree(objectMapper.writeValueAsString(combat.nextEncounter())));
+                        root.add(node);
+                    }
                 }
             }
             return root.isEmpty() ? null : objectMapper.writeValueAsString(root);
@@ -50,15 +58,21 @@ public final class CombatAuditCodec {
             if (root == null || !root.isArray()) throw new IllegalStateException("combat GameLog audit는 JSON array여야 합니다.");
             List<GameResult.StateChange> changes = new ArrayList<>();
             for (JsonNode node : root) {
-                if (!node.isObject() || !"COMBAT_ENCOUNTER_CHANGED".equals(requiredText(node, "type"))) {
-                    throw new IllegalStateException("지원하지 않는 combat audit entry입니다.");
+                if (!node.isObject()) throw new IllegalStateException("지원하지 않는 combat audit entry입니다.");
+                String type = requiredText(node, "type");
+                if ("ATTACK_RESOLVED".equals(type)) {
+                    AttackResult result = objectMapper.readValue(requiredObject(node, "result").toString(), AttackResult.class);
+                    changes.add(new GameResult.AttackResolved(result));
+                } else if ("COMBAT_ENCOUNTER_CHANGED".equals(type)) {
+                    JsonNode previousNode = node.get("previousEncounter");
+                    if (previousNode == null) throw new IllegalStateException("combat audit previousEncounter 필드가 필요합니다.");
+                    CombatEncounter previous = previousNode.isNull() ? null : decodeEncounter(previousNode);
+                    CombatEncounter next = decodeEncounter(requiredObject(node, "nextEncounter"));
+                    CombatChangeReason reason = CombatChangeReason.valueOf(requiredText(node, "reason"));
+                    changes.add(new GameResult.CombatEncounterChanged(previous, next, reason));
+                } else {
+                    throw new IllegalStateException("지원하지 않는 combat audit entry입니다: " + type);
                 }
-                JsonNode previousNode = node.get("previousEncounter");
-                if (previousNode == null) throw new IllegalStateException("combat audit previousEncounter 필드가 필요합니다.");
-                CombatEncounter previous = previousNode.isNull() ? null : decodeEncounter(previousNode);
-                CombatEncounter next = decodeEncounter(requiredObject(node, "nextEncounter"));
-                CombatChangeReason reason = CombatChangeReason.valueOf(requiredText(node, "reason"));
-                changes.add(new GameResult.CombatEncounterChanged(previous, next, reason));
             }
             return List.copyOf(changes);
         } catch (JacksonException | IllegalArgumentException exception) {
@@ -67,7 +81,19 @@ public final class CombatAuditCodec {
     }
 
     private CombatEncounter decodeEncounter(JsonNode node) throws JacksonException {
-        return objectMapper.readValue(node.toString(), CombatEncounter.class);
+        JsonNode normalized = node.deepCopy();
+        JsonNode enemies = normalized.get("enemies");
+        if (enemies instanceof ObjectNode enemyMap) {
+            for (var entry : enemyMap.properties()) {
+                if (entry.getValue() instanceof ObjectNode enemy && !enemy.has("combatProfile")) {
+                    ObjectNode profile = JsonNodeFactory.instance.objectNode();
+                    profile.put("defenseScore", EnemyCombatProfile.DEFAULT_DEFENSE_SCORE);
+                    profile.put("damageReduction", EnemyCombatProfile.DEFAULT_DAMAGE_REDUCTION);
+                    enemy.set("combatProfile", profile);
+                }
+            }
+        }
+        return objectMapper.readValue(normalized.toString(), CombatEncounter.class);
     }
 
     private JsonNode requiredObject(JsonNode node, String fieldName) {

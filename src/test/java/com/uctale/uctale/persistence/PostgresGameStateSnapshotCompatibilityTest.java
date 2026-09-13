@@ -35,12 +35,12 @@ class PostgresGameStateSnapshotCompatibilityTest extends PostgresIntegrationTest
     }
 
     @Test
-    @DisplayName("기존 production raw snapshot을 기본 typed stats/inventory/vitals/no-combat로 읽고 다음 write에서 schema v5로 저장한다")
+    @DisplayName("기존 production raw snapshot을 기본 typed stats/inventory/vitals/no-combat로 읽고 다음 write에서 schema v6로 저장한다")
     void legacyRawSnapshot_IsReadAndRewrittenOnNextCanonicalWrite() throws Exception {
         GameSession session = gamePersistenceService.saveOpening(OWNER_KEY, "세계관", "캐릭터", "첫 이야기", "[]", null);
         JsonNode openingSnapshot = objectMapper.readTree(jdbcTemplate.queryForObject(
                 "select state_json from game_state_snapshot where session_id = ?", String.class, session.getId()));
-        assertThat(openingSnapshot.get("schemaVersion").asInt()).isEqualTo(5);
+        assertThat(openingSnapshot.get("schemaVersion").asInt()).isEqualTo(6);
         assertThat(openingSnapshot.get("rulesetVersion").asInt()).isEqualTo(1);
         assertThat(openingSnapshot.get("state").get("playerCharacter").get("stats").get("might").asInt()).isEqualTo(CharacterStats.DEFAULT_SCORE);
         assertThat(openingSnapshot.get("state").get("inventory").get("items").isEmpty()).isTrue();
@@ -62,7 +62,7 @@ class PostgresGameStateSnapshotCompatibilityTest extends PostgresIntegrationTest
 
         JsonNode rewritten = objectMapper.readTree(jdbcTemplate.queryForObject(
                 "select state_json from game_state_snapshot where session_id = ?", String.class, session.getId()));
-        assertThat(rewritten.get("schemaVersion").asInt()).isEqualTo(5);
+        assertThat(rewritten.get("schemaVersion").asInt()).isEqualTo(6);
         assertThat(rewritten.get("state").get("turnNumber").asInt()).isEqualTo(2);
         assertThat(rewritten.get("state").get("combatEncounter").isNull()).isTrue();
     }

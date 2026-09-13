@@ -9,6 +9,7 @@ public record GameResult(
         PlayerAction resolvedAction,
         Outcome outcome,
         SkillCheckResult skillCheckResult,
+        AttackResult attackResult,
         List<CanonicalFact> canonicalFacts,
         List<GameEvent> events,
         List<StateChange> stateChanges,
@@ -21,15 +22,30 @@ public record GameResult(
         events = events == null ? List.of() : List.copyOf(events);
         stateChanges = stateChanges == null ? List.of() : List.copyOf(stateChanges);
         narrativeCues = narrativeCues == null ? List.of() : List.copyOf(narrativeCues);
+        if (skillCheckResult != null && attackResult != null) {
+            throw new IllegalArgumentException("한 GameResult에 Skill Check와 Attack 판정을 동시에 기록할 수 없습니다.");
+        }
+    }
+
+    public GameResult(PlayerAction resolvedAction, Outcome outcome, SkillCheckResult skillCheckResult,
+                      List<CanonicalFact> canonicalFacts, List<GameEvent> events,
+                      List<StateChange> stateChanges, List<String> narrativeCues) {
+        this(resolvedAction, outcome, skillCheckResult, null, canonicalFacts, events, stateChanges, narrativeCues);
     }
 
     public GameResult(PlayerAction resolvedAction, Outcome outcome, List<CanonicalFact> canonicalFacts,
                       List<GameEvent> events, List<StateChange> stateChanges, List<String> narrativeCues) {
-        this(resolvedAction, outcome, null, canonicalFacts, events, stateChanges, narrativeCues);
+        this(resolvedAction, outcome, null, null, canonicalFacts, events, stateChanges, narrativeCues);
     }
 
     public enum Outcome { RESOLVED }
-    public enum GameEvent { ACTION_RESOLVED, SKILL_CHECK_RESOLVED, COMBAT_ACTION_RESOLVED, COMBAT_ENCOUNTER_CHANGED }
+    public enum GameEvent {
+        ACTION_RESOLVED,
+        SKILL_CHECK_RESOLVED,
+        COMBAT_ACTION_RESOLVED,
+        ATTACK_RESOLVED,
+        COMBAT_ENCOUNTER_CHANGED
+    }
     public enum VitalResource { HP, MP }
     public enum VitalsChangeReason { DAMAGE, HEAL, SPEND, RESTORE }
     public enum StatusRemovalReason { EXPLICIT, EXPIRED }
@@ -37,7 +53,7 @@ public record GameResult(
     public sealed interface StateChange permits TurnAdvanced, ItemAcquired, ItemRemoved,
             ItemQuantityChanged, ItemConsumed, ItemEquipped, ItemUnequipped, VitalsChanged,
             StatusEffectApplied, StatusEffectUpdated, StatusDurationChanged, StatusEffectRemoved,
-            CombatEncounterChanged {
+            AttackResolved, CombatEncounterChanged {
         default String getType() {
             if (this instanceof TurnAdvanced) return "TURN_ADVANCED";
             if (this instanceof ItemAcquired) return "ITEM_ACQUIRED";
@@ -51,6 +67,7 @@ public record GameResult(
             if (this instanceof StatusEffectUpdated) return "STATUS_EFFECT_UPDATED";
             if (this instanceof StatusDurationChanged) return "STATUS_DURATION_CHANGED";
             if (this instanceof StatusEffectRemoved) return "STATUS_EFFECT_REMOVED";
+            if (this instanceof AttackResolved) return "ATTACK_RESOLVED";
             if (this instanceof CombatEncounterChanged) return "COMBAT_ENCOUNTER_CHANGED";
             throw new IllegalStateException("지원하지 않는 state change입니다.");
         }
@@ -136,6 +153,12 @@ public record GameResult(
             Objects.requireNonNull(effect, "removed status effect는 필수입니다.");
             Objects.requireNonNull(reason, "status removal reason은 필수입니다.");
             if (reason == StatusRemovalReason.EXPIRED && effect.remainingTurns() != 1) throw new IllegalArgumentException("만료 제거되는 status effect의 remainingTurns는 1이어야 합니다.");
+        }
+    }
+
+    public record AttackResolved(AttackResult result) implements StateChange {
+        public AttackResolved {
+            Objects.requireNonNull(result, "attack result는 필수입니다.");
         }
     }
 

@@ -2,6 +2,7 @@ package com.uctale.uctale.application.game;
 
 import com.uctale.uctale.domain.game.EquipmentSlot;
 import com.uctale.uctale.domain.game.GameResult;
+import com.uctale.uctale.domain.game.ItemCombatModifiers;
 import com.uctale.uctale.domain.game.ItemDefinition;
 import com.uctale.uctale.domain.game.ItemOwnershipType;
 import com.uctale.uctale.domain.game.OwnedItem;
@@ -90,6 +91,10 @@ public final class InventoryAuditCodec {
         ObjectNode definition = JsonNodeFactory.instance.objectNode();
         definition.put("id", item.definition().id()); definition.put("ownershipType", item.definition().ownershipType().name());
         if (item.definition().equipmentSlot() == null) definition.putNull("equipmentSlot"); else definition.put("equipmentSlot", item.definition().equipmentSlot().name());
+        ObjectNode combatModifiers = JsonNodeFactory.instance.objectNode();
+        combatModifiers.put("attackBonus", item.definition().combatModifiers().attackBonus());
+        combatModifiers.put("damageBonus", item.definition().combatModifiers().damageBonus());
+        definition.set("combatModifiers", combatModifiers);
         node.set("definition", definition); return node;
     }
 
@@ -101,8 +106,20 @@ public final class InventoryAuditCodec {
             if (!slotNode.isTextual()) throw new IllegalStateException("inventory audit equipmentSlot이 문자열이 아닙니다.");
             slot = EquipmentSlot.valueOf(slotNode.asText());
         }
-        ItemDefinition definition = new ItemDefinition(requiredText(definitionNode, "id"), ItemOwnershipType.valueOf(requiredText(definitionNode, "ownershipType")), slot);
+        ItemCombatModifiers combatModifiers = decodeCombatModifiers(definitionNode.get("combatModifiers"));
+        ItemDefinition definition = new ItemDefinition(
+                requiredText(definitionNode, "id"),
+                ItemOwnershipType.valueOf(requiredText(definitionNode, "ownershipType")),
+                slot,
+                combatModifiers
+        );
         return new OwnedItem(requiredText(node, "id"), definition, requiredPositiveInt(node, "quantity"));
+    }
+
+    private ItemCombatModifiers decodeCombatModifiers(JsonNode node) {
+        if (node == null) return ItemCombatModifiers.none(); // pre-v6 audit upgrade boundary
+        if (!node.isObject()) throw new IllegalStateException("inventory audit combatModifiers object가 필요합니다.");
+        return new ItemCombatModifiers(requiredInt(node, "attackBonus"), requiredInt(node, "damageBonus"));
     }
 
     private ObjectNode typed(String type) { ObjectNode node = JsonNodeFactory.instance.objectNode(); node.put("type", type); return node; }

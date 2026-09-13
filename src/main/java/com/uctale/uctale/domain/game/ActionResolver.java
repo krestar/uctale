@@ -1,6 +1,7 @@
 package com.uctale.uctale.domain.game;
 
 import com.uctale.uctale.domain.action.ActionType;
+import com.uctale.uctale.domain.action.AttackAction;
 import com.uctale.uctale.domain.action.PlayerAction;
 
 import java.util.ArrayList;
@@ -12,10 +13,16 @@ public final class ActionResolver {
 
     private final InventoryRules inventoryRules = new InventoryRules();
     private final VitalsRules vitalsRules = new VitalsRules();
+    private final AttackRules attackRules = new AttackRules();
 
     public boolean requiresSkillCheck(PlayerAction action) {
         Objects.requireNonNull(action, "PlayerAction은 필수입니다.");
         return action.type() == ActionType.SKILL_CHECK;
+    }
+
+    public boolean requiresAttackRoll(PlayerAction action) {
+        Objects.requireNonNull(action, "PlayerAction은 필수입니다.");
+        return action.type() == ActionType.COMBAT_ATTACK;
     }
 
     public SkillCheckResult rollSkillCheck(GameState state, PlayerAction action, RandomSource randomSource) {
@@ -23,6 +30,13 @@ public final class ActionResolver {
         if (action.type() != ActionType.SKILL_CHECK) throw new IllegalArgumentException("Skill Check가 필요하지 않은 action입니다.");
         SkillCheck skillCheck = parseSkillCheck(action);
         return skillCheck.resolve(state.playerCharacter().stats(), randomSource);
+    }
+
+    public AttackResult rollAttack(GameState state, PlayerAction action, RandomSource randomSource) {
+        validateBase(state, action);
+        if (action.type() != ActionType.COMBAT_ATTACK) throw new IllegalArgumentException("Attack 판정이 필요하지 않은 action입니다.");
+        AttackAction attackAction = parseAndValidateAttackAction(state, action);
+        return attackRules.resolve(state, attackAction, randomSource);
     }
 
     public TurnResolution resolve(GameState state, PlayerAction action) {
@@ -41,6 +55,7 @@ public final class ActionResolver {
             List<InventoryCommand> inventoryCommands, List<VitalsCommand> vitalsCommands) {
         validateBase(state, action);
         if (action.type() == ActionType.SKILL_CHECK) throw new IllegalArgumentException("SKILL_CHECK action에는 서버가 확정한 SkillCheckResult가 필요합니다.");
+        if (action.type() == ActionType.COMBAT_ATTACK) throw new IllegalArgumentException("COMBAT_ATTACK action에는 서버가 확정한 AttackResult가 필요합니다.");
         validateActionArguments(state, action);
         return resolved(state, action, null, inventoryCommands, vitalsCommands);
     }
@@ -64,6 +79,7 @@ public final class ActionResolver {
         validateBase(state, action);
         if (action.type() != ActionType.SKILL_CHECK) {
             if (skillCheckResult != null) throw new IllegalArgumentException("Skill Check가 아닌 action에 판정 결과를 연결할 수 없습니다.");
+            if (action.type() == ActionType.COMBAT_ATTACK) throw new IllegalArgumentException("COMBAT_ATTACK action에는 서버가 확정한 AttackResult가 필요합니다.");
             validateActionArguments(state, action);
             return resolved(state, action, null, inventoryCommands, vitalsCommands);
         }
@@ -71,6 +87,18 @@ public final class ActionResolver {
         SkillCheck skillCheck = parseSkillCheck(action);
         validateSkillCheckResult(state, skillCheck, skillCheckResult);
         return resolved(state, action, skillCheckResult, inventoryCommands, vitalsCommands);
+    }
+
+    public TurnResolution resolveAttack(GameState state, PlayerAction action, AttackResult attackResult) {
+        validateBase(state, action);
+        if (action.type() != ActionType.COMBAT_ATTACK) {
+            if (attackResult != null) throw new IllegalArgumentException("COMBAT_ATTACK이 아닌 action에 AttackResult를 연결할 수 없습니다.");
+            throw new IllegalArgumentException("COMBAT_ATTACK action이 필요합니다.");
+        }
+        Objects.requireNonNull(attackResult, "AttackResult는 필수입니다.");
+        AttackAction attackAction = parseAndValidateAttackAction(state, action);
+        attackRules.validateStored(state, attackAction, attackResult);
+        return resolvedAttack(state, action, attackResult);
     }
 
     private TurnResolution resolved(GameState state, PlayerAction action, SkillCheckResult skillCheckResult,
@@ -109,6 +137,63 @@ public final class ActionResolver {
         stateChanges.add(new GameResult.TurnAdvanced(state.turnNumber(), nextState.turnNumber()));
         GameResult result = new GameResult(action, GameResult.Outcome.RESOLVED, skillCheckResult, List.of(), events,
                 stateChanges, List.of(action.displayText()));
+        return new TurnResolution(result, new StateTransition(state, nextState));
+    }
+
+    private TurnResolution resolvedAttack(GameState state, PlayerAction action, AttackResult attackResult) {
+        VitalsRules.Result playerVitals = vitalsRules.apply(
+                state.playerCharacter().vitals(),
+                withTurnEndTiming(List.of())
+        );
+        CombatEncounter nextCombat = state.combatEncounter();
+        List<GameResult.StateChange> combatChanges = new ArrayList<>();
+        combatChanges.add(new GameResult.AttackResolved(attackResult));
+
+        if (attackResult.finalDamage() > 0) {
+            EnemyState target = nextCombat.requireEnemy(attackResult.targetEnemyId());
+            CharacterVitals damagedVitals = target.vitals().withHp(
+                    target.vitals().hp().withCurrent(attackResult.targetHpAfter())
+            );
+            CombatRules.Result updated = CombatRules.updateEnemy(
+                    nextCombat, target.withVitals(damagedVitals), playerVitals.vitals()
+            );
+            nextCombat = updated.encounter();
+            combatChanges.addAll(updated.stateChanges());
+        }
+        if (nextCombat.active()) {
+            CombatRules.Result advanced = CombatRules.advanceActor(nextCombat, playerVitals.vitals());
+            nextCombat = advanced.encounter();
+            combatChanges.addAll(advanced.stateChanges());
+        }
+
+        GameState nextState = state.withRuleState(state.inventory(), playerVitals.vitals(), nextCombat).advanceTurn();
+        List<GameResult.StateChange> stateChanges = new ArrayList<>();
+        stateChanges.addAll(playerVitals.stateChanges());
+        stateChanges.addAll(combatChanges);
+        stateChanges.add(new GameResult.TurnAdvanced(state.turnNumber(), nextState.turnNumber()));
+
+        List<GameResult.GameEvent> events = new ArrayList<>();
+        events.add(GameResult.GameEvent.ACTION_RESOLVED);
+        events.add(GameResult.GameEvent.COMBAT_ACTION_RESOLVED);
+        events.add(GameResult.GameEvent.ATTACK_RESOLVED);
+        if (combatChanges.stream().anyMatch(GameResult.CombatEncounterChanged.class::isInstance)) {
+            events.add(GameResult.GameEvent.COMBAT_ENCOUNTER_CHANGED);
+        }
+
+        String attackCue = "공격 판정은 서버 확정값을 그대로 따른다: target=%s, attackRoll=%d, statModifier=%d, "
+                + "equipmentAttackModifier=%d, defense=%d, total=%d, outcome=%s, damageRoll=%d, "
+                + "damageStatModifier=%d, equipmentDamageModifier=%d, mitigation=%d, finalDamage=%d, targetHp=%d->%d.";
+        attackCue = attackCue.formatted(
+                attackResult.targetEnemyId(), attackResult.attackRoll(), attackResult.statModifier(),
+                attackResult.equipmentAttackModifier(), attackResult.defenseScore(), attackResult.attackTotal(),
+                attackResult.outcome(), attackResult.damageRoll(), attackResult.damageStatModifier(),
+                attackResult.equipmentDamageModifier(), attackResult.damageMitigation(), attackResult.finalDamage(),
+                attackResult.targetHpBefore(), attackResult.targetHpAfter()
+        );
+        GameResult result = new GameResult(
+                action, GameResult.Outcome.RESOLVED, null, attackResult, List.of(), events, stateChanges,
+                List.of(action.displayText(), attackCue)
+        );
         return new TurnResolution(result, new StateTransition(state, nextState));
     }
 
@@ -160,6 +245,10 @@ public final class ActionResolver {
     }
 
     private void validateCombatAction(GameState state, PlayerAction action) {
+        if (action.type() == ActionType.COMBAT_ATTACK) {
+            parseAndValidateAttackAction(state, action);
+            return;
+        }
         Map<String, String> arguments = action.arguments();
         CombatEncounter encounter = state.combatEncounter();
         if (arguments.size() != 1 || encounter == null || !encounter.encounterId().equals(arguments.get("encounterId"))) {
@@ -167,8 +256,21 @@ public final class ActionResolver {
         }
     }
 
+    private AttackAction parseAndValidateAttackAction(GameState state, PlayerAction action) {
+        AttackAction attackAction = AttackAction.from(action);
+        CombatEncounter encounter = state.combatEncounter();
+        if (encounter == null || !encounter.encounterId().equals(attackAction.encounterId())) {
+            throw new IllegalArgumentException("AttackAction encounterId가 현재 encounter와 일치하지 않습니다.");
+        }
+        EnemyState target = encounter.requireEnemy(attackAction.targetEnemyId());
+        if (target.defeated()) {
+            throw new IllegalArgumentException("defeated enemy는 공격 대상으로 선택할 수 없습니다.");
+        }
+        return attackAction;
+    }
+
     private boolean isCombatAction(ActionType type) {
-        return type == ActionType.COMBAT_PASS || type == ActionType.COMBAT_ESCAPE;
+        return type == ActionType.COMBAT_ATTACK || type == ActionType.COMBAT_PASS || type == ActionType.COMBAT_ESCAPE;
     }
 
     private void validateNarrativeChoice(PlayerAction action) {

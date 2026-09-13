@@ -202,7 +202,8 @@ public class GameService {
             GameTurnCommit commit = new GameTurnCommit(
                     request.expectedTurn(), resolution.gameResult().resolvedAction().legacyChoiceId(), userChoiceText,
                     committedTransition, nextTurn.storyText(), choiceCodec.serialize(choices),
-                    canonicalResultId, generatedStoryId, resolution.gameResult().skillCheckResult(), imageAsset
+                    canonicalResultId, generatedStoryId, resolution.gameResult().skillCheckResult(),
+                    resolution.gameResult().stateChanges(), imageAsset
             );
 
             int savedTurn = gamePersistenceService.saveNextTurn(

@@ -19,10 +19,10 @@ class GameStateUpgraderTest {
     private final GameStateUpgrader upgrader = new GameStateUpgrader();
 
     @Test
-    @DisplayName("production legacy raw GameState를 schema v5 기본 stats/inventory/vitals/no-combat으로 순수 upgrade한다")
+    @DisplayName("production legacy raw GameState를 schema v6 기본 stats/inventory/vitals/no-combat으로 순수 upgrade한다")
     void legacyRawState_IsUpgradedToCurrentSchema() throws Exception {
         GameStateUpgrader.UpgradedSnapshot upgraded = upgrader.upgrade(objectMapper.readTree(legacyStateJson()));
-        assertThat(upgraded.schemaVersion()).isEqualTo(5);
+        assertThat(upgraded.schemaVersion()).isEqualTo(6);
         assertThat(upgraded.rulesetVersion()).isEqualTo(1);
         assertThat(upgraded.state().get("playerCharacter").get("stats").get("might").asInt()).isEqualTo(10);
         assertThat(upgraded.state().get("inventory").get("items").isEmpty()).isTrue();
@@ -32,7 +32,7 @@ class GameStateUpgraderTest {
     }
 
     @Test
-    @DisplayName("schema v1 legacy stats의 canonical 값은 v5까지 보존한다")
+    @DisplayName("schema v1 legacy stats의 canonical 값은 v6까지 보존한다")
     void schemaV1Stats_AreNormalizedWithoutLosingCanonicalValues() throws Exception {
         JsonNode snapshot = objectMapper.readTree("""
                 {"schemaVersion":1,"rulesetVersion":1,"state":{
@@ -43,7 +43,7 @@ class GameStateUpgraderTest {
                 }}
                 """);
         GameStateUpgrader.UpgradedSnapshot upgraded = upgrader.upgrade(snapshot);
-        assertThat(upgraded.schemaVersion()).isEqualTo(5);
+        assertThat(upgraded.schemaVersion()).isEqualTo(6);
         assertThat(upgraded.state().get("playerCharacter").get("stats").get("might").asInt()).isEqualTo(14);
         assertThat(upgraded.state().get("playerCharacter").get("stats").get("agility").asInt()).isEqualTo(12);
         assertDefaultVitals(upgraded.state());
@@ -51,42 +51,58 @@ class GameStateUpgraderTest {
     }
 
     @Test
-    @DisplayName("schema v2는 inventory, vitals, no-combat를 순차적으로 추가한다")
-    void schemaV2_IsUpgradedThroughV5() throws Exception {
+    @DisplayName("schema v2는 inventory, vitals, no-combat와 전투 modifier를 순차적으로 추가한다")
+    void schemaV2_IsUpgradedThroughV6() throws Exception {
         GameStateUpgrader.UpgradedSnapshot upgraded = upgrader.upgrade(objectMapper.readTree(v2State()));
-        assertThat(upgraded.schemaVersion()).isEqualTo(5);
+        assertThat(upgraded.schemaVersion()).isEqualTo(6);
         assertThat(upgraded.state().get("inventory").get("items").isEmpty()).isTrue();
         assertDefaultVitals(upgraded.state());
         assertThat(upgraded.state().get("combatEncounter").isNull()).isTrue();
     }
 
     @Test
-    @DisplayName("schema v3는 기존 state 의미를 보존하고 기본 vitals/no-combat만 추가한다")
-    void schemaV3_AddsDefaultVitalsAndNoCombat() throws Exception {
+    @DisplayName("schema v3는 기존 state 의미를 보존하고 현재 schema까지 승격한다")
+    void schemaV3_UpgradesToV6() throws Exception {
         JsonNode snapshot = objectMapper.readTree(v3State());
         GameStateUpgrader.UpgradedSnapshot upgraded = upgrader.upgrade(snapshot);
-        assertThat(upgraded.schemaVersion()).isEqualTo(5);
+        assertThat(upgraded.schemaVersion()).isEqualTo(6);
         assertThat(upgraded.state().get("inventory")).isEqualTo(snapshot.get("state").get("inventory"));
         assertDefaultVitals(upgraded.state());
         assertThat(upgraded.state().get("combatEncounter").isNull()).isTrue();
     }
 
     @Test
-    @DisplayName("schema v4는 기존 state 의미를 보존하고 no-combat만 명시적으로 추가한다")
-    void schemaV4_AddsExplicitNoCombat() throws Exception {
+    @DisplayName("schema v4는 기존 state 의미를 보존하고 현재 schema까지 승격한다")
+    void schemaV4_UpgradesToV6() throws Exception {
         JsonNode snapshot = objectMapper.readTree(v4State());
         GameStateUpgrader.UpgradedSnapshot upgraded = upgrader.upgrade(snapshot);
-        assertThat(upgraded.schemaVersion()).isEqualTo(5);
+        assertThat(upgraded.schemaVersion()).isEqualTo(6);
         assertThat(upgraded.state().get("playerCharacter")).isEqualTo(snapshot.get("state").get("playerCharacter"));
         assertThat(upgraded.state().get("combatEncounter").isNull()).isTrue();
     }
 
     @Test
-    @DisplayName("schema v5 snapshot은 state를 그대로 읽는다")
-    void schemaV5_IsReadWithoutMutation() throws Exception {
-        JsonNode snapshot = objectMapper.readTree(v5State());
+    @DisplayName("schema v5 item과 enemy에는 결정적인 기본 combat 수치를 추가한다")
+    void schemaV5_AddsCombatDefaults() throws Exception {
+        GameStateUpgrader.UpgradedSnapshot upgraded = upgrader.upgrade(objectMapper.readTree(v5CombatState()));
+        assertThat(upgraded.schemaVersion()).isEqualTo(6);
+
+        JsonNode definition = upgraded.state().get("inventory").get("items").get("blade").get("definition");
+        assertThat(definition.get("combatModifiers").get("attackBonus").asInt()).isZero();
+        assertThat(definition.get("combatModifiers").get("damageBonus").asInt()).isZero();
+
+        JsonNode enemy = upgraded.state().get("combatEncounter").get("enemies").get("wolf");
+        assertThat(enemy.get("combatProfile").get("defenseScore").asInt()).isEqualTo(10);
+        assertThat(enemy.get("combatProfile").get("damageReduction").asInt()).isZero();
+    }
+
+    @Test
+    @DisplayName("schema v6 snapshot은 state를 그대로 읽는다")
+    void schemaV6_IsReadWithoutMutation() throws Exception {
+        GameStateUpgrader.UpgradedSnapshot v6 = upgrader.upgrade(objectMapper.readTree(v5State()));
+        JsonNode snapshot = objectMapper.readTree("{\"schemaVersion\":6,\"rulesetVersion\":1,\"state\":" + v6.state() + "}");
         GameStateUpgrader.UpgradedSnapshot upgraded = upgrader.upgrade(snapshot);
-        assertThat(upgraded.schemaVersion()).isEqualTo(5);
+        assertThat(upgraded.schemaVersion()).isEqualTo(6);
         assertThat(upgraded.state()).isEqualTo(snapshot.get("state"));
     }
 
@@ -128,23 +144,43 @@ class GameStateUpgraderTest {
     }
 
     @Test
-    @DisplayName("현재 schema v5에서 combatEncounter 필드가 누락되면 no-combat로 조용히 기본값 처리하지 않는다")
+    @DisplayName("schema v5에 이미 combatProfile이 있으면 v6 의미로 임의 승격하지 않는다")
+    void schemaV5WithCombatProfile_FailsExplicitly() throws Exception {
+        String json = v5CombatState().replace("\"displayName\":\"늑대\",",
+                "\"displayName\":\"늑대\",\"combatProfile\":{\"defenseScore\":99,\"damageReduction\":0},");
+        assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree(json)))
+                .isInstanceOf(GameStateSnapshotException.class)
+                .hasMessageContaining("schema v5")
+                .hasMessageContaining("combatProfile");
+    }
+
+    @Test
+    @DisplayName("schema v5에서 combatEncounter 필드가 누락되면 no-combat로 조용히 기본값 처리하지 않는다")
     void schemaV5MissingCombatField_FailsExplicitly() throws Exception {
         JsonNode snapshot = objectMapper.readTree(v4State().replace("\"schemaVersion\":4", "\"schemaVersion\":5"));
         assertThatThrownBy(() -> upgrader.upgrade(snapshot)).isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("combatEncounter 필드가 누락");
     }
 
     @Test
+    @DisplayName("현재 schema v6에서 item combatModifiers가 누락되면 조용히 기본값 처리하지 않는다")
+    void schemaV6MissingItemCombatModifiers_FailsExplicitly() throws Exception {
+        String json = v5CombatState().replace("\"schemaVersion\":5", "\"schemaVersion\":6");
+        assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree(json)))
+                .isInstanceOf(GameStateSnapshotException.class)
+                .hasMessageContaining("combatModifiers");
+    }
+
+    @Test
     @DisplayName("미래 schema version은 기본값 처리하지 않고 실패한다")
     void futureSchemaVersion_FailsExplicitly() throws Exception {
-        JsonNode snapshot = objectMapper.readTree("{\"schemaVersion\":6,\"rulesetVersion\":1,\"state\":{}}");
+        JsonNode snapshot = objectMapper.readTree("{\"schemaVersion\":7,\"rulesetVersion\":1,\"state\":{}}");
         assertThatThrownBy(() -> upgrader.upgrade(snapshot)).isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("미래 snapshot schemaVersion");
     }
 
     @Test
     @DisplayName("미지원 ruleset version은 자동 재판정하지 않고 실패한다")
     void unsupportedRulesetVersion_FailsExplicitly() throws Exception {
-        JsonNode snapshot = objectMapper.readTree("{\"schemaVersion\":5,\"rulesetVersion\":2,\"state\":{}}");
+        JsonNode snapshot = objectMapper.readTree("{\"schemaVersion\":6,\"rulesetVersion\":2,\"state\":{}}");
         assertThatThrownBy(() -> upgrader.upgrade(snapshot)).isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("rulesetVersion");
     }
 
@@ -158,7 +194,7 @@ class GameStateUpgraderTest {
     @Test
     @DisplayName("schemaVersion이 있어도 state가 누락되면 손상 snapshot으로 실패한다")
     void missingState_FailsExplicitly() throws Exception {
-        JsonNode snapshot = objectMapper.readTree("{\"schemaVersion\":5,\"rulesetVersion\":1}");
+        JsonNode snapshot = objectMapper.readTree("{\"schemaVersion\":6,\"rulesetVersion\":1}");
         assertThatThrownBy(() -> upgrader.upgrade(snapshot)).isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("state가 누락");
     }
 
@@ -203,6 +239,12 @@ class GameStateUpgraderTest {
         return v4State().replace("\"schemaVersion\":4", "\"schemaVersion\":5")
                 .replace("\"inventory\":{\"items\":{},\"equipment\":{\"slots\":{}}}",
                         "\"inventory\":{\"items\":{},\"equipment\":{\"slots\":{}}},\"combatEncounter\":null");
+    }
+
+    private String v5CombatState() {
+        return v4State().replace("\"schemaVersion\":4", "\"schemaVersion\":5")
+                .replace("\"inventory\":{\"items\":{},\"equipment\":{\"slots\":{}}}",
+                        "\"inventory\":{\"items\":{\"blade\":{\"id\":\"blade\",\"definition\":{\"id\":\"blade\",\"ownershipType\":\"INSTANCE\",\"equipmentSlot\":\"MAIN_HAND\"},\"quantity\":1}},\"equipment\":{\"slots\":{\"MAIN_HAND\":\"blade\"}}},\"combatEncounter\":{\"encounterId\":\"enc-1\",\"status\":\"ACTIVE\",\"enemies\":{\"wolf\":{\"enemyId\":\"wolf\",\"displayName\":\"늑대\",\"vitals\":{\"hp\":{\"current\":10,\"max\":10},\"mp\":{\"current\":10,\"max\":10},\"statusEffects\":{}}}},\"turnOrder\":[\"player\",\"wolf\"],\"currentActorId\":\"player\"}");
     }
 
     private String legacyStateJson() throws Exception {
