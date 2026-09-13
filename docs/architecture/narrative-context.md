@@ -12,7 +12,7 @@ Narrative provider는 게임 규칙을 판정하지 않는다. 서버가 `Action
 - resolved action projection: legacy choice ID, action type, source turn, 검증된 arguments, display text
 - `GameResult.outcome`
 - 이번 결과가 만든 canonical facts/events/state changes
-- canonical next-state projection: turn, world premise/flags, player description/stats/vitals
+- canonical next-state projection: turn, world premise/flags, player description/stats/vitals, ability cooldown map
 - combat projection: encounter ID/lifecycle, participant enemy vitals, defeated/incapacitated, deterministic turn order/current actor
 - memory projection: 기존 canonical facts, rolling summary, recent turns
 - narrative cues
@@ -44,11 +44,12 @@ provider는 다음을 할 수 없다.
 
 - 서버가 확정한 outcome 재판정
 - 서버가 제공하지 않은 roll/성공/실패 창작
-- state changes에 없는 HP, 능력치, 아이템, 레벨, 위치, 생사 변경 확정
+- state changes에 없는 HP, MP, status, ability cooldown, 능력치, 아이템, 레벨, 위치, 생사 변경 확정
+- ability state changes에 기록된 비용·효과·target·cooldown 변경 또는 재판정
 - combat projection/state changes에 없는 enemy 생성·제거·사망·부활, encounter 시작·종료, current actor 변경 확정
 - state projection/canonical facts 변경
 
-combat projection은 read-only다. provider의 story 문장이나 choice 후보는 `EnemyState`, `CombatEncounter`의 canonical 생성·제거·사망·부활 근거가 되지 않는다. 공격·피해 결과 역시 #42 이후 서버가 typed rule/state change로 확정한 값만 projection한다.
+combat/ability projection은 read-only다. provider의 story 문장이나 choice 후보는 `EnemyState`, `CombatEncounter`, `AbilityState`의 canonical 생성·변경 근거가 되지 않는다. 공격·피해 결과와 ability 비용·효과·cooldown은 서버가 typed rule/state change로 확정한 값만 projection한다.
 
 ## Gemini structured output 경계
 
@@ -91,4 +92,4 @@ provider 호출 전에 `TurnResolution`과 canonical next state는 이미 결정
 
 ## Persistence 경계
 
-Persistence는 `GameTurnCommit`이 전달한 typed `StateTransition`과 narrative linkage를 저장할 뿐 user text/story prose를 파싱해 규칙을 계산하지 않는다. Narrative prose는 `StoryMemory` transcript를 완성하지만 이미 확정된 rule state/outcome/state changes를 변경하지 않는다.
+Persistence는 `GameTurnCommit`이 전달한 typed `StateTransition`과 narrative linkage를 저장할 뿐 user text/story prose를 파싱해 규칙을 계산하지 않는다. Narrative prose는 `StoryMemory` transcript를 완성하지만 이미 확정된 rule state/outcome/state changes를 변경하지 않는다. Ability 변화는 `AbilityResolved`/`AbilityCooldownChanged` typed audit과 canonical next-state cooldown projection으로만 provider에 노출된다.
