@@ -51,6 +51,7 @@ public record GameTurnCommit(
         if (!replayedVitals.equals(stateTransition.nextState().playerCharacter().vitals())) throw new IllegalArgumentException("stateChanges의 vitals/status audit이 StateTransition과 일치하지 않습니다.");
         CombatEncounter replayedCombat = CombatRules.replay(stateTransition.previousState().combatEncounter(), stateChanges, replayedVitals);
         if (!java.util.Objects.equals(replayedCombat, stateTransition.nextState().combatEncounter())) throw new IllegalArgumentException("stateChanges의 combat audit이 StateTransition과 일치하지 않습니다.");
+        AbilityRules.validateTurnAudit(stateTransition.previousState().abilityState(), stateChanges);
         AbilityState replayedAbilityState = AbilityRules.replay(stateTransition.previousState().abilityState(), stateChanges);
         if (!replayedAbilityState.equals(stateTransition.nextState().abilityState())) throw new IllegalArgumentException("stateChanges의 ability cooldown audit이 StateTransition과 일치하지 않습니다.");
     }

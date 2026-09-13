@@ -3,8 +3,10 @@ package com.uctale.uctale.domain.game;
 import com.uctale.uctale.domain.action.UseAbilityAction;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 public final class AbilityRules {
     private final VitalsRules vitalsRules = new VitalsRules();
@@ -90,6 +92,30 @@ public final class AbilityRules {
                     entry.getKey(), entry.getValue(), after, GameResult.AbilityCooldownChangeReason.TURN_ENDED));
         }
         return new CooldownAdvance(next, List.copyOf(changes));
+    }
+
+    public static void validateTurnAudit(AbilityState previous, List<GameResult.StateChange> stateChanges) {
+        Objects.requireNonNull(previous, "previous AbilityState는 필수입니다.");
+        Set<String> decremented = new HashSet<>();
+        Set<String> used = new HashSet<>();
+        if (stateChanges != null) {
+            for (GameResult.StateChange change : stateChanges) {
+                if (!(change instanceof GameResult.AbilityCooldownChanged cooldown)) continue;
+                if (cooldown.reason() == GameResult.AbilityCooldownChangeReason.TURN_ENDED) {
+                    Integer before = previous.cooldowns().get(cooldown.definitionId());
+                    if (before == null || before != cooldown.previousRemainingTurns() || !decremented.add(cooldown.definitionId())) {
+                        throw new IllegalArgumentException("ability cooldown turn-end audit이 previous state와 일치하지 않습니다.");
+                    }
+                } else {
+                    if (previous.cooldowns().containsKey(cooldown.definitionId()) || !used.add(cooldown.definitionId()) || used.size() > 1) {
+                        throw new IllegalArgumentException("ability 사용 cooldown audit이 올바르지 않습니다.");
+                    }
+                }
+            }
+        }
+        if (!decremented.equals(previous.cooldowns().keySet())) {
+            throw new IllegalArgumentException("완료된 turn은 기존 ability cooldown을 정확히 한 번 감소시켜야 합니다.");
+        }
     }
 
     public static AbilityState replay(AbilityState state, List<GameResult.StateChange> stateChanges) {
