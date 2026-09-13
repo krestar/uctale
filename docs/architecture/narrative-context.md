@@ -12,7 +12,8 @@ Narrative provider는 게임 규칙을 판정하지 않는다. 서버가 `Action
 - resolved action projection: legacy choice ID, action type, source turn, 검증된 arguments, display text
 - `GameResult.outcome`
 - 이번 결과가 만든 canonical facts/events/state changes
-- canonical next-state projection: turn, world premise/flags, player description/stats
+- canonical next-state projection: turn, world premise/flags, player description/stats/vitals
+- combat projection: encounter ID/lifecycle, participant enemy vitals, defeated/incapacitated, deterministic turn order/current actor
 - memory projection: 기존 canonical facts, rolling summary, recent turns
 - narrative cues
 - provider가 수행하면 안 되는 canonical mutation 규칙
@@ -44,7 +45,10 @@ provider는 다음을 할 수 없다.
 - 서버가 확정한 outcome 재판정
 - 서버가 제공하지 않은 roll/성공/실패 창작
 - state changes에 없는 HP, 능력치, 아이템, 레벨, 위치, 생사 변경 확정
+- combat projection/state changes에 없는 enemy 생성·제거·사망·부활, encounter 시작·종료, current actor 변경 확정
 - state projection/canonical facts 변경
+
+combat projection은 read-only다. provider의 story 문장이나 choice 후보는 `EnemyState`, `CombatEncounter`의 canonical 생성·제거·사망·부활 근거가 되지 않는다. 공격·피해 결과 역시 #42 이후 서버가 typed rule/state change로 확정한 값만 projection한다.
 
 ## Gemini structured output 경계
 
@@ -63,12 +67,7 @@ JSON parsing, Gemini response wrapper, response schema 같은 provider-specific 
 
 ## GameLog narrative linkage
 
-`game_log`에는 새 progress turn부터 다음 nullable 컬럼을 함께 기록한다.
-
-- `canonical_result_id`
-- `generated_story_id`
-
-legacy/opening row는 두 값이 모두 `NULL`일 수 있다. DB CHECK constraint와 `GameTurnCommit` 불변식은 두 값 중 하나만 존재하는 부분 linkage를 거부한다.
+`game_log`에는 새 progress turn부터 `canonical_result_id`, `generated_story_id`를 함께 기록한다. legacy/opening row는 두 값이 모두 `NULL`일 수 있다. DB CHECK constraint와 `GameTurnCommit` 불변식은 두 값 중 하나만 존재하는 부분 linkage를 거부한다.
 
 `canonicalResultId`는 `(session, next turn, mutation request)`로 결정적으로 구성한다. 동일 idempotency key/payload가 provider 실패 후 재시도되면 동일 mutation request ID를 사용하므로 동일 canonical result link를 재구성한다.
 
