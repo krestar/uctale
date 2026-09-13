@@ -14,9 +14,9 @@ UCTale은 사용자가 직접 입력한 세계관과 주인공 설정을 바탕�
 
 UCTale의 핵심 원칙은 **게임의 결정적 사실과 규칙은 서버가 소유하고, LLM은 확정된 결과를 서술한다**는 것입니다.
 
-현재 main은 공유 베타 운영 안전망과 신뢰 가능한 턴 저장 기반에 더해 `ActionResolver` / `GameResult` / provider-safe `NarrativeContext`, Skill Check vertical slice, 서버 소유 Inventory/Equipment aggregate를 갖추는 단계입니다.
+현재 main은 공유 베타 운영 안전망과 신뢰 가능한 턴 저장 기반에 더해 `ActionResolver` / `GameResult` / provider-safe `NarrativeContext`, Skill Check vertical slice, 서버 소유 Inventory/Equipment 및 HP/MP/Status Effect aggregate를 갖추는 단계입니다.
 
-- 서버: 세션 소유권, 현재 턴, idempotency, reservation lease, canonical state, Skill Check 판정, Inventory/Equipment 상태 전이, `GameResult`, GameLog, provider attempt 상한을 검증합니다.
+- 서버: 세션 소유권, 현재 턴, idempotency, reservation lease, canonical state, Skill Check 판정, Inventory/Equipment 및 HP/MP/Status Effect 상태 전이, `GameResult`, GameLog, provider attempt 상한을 검증합니다.
 - Narrative AI: 서버가 확정한 결과와 제한된 state/memory projection을 바탕으로 이야기와 다음 선택지 표현을 생성합니다.
 - Image AI: 브라우저의 임의 prompt가 아니라 서버가 발급한 image asset 계약만 실행합니다.
 - Frontend: 서버가 반환한 선택 행동, 캐릭터 능력치, Skill Check 결과를 표시하고 규칙을 재계산하지 않습니다.
@@ -108,17 +108,29 @@ UCTale의 핵심 원칙은 **게임의 결정적 사실과 규칙은 서버가 �
 - Narrative provider 응답은 inventory command 입력이 아니므로 story prose만으로 item을 생성·소비·장착할 수 없습니다.
 - 상점/거래, 랜덤 loot table, 강화/내구도, 전투 modifier, frontend 전체 inventory UI는 이 단계의 범위가 아닙니다.
 
+### HP / MP / Status Effect
+
+#40 이후 `PlayerCharacter`는 서버 소유 `CharacterVitals`를 포함합니다.
+
+- HP/MP는 `current/max` 범위를 타입 불변식으로 유지하고 신규·legacy baseline은 각각 10/10입니다.
+- damage/heal/spend/restore와 status apply/update/remove는 `VitalsCommand`와 순수 `VitalsRules`에서만 canonical transition을 만듭니다.
+- status duration은 `ActionResolver`가 소유한 `END_OF_TURN` timing에서 정확히 한 번 감소하며 새로 적용·갱신된 효과는 같은 turn에 즉시 감소하지 않습니다.
+- HP 0은 `defeated`, HP 0 또는 incapacitating status는 `incapacitated`로 결정적으로 파생합니다.
+- 변화는 typed `GameResult.StateChange`와 `game_log.vitals_changes_json` audit으로 남고 snapshotless recovery에서도 replay됩니다.
+- Narrative provider는 확정된 vitals/status와 state change를 전달받아 서술할 뿐 HP/MP/status를 직접 결정하지 않습니다.
+- 전투 turn order, 공격/방어 공식, 영구 사망/부활 상세 규칙, frontend HUD는 후속 범위입니다.
+
 ### GameState와 Story Memory
 
 서버는 세션별 canonical `GameState`를 JSON snapshot으로 저장하고 Narrative Engine에는 필요한 projection만 전달합니다.
 
-- `PlayerCharacter`는 typed `CharacterStats`를 소유합니다.
+- `PlayerCharacter`는 typed `CharacterStats`와 `CharacterVitals`를 소유합니다.
 - `Inventory`는 owned item과 equipment slot의 canonical state를 소유합니다.
 - `canonicalFacts`: 서버가 유지하는 장기 사실
 - `rollingSummary`: 오래된 진행 내용을 제한된 크기로 압축한 기록
 - `recentTurns`: 최근 진행 기록
 
-snapshot JSON은 schema/ruleset version을 가지며 legacy production snapshot을 deterministic upgrader로 읽을 수 있습니다. Inventory 도입으로 현재 snapshot schema는 v3이며, v0/v1/v2는 읽을 때 typed stats와 빈 inventory를 순수 변환합니다. read-time upgrade는 in-memory에서만 수행하고 다음 정상 canonical write에서 최신 형식으로 저장합니다.
+snapshot JSON은 schema/ruleset version을 가지며 legacy production snapshot을 deterministic upgrader로 읽을 수 있습니다. HP/MP/Status Effect 도입으로 현재 snapshot schema는 v4이며, v0/v1/v2/v3는 읽을 때 typed stats, 빈 inventory, 기본 vitals를 순수 변환합니다. read-time upgrade는 in-memory에서만 수행하고 다음 정상 canonical write에서 최신 형식으로 저장합니다.
 
 ### GameResult 기반 NarrativeContext
 
@@ -126,12 +138,12 @@ snapshot JSON은 schema/ruleset version을 가지며 legacy production snapshot�
 
 - `NarrativeContext`는 canonical result ID, resolved action projection, outcome, optional Skill Check projection, canonical facts/events/state changes, canonical next-state projection, memory projection, narrative cues를 포함합니다.
 - Skill Check projection은 raw roll, stat/situational modifier, DC, total, success/failure, ruleset version을 포함합니다.
-- Inventory/Equipment effect가 있으면 서버가 확정한 typed state change만 provider에 전달되며 provider가 이를 추가하거나 재판정할 수 없습니다.
+- Inventory/Equipment 및 HP/MP/Status Effect effect가 있으면 서버가 확정한 typed state change만 provider에 전달되며 provider가 이를 추가하거나 재판정할 수 없습니다.
 - 서버 발급 `PlayerAction.token`은 provider context에 포함하지 않습니다.
 - prompt는 확정 결과/state, narrative cues, 금지 canonical mutation을 분리합니다.
 - provider는 story prose와 다음 choice 후보를 만들 수 있지만 서버가 확정한 outcome/roll/state change를 재판정할 수 없습니다.
 - provider story는 canonical state를 직접 변경하지 않고 기존 StoryMemory transcript만 완성합니다.
-- `game_log`는 progress turn의 `canonical_result_id` / `generated_story_id`, 선택적 Skill Check audit, Inventory/Equipment audit을 기록합니다. legacy/opening 행은 해당 audit 필드가 비어 있을 수 있습니다.
+- `game_log`는 progress turn의 `canonical_result_id` / `generated_story_id`, 선택적 Skill Check audit, Inventory/Equipment audit, vitals/status audit을 기록합니다. legacy/opening 행은 해당 audit 필드가 비어 있을 수 있습니다.
 - provider failure 시 canonical turn은 진행하지 않으며 같은 idempotent 요청은 reservation에 저장된 Skill Check 판정과 동일 canonical result link를 재사용합니다.
 - Gemini `generateContent`는 JSON response schema를 사용하고 adapter가 필수 필드, 길이, choice 수/ID를 다시 검증합니다. 구조 오류는 최대 3 provider attempt의 bounded recovery를 거치며 raw 응답 전문은 진단 로그에 남기지 않습니다.
 - Narrative model은 설정 기반 stable Flash ID를 사용하며 기본값은 `gemini-3.7-flash`입니다. opening/progress thinking level과 2.5 rollback compatibility는 provider adapter 내부에서 처리합니다.
@@ -222,6 +234,7 @@ uctale/
 - [Action Resolution](./docs/architecture/action-resolution.md)
 - [Skill Check turn integration](./docs/architecture/skill-check-turn.md)
 - [Inventory / Equipment](./docs/architecture/inventory-equipment.md)
+- [HP / MP / Status Effect](./docs/architecture/vitals-status-effects.md)
 - [GameResult 기반 NarrativeContext](./docs/architecture/narrative-context.md)
 - [Gemini Narrative provider](./docs/architecture/gemini-narrative-provider.md)
 - [GameState / Story Memory](./docs/architecture/game-state-story-memory.md)
@@ -354,6 +367,6 @@ GitHub Actions CI도 backend unit test → PostgreSQL integration test → backe
 
 진행 중.
 
-현재 #33 `AvailableAction` / `PlayerAction`, #34 `ActionResolver` / `GameResult`, #36 확정 결과 기반 `NarrativeContext`, #7 typed `CharacterStats` / pure Skill Check 규칙, #37 Skill Check turn 통합·감사 저장, #38 능력치·Skill Check 결과 frontend projection, #39 Inventory/Equipment canonical aggregate와 audit/recovery, #35 Gemini structured output 검증과 bounded recovery, #49 Gemini 3.7 Flash 설정 기반 마이그레이션이 반영됩니다.
+현재 #33 `AvailableAction` / `PlayerAction`, #34 `ActionResolver` / `GameResult`, #36 확정 결과 기반 `NarrativeContext`, #7 typed `CharacterStats` / pure Skill Check 규칙, #37 Skill Check turn 통합·감사 저장, #38 능력치·Skill Check 결과 frontend projection, #39 Inventory/Equipment canonical aggregate와 audit/recovery, #40 HP/MP/Status Effect canonical aggregate와 audit/recovery, #35 Gemini structured output 검증과 bounded recovery, #49 Gemini 3.7 Flash 설정 기반 마이그레이션이 반영됩니다.
 
 아직 구현되지 않은 전투·퀘스트·NPC 관계와 Inventory 상점/거래·loot·강화 기능은 현재 기능처럼 문서에 표시하지 않습니다.
