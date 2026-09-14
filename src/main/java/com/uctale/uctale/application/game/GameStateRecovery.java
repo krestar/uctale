@@ -8,6 +8,7 @@ import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.domain.game.InventoryRules;
 import com.uctale.uctale.domain.game.QuestRules;
 import com.uctale.uctale.domain.game.VitalsRules;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
@@ -21,6 +22,7 @@ public class GameStateRecovery {
     private final CombatAuditCodec combatAuditCodec;
     private final QuestAuditCodec questAuditCodec;
 
+    @Autowired
     public GameStateRecovery(InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec,
             CombatAuditCodec combatAuditCodec, QuestAuditCodec questAuditCodec) {
         this.inventoryAuditCodec = inventoryAuditCodec;
