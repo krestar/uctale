@@ -25,6 +25,9 @@ public record QuestRuntimeState(
             if (progress == null || progress.type() != objective.progressType()) {
                 throw new IllegalArgumentException("quest objective progress type이 definition과 일치하지 않습니다: " + id);
             }
+            if (progress.type() == ObjectiveProgressType.COUNT && progress.count() > objective.requiredCount()) {
+                throw new IllegalArgumentException("COUNT objective progress가 requiredCount를 초과할 수 없습니다: " + id);
+            }
             copy.put(id, progress);
         });
         objectiveProgress = Collections.unmodifiableMap(copy);
