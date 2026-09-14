@@ -4,7 +4,7 @@
 
 <img alt="UCTale 프로젝트 로고" src="./docs/images/project_logo.png" width="600"/>
 
-UCTale은 사용자가 직접 입력한 세계관과 주인공 설정을 바탕으로 이야기를 생성하는 인터랙티브 텍스트 어드벤처입니다. 플레이어는 서버가 발급한 선택 행동 가운데 하나를 고르고, 선택 결과에 따라 다음 장면과 선택지가 이어집니다. 장면에 시각적으로 표현할 요소가 있으면 서버가 관리하는 image asset을 통해 삽화도 제공합니다.
+UCTale은 사용자가 직접 입력한 세계관과 주인공 설정을 바탕으로 이야기를 생성하는 인터랙티브 텍스트 어드벤처입니다. 핵심 원칙은 **게임의 결정적 사실과 규칙은 서버가 소유하고, LLM은 서버가 확정한 결과를 서술한다**는 것입니다.
 
 [서비스 바로가기](https://uctale.vercel.app/)
 
@@ -12,14 +12,12 @@ UCTale은 사용자가 직접 입력한 세계관과 주인공 설정을 바탕�
 
 ## 현재 방향
 
-UCTale의 핵심 원칙은 **게임의 결정적 사실과 규칙은 서버가 소유하고, LLM은 확정된 결과를 서술한다**는 것입니다.
+현재 `main`은 공유 베타 운영 안전망과 신뢰 가능한 턴 저장 기반 위에 서버 주도 action resolution을 확장하고 있습니다.
 
-현재 main은 공유 베타 운영 안전망과 신뢰 가능한 턴 저장 기반에 더해 `ActionResolver` / `GameResult` / provider-safe `NarrativeContext`, Skill Check vertical slice, 서버 소유 Inventory/Equipment 및 HP/MP/Status Effect aggregate를 갖추는 단계입니다.
-
-- 서버: 세션 소유권, 현재 턴, idempotency, reservation lease, canonical state, Skill Check 판정, Inventory/Equipment 및 HP/MP/Status Effect 상태 전이, `GameResult`, GameLog, provider attempt 상한을 검증합니다.
-- Narrative AI: 서버가 확정한 결과와 제한된 state/memory projection을 바탕으로 이야기와 다음 선택지 표현을 생성합니다.
+- 서버: 세션 소유권, 현재 turn, idempotency/reservation, Skill Check, Inventory/Equipment, HP/MP/Status Effect, Combat Encounter/Attack, Ability/MP/Cooldown, Quest/Objective/World·Event Flag와 canonical commit을 결정합니다.
+- Narrative AI: provider-safe `NarrativeContext`로 전달된 서버 확정 결과와 read-only state/memory projection을 서술합니다. canonical state를 직접 변경하거나 판정을 다시 수행하지 않습니다.
 - Image AI: 브라우저의 임의 prompt가 아니라 서버가 발급한 image asset 계약만 실행합니다.
-- Frontend: 서버가 반환한 선택 행동, 캐릭터 능력치, Skill Check 결과를 표시하고 규칙을 재계산하지 않습니다.
+- Frontend: 서버가 반환한 선택 행동과 projection을 표시하며 게임 규칙을 재계산하지 않습니다.
 
 ---
 
@@ -41,160 +39,117 @@ UCTale의 핵심 원칙은 **게임의 결정적 사실과 규칙은 서버가 �
 
 ---
 
-## 플레이 방식
+## 플레이 방식과 서버 경계
 
-1. 공유 베타 접근 비밀번호로 단기 접근 세션을 발급받습니다.
-2. 원하는 세계관과 주인공을 입력합니다.
-3. 서버가 첫 장면과 서버 발급 선택 행동을 생성합니다.
-4. 플레이어가 현재 턴에 유효한 행동을 선택합니다.
-5. 서버가 소유권, expected turn, idempotency, action payload를 검증합니다.
-6. Skill Check action이면 reservation 소유 요청이 서버 난수와 modifier/DC/outcome을 한 번 확정·보존합니다.
-7. 서버가 action과 필요한 결정적 effect를 `GameResult` / canonical next state로 resolve하고 provider-safe `NarrativeContext`를 구성한 뒤 Narrative provider를 호출합니다.
-8. 검증된 story는 확정 rule state를 변경하지 않고 transcript를 완성하며 canonical state와 committed-turn log를 원자적으로 저장합니다.
-9. 시각적으로 표현할 장면이 있으면 서버가 발급한 image asset을 통해 삽화를 제공합니다.
+1. 공유 베타 접근 세션과 owner 기반 게임 세션을 검증합니다.
+2. 플레이어가 현재 turn에 서버가 발급한 `AvailableAction`을 제출합니다.
+3. 서버가 expected turn, idempotency, reservation lease와 action token/type/arguments를 검증합니다.
+4. 필요한 Skill Check/Attack 난수 판정은 reservation owner가 provider 호출 전에 한 번 확정·보존합니다.
+5. `ActionResolver`가 typed action/effect를 `GameResult`와 canonical next state로 resolve합니다.
+6. `QuestRules`가 서버 확정 action/state change만 관찰해 quest/objective/flag 전이를 적용합니다.
+7. provider-safe `NarrativeContext`를 구성하고 Narrative provider가 확정 결과를 story로 표현합니다.
+8. `GameTurnCommit`이 canonical state, typed audit, narrative linkage를 한 transaction으로 저장합니다.
+9. 시각적으로 표현할 장면이 있으면 서버 발급 image asset을 통해 삽화를 제공합니다.
+
+외부 provider의 strict exactly-once는 보장하지 않습니다. 대신 canonical DB commit의 중복 적용을 막고 provider attempt를 bounded하게 관리합니다.
 
 ---
 
-## 현재 구현된 내용
+## 현재 구현된 게임 상태와 규칙
 
-### 공유 베타 접근 제어와 세션 소유권
+### Action Resolution / Skill Check
 
-- 비밀번호 검증 성공 시 서버가 서명한 단기 접근 세션을 HttpOnly 쿠키로 발급합니다.
-- 별도의 장기 owner key로 게임 세션 소유권을 서버와 PostgreSQL에서 관리합니다.
-- 다른 owner는 session ID를 알아도 해당 세션을 조회하거나 진행할 수 없습니다.
-- 게임 시작, 턴 진행, image asset API는 유효한 접근 세션이 있어야 호출할 수 있습니다.
-- 운영 CORS origin은 명시적으로 관리하며 기본 production origin은 `https://uctale.vercel.app`입니다.
-- 공유 비밀번호 인증 실패는 별도의 IP 기반 rate limit으로 보호합니다.
+- `AvailableAction` / `PlayerAction`과 `ActionResolver` / `TurnResolution` / `GameResult` 경계
+- `NARRATIVE_CHOICE`, `SKILL_CHECK`, `COMBAT_ATTACK`, `COMBAT_ABILITY`, `COMBAT_PASS`, `COMBAT_ESCAPE`
+- typed `CharacterStats`: `MIGHT`, `AGILITY`, `INTELLECT`, `WILL`, `PRESENCE`
+- production `SecureRandom`, deterministic test random source
+- Skill Check와 Attack 판정의 reservation 기반 retry 재사용
 
-### 서버 발급 행동과 Action Resolution 경계
+### Inventory / Equipment / Vitals
 
-#33의 `AvailableAction` / `PlayerAction`과 #34의 `ActionResolver` / `TurnResolution` / `GameResult` 경계가 main에 반영되어 있습니다.
+- stable item definition ID와 owned stack/instance ID 분리
+- `MAIN_HAND`, `OFF_HAND`, `BODY`, `ACCESSORY` equipment slot
+- acquire/remove/quantity/consume/equip/unequip typed transition
+- HP/MP와 status effect의 타입 안전한 상태 전이
+- item attack/damage modifier가 서버 전투 판정에 반영
+- typed GameLog audit과 snapshotless recovery
 
-- 서버는 각 선택지에 action token/type/source turn/arguments를 발급할 수 있습니다.
-- 신규 typed 선택은 첫 vertical slice로 `SKILL_CHECK` action을 사용하며 현재 서버 정책은 `WILL`, DC 10, 상황 modifier 0입니다.
-- `/progress`는 현재 turn의 서버 발급 action과 요청 payload가 일치하는지 검증합니다.
-- 변조되거나 만료된 action은 provider 호출 전에 거절됩니다.
-- metadata 없는 legacy wire 요청은 기존 `NARRATIVE_CHOICE` compatibility 의미를 유지합니다.
-- 검증된 action은 provider 호출 전에 `ActionResolver`에서 `GameResult`와 canonical next `StateTransition`으로 확정됩니다.
-- `GameService`는 action type별 규칙 세부 구현을 알지 않고 orchestration만 담당합니다.
+상점/거래, 랜덤 loot table, 강화/내구도, 상세 inventory UI는 현재 범위가 아닙니다.
 
-### 타입 안전한 능력치와 Skill Check
+### Combat / Ability
 
-#7의 순수 규칙 기반에 #37의 실제 turn 통합과 #38의 frontend projection을 연결합니다.
+- `CombatEncounter`의 `PENDING`, `ACTIVE`, `RESOLVED`, `ESCAPED` lifecycle
+- server-owned turn order/current actor와 `EnemyState`
+- d20 attack, defense, damage reduction, equipment modifier, enemy HP 결과를 서버가 확정
+- `COMBAT_ABILITY`의 MP 비용, target, damage/heal/status effect, cooldown을 원자적으로 적용
+- cooldown은 성공적으로 완료된 turn에서 deterministic하게 감소
+- attack/ability 결과와 combat state를 `game_log.combat_changes_json`에 audit
 
-- `StatType`: `MIGHT`, `AGILITY`, `INTELLECT`, `WILL`, `PRESENCE`
-- 신규·legacy 캐릭터는 기본 능력치 10을 사용합니다.
-- `CharacterStats`는 1~30 범위를 검증하고 `floor((score - 10) / 2)` modifier를 계산합니다.
-- `Difficulty`, `DiceRoll`, situational modifier가 각 허용 범위를 검증합니다.
-- `SkillCheck`는 `rawRoll + statModifier + situationalModifier >= DC`만으로 성공/실패를 결정합니다.
-- natural 1/20 특수 규칙은 사용하지 않습니다.
-- `SkillCheckResult`는 raw roll, stat modifier, situational modifier, DC, total, outcome, ruleset version을 보존합니다.
-- production random adapter는 `SecureRandom`, 테스트는 fixed/sequence `RandomSource`를 사용합니다.
-- 같은 idempotency mutation retry는 reservation에 보존된 동일 판정을 재사용하고, 다른 request가 만료 lease를 takeover하면 새 판정을 확정합니다.
-- canonical commit은 Skill Check 결과와 state transition을 같은 transaction에서 `GameLog`에 기록합니다.
-- frontend는 서버가 반환한 능력치와 Skill Check projection을 한국어로 표시하며 modifier/outcome을 재계산하지 않습니다.
+치명타/속성 상성, AoE, 전술 좌표, 다수 party, boss phase, 복잡한 AI와 대형 skill tree는 후속 범위입니다.
 
-### Inventory와 Equipment
+### Quest / Objective / World·Event Flag
 
-#39 이후 `GameState`는 서버 소유 `Inventory`와 `Equipment` 상태를 포함합니다.
+- `QuestDefinition` / `QuestRuntimeState`와 `AVAILABLE`, `ACTIVE`, `COMPLETED`, `FAILED`
+- `COUNT`, `BOOLEAN`, `STATE_MATCH` typed objective progress
+- 최소 collection/dialogue/combat objective fixture
+- typed `WorldFlag` / `EventFlag` key/value/version 규칙
+- quest progress는 story prose가 아니라 서버 action/state change 결과로만 전이
+- status/progress/flag previous/next와 cause를 `game_log.quest_changes_json`에 저장하고 recovery에서 replay
+- `NarrativeContext`에는 read-only quest/objective/flag projection만 전달
 
-- stable item definition ID와 player-owned stack/instance ID를 분리합니다.
-- `STACK`은 동일 owned ID와 동일 definition에 한해 수량을 합칠 수 있고 overflow를 거절합니다.
-- 장착 가능한 item은 개별 `INSTANCE`로만 표현하며 quantity는 항상 1입니다.
-- 최소 slot은 `MAIN_HAND`, `OFF_HAND`, `BODY`, `ACCESSORY`입니다.
-- acquire/remove/quantity/consume/equip/unequip은 `InventoryCommand`와 순수 `InventoryRules`에서만 canonical transition을 만듭니다.
-- 음수/0 수량, 없는 item, 보유량 초과 소비, 잘못된 slot, 중복 장착, 장착 중 item의 암묵적 삭제를 거절합니다.
-- Inventory 변화는 typed `GameResult.StateChange`와 `game_log.inventory_changes_json` audit으로 남고 snapshotless recovery에서도 순서대로 replay됩니다.
-- Narrative provider 응답은 inventory command 입력이 아니므로 story prose만으로 item을 생성·소비·장착할 수 없습니다.
-- 상점/거래, 랜덤 loot table, 강화/내구도, 전투 modifier, frontend 전체 inventory UI는 이 단계의 범위가 아닙니다.
+범용 quest scripting DSL, editor/admin UI, procedural quest generation, 전체 branching campaign, 상세 quest journal UI는 현재 범위가 아닙니다.
 
-### HP / MP / Status Effect
+### GameState / Snapshot / Recovery
 
-#40 이후 `PlayerCharacter`는 서버 소유 `CharacterVitals`를 포함합니다.
+현재 snapshot schema는 **v8**, ruleset version은 **1**입니다.
 
-- HP/MP는 `current/max` 범위를 타입 불변식으로 유지하고 신규·legacy baseline은 각각 10/10입니다.
-- damage/heal/spend/restore와 status apply/update/remove는 `VitalsCommand`와 순수 `VitalsRules`에서만 canonical transition을 만듭니다.
-- status duration은 `ActionResolver`가 소유한 `END_OF_TURN` timing에서 정확히 한 번 감소하며 새로 적용·갱신된 효과는 같은 turn에 즉시 감소하지 않습니다.
-- HP 0은 `defeated`, HP 0 또는 incapacitating status는 `incapacitated`로 결정적으로 파생합니다.
-- 변화는 typed `GameResult.StateChange`와 `game_log.vitals_changes_json` audit으로 남고 snapshotless recovery에서도 replay됩니다.
-- Narrative provider는 확정된 vitals/status와 state change를 전달받아 서술할 뿐 HP/MP/status를 직접 결정하지 않습니다.
-- 전투 turn order, 공격/방어 공식, 영구 사망/부활 상세 규칙, frontend HUD는 후속 범위입니다.
+- v0: pre-envelope raw `GameState`
+- v2: typed stats
+- v3: Inventory/Equipment
+- v4: HP/MP/Status Effect
+- v5: Combat Encounter/EnemyState
+- v6: item combat modifier / enemy combat profile
+- v7: Ability cooldown state
+- v8: Quest/Objective/World·Event Flag state
 
-### GameState와 Story Memory
+`GameStateUpgrader`는 지원되는 legacy schema를 한 단계씩 deterministic하게 승격합니다. 의미를 안전하게 복구할 수 없는 값은 추측하지 않으며, 현재 v8의 필수 필드 누락이나 손상 값은 조용히 기본값으로 복구하지 않습니다. 기존 `WorldState.flags`도 typed World/Event Flag로 임의 승격하지 않습니다.
 
-서버는 세션별 canonical `GameState`를 JSON snapshot으로 저장하고 Narrative Engine에는 필요한 projection만 전달합니다.
+`GameLog`는 append-only committed-turn ledger이고 snapshot은 최신 상태 복구용 materialized state입니다. snapshot이 없으면 inventory/vitals/combat/ability/quest audit을 순서대로 replay합니다.
 
-- `PlayerCharacter`는 typed `CharacterStats`와 `CharacterVitals`를 소유합니다.
-- `Inventory`는 owned item과 equipment slot의 canonical state를 소유합니다.
-- `canonicalFacts`: 서버가 유지하는 장기 사실
-- `rollingSummary`: 오래된 진행 내용을 제한된 크기로 압축한 기록
-- `recentTurns`: 최근 진행 기록
+### NarrativeContext / Provider
 
-snapshot JSON은 schema/ruleset version을 가지며 legacy production snapshot을 deterministic upgrader로 읽을 수 있습니다. HP/MP/Status Effect 도입으로 현재 snapshot schema는 v4이며, v0/v1/v2/v3는 읽을 때 typed stats, 빈 inventory, 기본 vitals를 순수 변환합니다. read-time upgrade는 in-memory에서만 수행하고 다음 정상 canonical write에서 최신 형식으로 저장합니다.
-
-### GameResult 기반 NarrativeContext
-
-#36 이후 progress Narrative provider에는 raw `GameState + 사용자 행동 문자열` 조합 대신 서버가 확정한 결과를 provider-safe projection으로 전달합니다.
-
-- `NarrativeContext`는 canonical result ID, resolved action projection, outcome, optional Skill Check projection, canonical facts/events/state changes, canonical next-state projection, memory projection, narrative cues를 포함합니다.
-- Skill Check projection은 raw roll, stat/situational modifier, DC, total, success/failure, ruleset version을 포함합니다.
-- Inventory/Equipment 및 HP/MP/Status Effect effect가 있으면 서버가 확정한 typed state change만 provider에 전달되며 provider가 이를 추가하거나 재판정할 수 없습니다.
-- 서버 발급 `PlayerAction.token`은 provider context에 포함하지 않습니다.
-- prompt는 확정 결과/state, narrative cues, 금지 canonical mutation을 분리합니다.
-- provider는 story prose와 다음 choice 후보를 만들 수 있지만 서버가 확정한 outcome/roll/state change를 재판정할 수 없습니다.
-- provider story는 canonical state를 직접 변경하지 않고 기존 StoryMemory transcript만 완성합니다.
-- `game_log`는 progress turn의 `canonical_result_id` / `generated_story_id`, 선택적 Skill Check audit, Inventory/Equipment audit, vitals/status audit을 기록합니다. legacy/opening 행은 해당 audit 필드가 비어 있을 수 있습니다.
-- provider failure 시 canonical turn은 진행하지 않으며 같은 idempotent 요청은 reservation에 저장된 Skill Check 판정과 동일 canonical result link를 재사용합니다.
-- Gemini `generateContent`는 JSON response schema를 사용하고 adapter가 필수 필드, 길이, choice 수/ID를 다시 검증합니다. 구조 오류는 최대 3 provider attempt의 bounded recovery를 거치며 raw 응답 전문은 진단 로그에 남기지 않습니다.
-- Narrative model은 설정 기반 stable Flash ID를 사용하며 기본값은 `gemini-3.7-flash`입니다. opening/progress thinking level과 2.5 rollback compatibility는 provider adapter 내부에서 처리합니다.
+- raw `GameState + 사용자 문자열` 대신 서버 확정 `GameResult`와 canonical next-state projection 사용
+- server-issued action token은 provider에 전달하지 않음
+- Skill Check, combat/ability, inventory/vitals, quest/flag state change를 read-only projection으로 전달
+- provider story는 canonical rule state를 변경하지 않고 StoryMemory transcript만 완성
+- Gemini structured output schema와 adapter validation, bounded recovery 적용
+- 기본 Narrative model: `gemini-3.7-flash`
 
 Story Memory projection/token budget 전면 개선은 #46 범위입니다.
 
-### 신뢰 가능한 턴 파이프라인
+---
 
-M2의 턴 무결성·복구 구현 범위와 완료 조건은 main에 반영되었습니다.
+## 신뢰 가능한 턴 파이프라인과 운영 안전망
 
-- `Idempotency-Key`로 `/init`과 `/progress` mutation retry를 식별합니다.
-- 같은 key + 같은 payload의 완료 요청은 provider를 재호출하지 않고 canonical 결과를 replay합니다.
-- 같은 key를 다른 payload/operation에 재사용하면 provider 호출 전에 conflict로 거절합니다.
-- `(session_id, expected_turn)` reservation lease로 유효 lease 동안 중복 provider 진입을 억제합니다.
-- Skill Check가 필요한 typed action은 provider 호출 전에 현재 reservation owner가 판정을 한 번 저장합니다.
-- provider attempt는 reservation 획득 횟수와 분리된 `provider_attempt_count`로 관리하며 turn당 최대 3회로 제한합니다.
-- Gemini response repair의 각 progress provider retry도 같은 reservation owner와 attempt 상한을 다시 검증합니다.
-- validation, rate limit, budget guard 같은 pre-provider 실패는 provider attempt를 소비하지 않습니다.
-- stale lease owner는 takeover 이후 canonical commit을 수행할 수 없습니다.
-- `GameLog`는 append-only committed-turn ledger이고 `GameStateSnapshot`은 최신 상태 복구용 materialized snapshot입니다.
-- `GameSession.currentTurn`, GameLog state version, snapshot, mutation result는 한 canonical commit으로 수렴합니다.
-- 외부 provider strict exactly-once는 보장하지 않지만 canonical DB commit exactly-once와 bounded provider retry를 보장합니다.
+- `/init`, `/progress` mutation의 `Idempotency-Key`
+- `(session_id, expected_turn)` reservation lease와 stale-owner fencing
+- provider attempt와 reservation 획득 횟수 분리
+- validation/rate limit/budget guard 같은 pre-provider 실패는 provider attempt를 소비하지 않음
+- PostgreSQL append-only GameLog와 snapshot/recovery
+- provider usage ledger, 일/월 budget guard와 구조화 관측 로그
+- 공유 베타 접근 세션, owner 기반 세션 소유권, 명시적 CORS 정책
+- server-issued image asset 계약과 production smoke workflow
 
-### 이미지 생성
+---
 
-- Pollinations를 통해 게임 장면 이미지를 생성합니다.
-- 브라우저는 provider prompt나 secret을 전달받지 않고 서버 발급 asset URL만 사용합니다.
-- 동일 asset은 저장된 model, prompt, size, seed, safe, style version을 재사용합니다.
-- 기본 정책은 `flux`, `768x432`, `uctale-charcoal-v3`입니다.
-- provider 응답은 JPEG/PNG, 최대 8 MiB 계약을 검증합니다.
-- provider 오류가 발생해도 canonical game turn은 유지됩니다.
+## 프론트엔드
 
-### 비용 보호와 관측성
-
-- Narrative/Image 비용 API는 owner/IP/session 기준의 in-process rate limit을 적용합니다.
-- PostgreSQL `provider_usage_event` ledger로 일/월 provider 사용량을 누적합니다.
-- warning/critical budget threshold와 선택적 `FAIL_CLOSED` 정책을 지원합니다.
-- provider 호출마다 provider, model, operation, session, turn, request ID, latency, outcome, retry/attempt 수를 구조화 로그로 기록합니다.
-- Gemini provider attempt는 model/thinking level과 prompt/candidate/thought/total token usage를 별도 구조화 로그로 기록합니다.
-- prompt/응답 전문, 비밀번호, API key, access/owner token은 관측 로그에 남기지 않습니다.
-
-### 프론트엔드 UX
-
-- Charcoal Folio 기반 narrative-first single-column UI를 사용합니다.
-- React 19, Vite 8, plain CSS, SUIT Variable을 사용합니다.
-- `system | light | dark` 테마를 지원합니다.
-- 캐릭터 능력치와 최근 Skill Check roll/modifier/DC/total/outcome을 story 아래의 읽기 흐름에서 표시합니다.
-- API 오류는 화면 문맥 안에서 표시하고 가능한 경우 retry를 제공합니다.
-- 진행 중 중복 요청을 막고 typewriter skip 및 `prefers-reduced-motion`을 지원합니다.
-- image loading/failure, keyboard focus 이동, live-region 등 공유 베타 accessibility behavior를 포함합니다.
-- Vercel Web Analytics를 통해 production page view를 확인할 수 있습니다.
+- React 19, React Router 7, Vite 8, plain CSS
+- Charcoal Folio 기반 narrative-first UI
+- `system | light | dark` theme
+- 캐릭터 능력치와 Skill Check 결과 projection
+- retry/error 상태, typewriter skip, `prefers-reduced-motion`, keyboard/live-region accessibility
+- Vercel Web Analytics
 
 ---
 
@@ -212,29 +167,16 @@ M2의 턴 무결성·복구 구현 범위와 완료 조건은 main에 반영되�
 
 ---
 
-## 프로젝트 구조
-
-```text
-uctale/
-├── frontend/                  # React 프론트엔드
-├── src/main/java/            # Spring Boot 백엔드
-├── src/main/resources/
-│   ├── application.properties
-│   └── db/migration/          # Flyway migration
-├── src/test/                 # unit/H2/PostgreSQL integration tests
-├── docs/                     # architecture, testing, operations, benchmark 문서
-├── scripts/                  # benchmark/production smoke 도구
-├── build.gradle
-└── README.md
-```
-
-주요 설계 문서:
+## 주요 설계 문서
 
 - [개발 원칙](./CONTRIBUTING.md)
 - [Action Resolution](./docs/architecture/action-resolution.md)
 - [Skill Check turn integration](./docs/architecture/skill-check-turn.md)
 - [Inventory / Equipment](./docs/architecture/inventory-equipment.md)
 - [HP / MP / Status Effect](./docs/architecture/vitals-status-effects.md)
+- [Combat Encounter / EnemyState](./docs/architecture/combat-encounter.md)
+- [Ability / Resource / Cooldown](./docs/architecture/ability-cooldown.md)
+- [Quest / Objective / World·Event Flag](./docs/architecture/quest-objective-flags.md)
 - [GameResult 기반 NarrativeContext](./docs/architecture/narrative-context.md)
 - [Gemini Narrative provider](./docs/architecture/gemini-narrative-provider.md)
 - [GameState / Story Memory](./docs/architecture/game-state-story-memory.md)
@@ -251,16 +193,9 @@ uctale/
 
 ## 로컬 실행
 
-### 필요한 환경
+필요 환경: Java 21, Node.js 22 권장, PostgreSQL, PostgreSQL integration test용 Docker-compatible container runtime, Google AI API Key, Pollinations Token.
 
-- Java 21
-- Node.js 22 권장
-- PostgreSQL
-- Docker-compatible container runtime: PostgreSQL integration test 실행 시 필요
-- Google AI API Key
-- Pollinations Token
-
-### 백엔드 환경 변수
+백엔드 주요 환경 변수 예시:
 
 ```env
 GOOGLE_AI_API_KEY=...
@@ -277,21 +212,9 @@ DATABASE_USERNAME=...
 DATABASE_PASSWORD=...
 ```
 
-세부 정책 환경변수는 `src/main/resources/application.properties`와 관련 architecture 문서를 기준으로 관리합니다.
-
-### 백엔드 실행
-
 ```bash
 ./gradlew bootRun
 ```
-
-Windows:
-
-```powershell
-.\gradlew.bat bootRun
-```
-
-### 프론트엔드 실행
 
 ```bash
 cd frontend
@@ -305,25 +228,11 @@ npm run dev
 
 ## 테스트와 빌드
 
-Backend unit/H2 suite:
-
 ```bash
 ./gradlew clean test
-```
-
-PostgreSQL integration suite:
-
-```bash
 ./gradlew postgresIntegrationTest
-```
-
-Backend build:
-
-```bash
 ./gradlew build
 ```
-
-Frontend:
 
 ```bash
 cd frontend
@@ -333,7 +242,7 @@ npm run lint
 npm run build
 ```
 
-GitHub Actions CI도 backend unit test → PostgreSQL integration test → backend build 순서와 frontend test/lint/build를 실행합니다.
+GitHub Actions CI도 backend unit test → PostgreSQL integration test → backend build와 frontend test/lint/build를 실행합니다.
 
 ---
 
@@ -343,30 +252,12 @@ GitHub Actions CI도 backend unit test → PostgreSQL integration test → backe
 
 구현 범위 완료.
 
-- 공유 접근 세션과 owner 기반 세션 소유권
-- API/CORS/Secret 경계
-- image asset 보안
-- rate limit과 provider 관측성
-- Charcoal Folio UI 및 accessibility 마감
-- production post-deploy smoke 자동화
-
 ### M2 — 신뢰 가능한 턴 파이프라인
 
 구현 범위 완료.
 
-- PostgreSQL integration test harness
-- append-only committed-turn `GameLog`
-- snapshot schema/ruleset version과 upgrader
-- `/init`·`/progress` idempotency
-- turn reservation/lease와 stale-owner fencing
-- PostgreSQL 동시성·migration·crash regression matrix
-- global provider budget guard
-- provider attempt accounting과 pre-provider failure 회귀 수정
-
 ### M3 — 서버 주도 행동 판정
 
-진행 중.
+진행 중. 현재 main에는 server-issued action/action resolution, Skill Check, Inventory/Equipment, HP/MP/Status Effect, Combat Encounter/Attack, item combat modifier/enemy combat profile, Ability/MP/Cooldown, Quest/Objective/World·Event Flag와 provider-safe NarrativeContext가 반영되어 있습니다.
 
-현재 #33 `AvailableAction` / `PlayerAction`, #34 `ActionResolver` / `GameResult`, #36 확정 결과 기반 `NarrativeContext`, #7 typed `CharacterStats` / pure Skill Check 규칙, #37 Skill Check turn 통합·감사 저장, #38 능력치·Skill Check 결과 frontend projection, #39 Inventory/Equipment canonical aggregate와 audit/recovery, #40 HP/MP/Status Effect canonical aggregate와 audit/recovery, #35 Gemini structured output 검증과 bounded recovery, #49 Gemini 3.7 Flash 설정 기반 마이그레이션이 반영됩니다.
-
-아직 구현되지 않은 전투·퀘스트·NPC 관계와 Inventory 상점/거래·loot·강화 기능은 현재 기능처럼 문서에 표시하지 않습니다.
+NPC 관계, 상점/거래·loot·강화, 복잡한 전투/캠페인 규칙 등은 아직 현재 기능으로 취급하지 않습니다.
