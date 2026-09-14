@@ -22,9 +22,7 @@ public record GameResult(
         events = events == null ? List.of() : List.copyOf(events);
         stateChanges = stateChanges == null ? List.of() : List.copyOf(stateChanges);
         narrativeCues = narrativeCues == null ? List.of() : List.copyOf(narrativeCues);
-        if (skillCheckResult != null && attackResult != null) {
-            throw new IllegalArgumentException("한 GameResult에 Skill Check와 Attack 판정을 동시에 기록할 수 없습니다.");
-        }
+        if (skillCheckResult != null && attackResult != null) throw new IllegalArgumentException("한 GameResult에 Skill Check와 Attack 판정을 동시에 기록할 수 없습니다.");
     }
 
     public GameResult(PlayerAction resolvedAction, Outcome outcome, SkillCheckResult skillCheckResult,
@@ -45,17 +43,22 @@ public record GameResult(
         COMBAT_ACTION_RESOLVED,
         ATTACK_RESOLVED,
         ABILITY_RESOLVED,
-        COMBAT_ENCOUNTER_CHANGED
+        COMBAT_ENCOUNTER_CHANGED,
+        QUEST_UPDATED,
+        FLAG_CHANGED
     }
     public enum VitalResource { HP, MP }
     public enum VitalsChangeReason { DAMAGE, HEAL, SPEND, RESTORE }
     public enum StatusRemovalReason { EXPLICIT, EXPIRED }
     public enum AbilityCooldownChangeReason { USED, TURN_ENDED }
+    public enum QuestStatusChangeReason { ACTIVATED, OBJECTIVES_COMPLETED, FAILED }
+    public enum FlagChangeReason { OBJECTIVE_COMPLETED, QUEST_COMPLETED }
 
     public sealed interface StateChange permits TurnAdvanced, ItemAcquired, ItemRemoved,
             ItemQuantityChanged, ItemConsumed, ItemEquipped, ItemUnequipped, VitalsChanged,
             StatusEffectApplied, StatusEffectUpdated, StatusDurationChanged, StatusEffectRemoved,
-            AttackResolved, AbilityResolved, AbilityCooldownChanged, CombatEncounterChanged {
+            AttackResolved, AbilityResolved, AbilityCooldownChanged, CombatEncounterChanged,
+            ObjectiveProgressChanged, QuestStatusChanged, FlagChanged {
         default String getType() {
             if (this instanceof TurnAdvanced) return "TURN_ADVANCED";
             if (this instanceof ItemAcquired) return "ITEM_ACQUIRED";
@@ -73,6 +76,9 @@ public record GameResult(
             if (this instanceof AbilityResolved) return "ABILITY_RESOLVED";
             if (this instanceof AbilityCooldownChanged) return "ABILITY_COOLDOWN_CHANGED";
             if (this instanceof CombatEncounterChanged) return "COMBAT_ENCOUNTER_CHANGED";
+            if (this instanceof ObjectiveProgressChanged) return "OBJECTIVE_PROGRESS_CHANGED";
+            if (this instanceof QuestStatusChanged) return "QUEST_STATUS_CHANGED";
+            if (this instanceof FlagChanged) return "FLAG_CHANGED";
             throw new IllegalStateException("지원하지 않는 state change입니다.");
         }
     }
@@ -171,9 +177,7 @@ public record GameResult(
         public AbilityCooldownChanged {
             if (definitionId == null || definitionId.isBlank()) throw new IllegalArgumentException("ability definitionId는 비어 있을 수 없습니다.");
             Objects.requireNonNull(reason, "ability cooldown reason은 필수입니다.");
-            if (previousRemainingTurns < 0 || nextRemainingTurns < 0 || previousRemainingTurns == nextRemainingTurns) {
-                throw new IllegalArgumentException("ability cooldown state change 값이 올바르지 않습니다.");
-            }
+            if (previousRemainingTurns < 0 || nextRemainingTurns < 0 || previousRemainingTurns == nextRemainingTurns) throw new IllegalArgumentException("ability cooldown state change 값이 올바르지 않습니다.");
             if (reason == AbilityCooldownChangeReason.USED) {
                 if (previousRemainingTurns != 0 || nextRemainingTurns < 1) throw new IllegalArgumentException("USED cooldown change가 올바르지 않습니다.");
             } else if (previousRemainingTurns < 1 || nextRemainingTurns != previousRemainingTurns - 1) {
@@ -187,6 +191,52 @@ public record GameResult(
         public CombatEncounterChanged {
             CombatRules.validateChange(previousEncounter, nextEncounter, reason);
             validateCombatDelta(previousEncounter, nextEncounter, reason);
+        }
+    }
+
+    public record ObjectiveProgressChanged(String questDefinitionId, String objectiveId,
+                                           ObjectiveProgress previousProgress, ObjectiveProgress nextProgress,
+                                           ObjectiveTrigger reason) implements StateChange {
+        public ObjectiveProgressChanged {
+            validateQuestReference(questDefinitionId, objectiveId);
+            Objects.requireNonNull(previousProgress, "previous objective progress는 필수입니다.");
+            Objects.requireNonNull(nextProgress, "next objective progress는 필수입니다.");
+            Objects.requireNonNull(reason, "objective progress reason은 필수입니다.");
+            if (previousProgress.type() != nextProgress.type() || previousProgress.equals(nextProgress)) throw new IllegalArgumentException("objective progress change가 올바르지 않습니다.");
+        }
+    }
+
+    public record QuestStatusChanged(String questDefinitionId, QuestStatus previousStatus, QuestStatus nextStatus,
+                                     QuestStatusChangeReason reason) implements StateChange {
+        public QuestStatusChanged {
+            if (questDefinitionId == null || questDefinitionId.isBlank()) throw new IllegalArgumentException("quest definitionId는 비어 있을 수 없습니다.");
+            Objects.requireNonNull(previousStatus, "previous quest status는 필수입니다.");
+            Objects.requireNonNull(nextStatus, "next quest status는 필수입니다.");
+            Objects.requireNonNull(reason, "quest status reason은 필수입니다.");
+            QuestRuntimeState.validateStatusTransition(previousStatus, nextStatus);
+            boolean reasonValid = switch (reason) {
+                case ACTIVATED -> previousStatus == QuestStatus.AVAILABLE && nextStatus == QuestStatus.ACTIVE;
+                case OBJECTIVES_COMPLETED -> previousStatus == QuestStatus.ACTIVE && nextStatus == QuestStatus.COMPLETED;
+                case FAILED -> nextStatus == QuestStatus.FAILED;
+            };
+            if (!reasonValid) throw new IllegalArgumentException("quest status reason이 transition과 일치하지 않습니다.");
+        }
+    }
+
+    public record FlagChanged(FlagNamespace namespace, String key, GameFlag previousValue, GameFlag nextValue,
+                              FlagChangeReason reason) implements StateChange {
+        public FlagChanged {
+            Objects.requireNonNull(namespace, "flag namespace는 필수입니다.");
+            if (key == null || key.isBlank()) throw new IllegalArgumentException("flag key는 비어 있을 수 없습니다.");
+            Objects.requireNonNull(nextValue, "next flag value는 필수입니다.");
+            Objects.requireNonNull(reason, "flag change reason은 필수입니다.");
+            if (!key.equals(nextValue.key()) || nextValue.namespace() != namespace) throw new IllegalArgumentException("next flag key/namespace가 audit과 일치하지 않습니다.");
+            if (previousValue == null) {
+                if (nextValue.version() != 1) throw new IllegalArgumentException("새 flag version은 1이어야 합니다.");
+            } else {
+                if (!key.equals(previousValue.key()) || previousValue.namespace() != namespace) throw new IllegalArgumentException("previous flag key/namespace가 audit과 일치하지 않습니다.");
+                if (nextValue.version() != previousValue.version() + 1 || previousValue.value().equals(nextValue.value())) throw new IllegalArgumentException("flag version/value transition이 올바르지 않습니다.");
+            }
         }
     }
 
@@ -213,5 +263,9 @@ public record GameResult(
 
     private static void validateItemReference(String itemId, String definitionId) {
         if (itemId == null || itemId.isBlank() || definitionId == null || definitionId.isBlank()) throw new IllegalArgumentException("item state change 식별자가 올바르지 않습니다.");
+    }
+
+    private static void validateQuestReference(String questDefinitionId, String objectiveId) {
+        if (questDefinitionId == null || questDefinitionId.isBlank() || objectiveId == null || objectiveId.isBlank()) throw new IllegalArgumentException("quest/objective 식별자가 올바르지 않습니다.");
     }
 }

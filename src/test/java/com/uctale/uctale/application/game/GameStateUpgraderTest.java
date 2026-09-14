@@ -13,27 +13,47 @@ class GameStateUpgraderTest {
     private final GameStateUpgrader upgrader = new GameStateUpgrader();
 
     @Test
-    @DisplayName("schema v6 snapshot은 deterministic empty ability state를 추가해 v7로 승격한다")
-    void schemaV6_AddsEmptyAbilityState() throws Exception {
-        JsonNode upgraded = upgrader.upgrade(objectMapper.readTree(v6State())).state();
-        assertThat(upgrader.upgrade(objectMapper.readTree(v6State())).schemaVersion()).isEqualTo(7);
-        assertThat(upgraded.get("abilityState").get("cooldowns").isEmpty()).isTrue();
-        assertThat(upgraded.get("combatEncounter").isNull()).isTrue();
+    @DisplayName("schema v6 snapshot은 ability와 quest 빈 상태를 순차 추가해 v8로 승격한다")
+    void schemaV6_AddsEmptyAbilityAndQuestState() throws Exception {
+        var upgraded = upgrader.upgrade(objectMapper.readTree(v6State()));
+        assertThat(upgraded.schemaVersion()).isEqualTo(8);
+        JsonNode state = upgraded.state();
+        assertThat(state.get("abilityState").get("cooldowns").isEmpty()).isTrue();
+        assertThat(state.get("questState").get("quests").isEmpty()).isTrue();
+        assertThat(state.get("questState").get("worldFlags").isEmpty()).isTrue();
+        assertThat(state.get("questState").get("eventFlags").isEmpty()).isTrue();
     }
 
     @Test
-    @DisplayName("schema v6에 abilityState가 이미 있으면 정의되지 않은 의미를 임의 승격하지 않는다")
-    void schemaV6WithAbilityState_FailsExplicitly() throws Exception {
-        String json = v6State().replace("\"combatEncounter\":null", "\"combatEncounter\":null,\"abilityState\":{\"cooldowns\":{\"arcane-bolt\":2}} ");
+    @DisplayName("schema v7 snapshot은 과거 의미를 추측하지 않고 빈 quest state만 추가한다")
+    void schemaV7_AddsEmptyQuestState() throws Exception {
+        var upgraded = upgrader.upgrade(objectMapper.readTree(v7State("{}")));
+        assertThat(upgraded.schemaVersion()).isEqualTo(8);
+        assertThat(upgraded.state().get("questState").get("quests").isEmpty()).isTrue();
+    }
+
+    @Test
+    @DisplayName("schema v7에 questState가 이미 있으면 정의되지 않은 의미를 임의 승격하지 않는다")
+    void schemaV7WithQuestState_FailsExplicitly() throws Exception {
+        String json = v7State("{}").replace("\"abilityState\":{\"cooldowns\":{}}",
+                "\"abilityState\":{\"cooldowns\":{}},\"questState\":{\"quests\":{},\"worldFlags\":{},\"eventFlags\":{}}");
         assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree(json)))
-                .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("schema v6").hasMessageContaining("abilityState");
+                .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("schema v7").hasMessageContaining("questState");
     }
 
     @Test
-    @DisplayName("현재 v7 cooldown 값이 0이나 비정수면 손상 snapshot으로 거절한다")
-    void schemaV7InvalidCooldown_FailsExplicitly() throws Exception {
-        String zero = v7State("0");
-        String text = v7State("\"2\"");
+    @DisplayName("현재 v8 questState 누락은 조용히 empty로 복구하지 않는다")
+    void schemaV8MissingQuestState_FailsExplicitly() throws Exception {
+        String json = v7State("{}").replace("\"schemaVersion\":7", "\"schemaVersion\":8");
+        assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree(json)))
+                .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("questState/quests/worldFlags/eventFlags");
+    }
+
+    @Test
+    @DisplayName("현재 v8 cooldown 값이 0이나 비정수면 손상 snapshot으로 거절한다")
+    void schemaV8InvalidCooldown_FailsExplicitly() throws Exception {
+        String zero = currentV8("0");
+        String text = currentV8("\"2\"");
         assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree(zero)))
                 .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("cooldown");
         assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree(text)))
@@ -41,25 +61,24 @@ class GameStateUpgraderTest {
     }
 
     @Test
-    @DisplayName("현재 v7 abilityState 누락은 조용히 empty로 복구하지 않는다")
-    void schemaV7MissingAbilityState_FailsExplicitly() throws Exception {
-        String currentWithoutAbility = v6State().replace("\"schemaVersion\":6", "\"schemaVersion\":7");
-        assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree(currentWithoutAbility)))
-                .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("abilityState/cooldowns");
-    }
-
-    @Test
     @DisplayName("미래 schema와 미지원 ruleset은 명시적으로 실패한다")
     void unsupportedVersions_FailExplicitly() throws Exception {
-        assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree("{\"schemaVersion\":8,\"rulesetVersion\":1,\"state\":{}}")))
+        assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree("{\"schemaVersion\":9,\"rulesetVersion\":1,\"state\":{}}")))
                 .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("미래 snapshot schemaVersion");
-        assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree("{\"schemaVersion\":7,\"rulesetVersion\":2,\"state\":{}}")))
+        assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree("{\"schemaVersion\":8,\"rulesetVersion\":2,\"state\":{}}")))
                 .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("rulesetVersion");
     }
 
-    private String v7State(String cooldownValue) {
+    private String currentV8(String cooldownValue) {
+        return v7State("{\"arcane-bolt\":" + cooldownValue + "}")
+                .replace("\"schemaVersion\":7", "\"schemaVersion\":8")
+                .replace("\"abilityState\":{\"cooldowns\":{\"arcane-bolt\":" + cooldownValue + "}}",
+                        "\"abilityState\":{\"cooldowns\":{\"arcane-bolt\":" + cooldownValue + "}},\"questState\":{\"quests\":{},\"worldFlags\":{},\"eventFlags\":{}}");
+    }
+
+    private String v7State(String cooldowns) {
         return v6State().replace("\"schemaVersion\":6", "\"schemaVersion\":7")
-                .replace("\"combatEncounter\":null", "\"combatEncounter\":null,\"abilityState\":{\"cooldowns\":{\"arcane-bolt\":" + cooldownValue + "}}");
+                .replace("\"combatEncounter\":null", "\"combatEncounter\":null,\"abilityState\":{\"cooldowns\":" + cooldowns + "}");
     }
 
     private String v6State() {

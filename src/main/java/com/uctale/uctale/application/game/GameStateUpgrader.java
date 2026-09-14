@@ -46,6 +46,7 @@ public class GameStateUpgrader {
             case 4 -> upgradeV4ToV5(source);
             case 5 -> upgradeV5ToV6(source);
             case 6 -> upgradeV6ToV7(source);
+            case 7 -> upgradeV7ToV8(source);
             default -> throw new GameStateSnapshotException("snapshot schemaVersion " + source.schemaVersion() + "의 다음 upgrade 경로가 없습니다.");
         };
     }
@@ -146,6 +147,17 @@ public class GameStateUpgrader {
         return new VersionedState(7, source.rulesetVersion(), state);
     }
 
+    private VersionedState upgradeV7ToV8(VersionedState source) {
+        ObjectNode state = objectCopy(source.state());
+        if (state.has("questState")) throw new GameStateSnapshotException("schema v7 snapshot에는 questState 필드가 정의되어 있지 않습니다.");
+        ObjectNode questState = JsonNodeFactory.instance.objectNode();
+        questState.set("quests", JsonNodeFactory.instance.objectNode());
+        questState.set("worldFlags", JsonNodeFactory.instance.objectNode());
+        questState.set("eventFlags", JsonNodeFactory.instance.objectNode());
+        state.set("questState", questState);
+        return new VersionedState(8, source.rulesetVersion(), state);
+    }
+
     private void validateCurrentShape(JsonNode state) {
         if (!state.has("combatEncounter")) throw new GameStateSnapshotException("현재 schema snapshot combatEncounter 필드가 누락되었습니다.");
         JsonNode inventoryNode = state.get("inventory");
@@ -154,9 +166,7 @@ public class GameStateUpgrader {
         }
         for (var entry : items.properties()) {
             JsonNode definition = entry.getValue().get("definition");
-            if (definition == null || !definition.isObject() || !definition.has("combatModifiers")) {
-                throw new GameStateSnapshotException("현재 schema snapshot item combatModifiers가 누락되었습니다.");
-            }
+            if (definition == null || !definition.isObject() || !definition.has("combatModifiers")) throw new GameStateSnapshotException("현재 schema snapshot item combatModifiers가 누락되었습니다.");
         }
         JsonNode combatNode = state.get("combatEncounter");
         if (combatNode != null && !combatNode.isNull()) {
@@ -177,6 +187,13 @@ public class GameStateUpgrader {
                     || remaining.asLong() < 1 || remaining.asLong() > Integer.MAX_VALUE) {
                 throw new GameStateSnapshotException("현재 schema snapshot ability cooldown이 손상되었습니다: " + entry.getKey());
             }
+        }
+        JsonNode questNode = state.get("questState");
+        if (!(questNode instanceof ObjectNode questState)
+                || !(questState.get("quests") instanceof ObjectNode)
+                || !(questState.get("worldFlags") instanceof ObjectNode)
+                || !(questState.get("eventFlags") instanceof ObjectNode)) {
+            throw new GameStateSnapshotException("현재 schema snapshot questState/quests/worldFlags/eventFlags가 누락되었거나 손상되었습니다.");
         }
     }
 

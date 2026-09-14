@@ -10,6 +10,8 @@ import com.uctale.uctale.domain.game.GameResult;
 import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.domain.game.Inventory;
 import com.uctale.uctale.domain.game.InventoryRules;
+import com.uctale.uctale.domain.game.QuestRules;
+import com.uctale.uctale.domain.game.QuestState;
 import com.uctale.uctale.domain.game.SkillCheckResult;
 import com.uctale.uctale.domain.game.StateTransition;
 import com.uctale.uctale.domain.game.VitalsRules;
@@ -54,6 +56,8 @@ public record GameTurnCommit(
         AbilityRules.validateTurnAudit(stateTransition.previousState().abilityState(), stateChanges);
         AbilityState replayedAbilityState = AbilityRules.replay(stateTransition.previousState().abilityState(), stateChanges);
         if (!replayedAbilityState.equals(stateTransition.nextState().abilityState())) throw new IllegalArgumentException("stateChanges의 ability cooldown audit이 StateTransition과 일치하지 않습니다.");
+        QuestState replayedQuestState = QuestRules.replay(stateTransition.previousState().questState(), stateChanges);
+        if (!replayedQuestState.equals(stateTransition.nextState().questState())) throw new IllegalArgumentException("stateChanges의 quest/flag audit이 StateTransition과 일치하지 않습니다.");
     }
 
     public GameTurnCommit(int expectedTurn, int inputChoiceId, String inputChoiceText, StateTransition stateTransition,
