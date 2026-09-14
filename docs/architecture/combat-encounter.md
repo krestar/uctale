@@ -61,7 +61,9 @@ ability 사용 시 현재 cooldown과 MP, target을 먼저 검증하고 기존 c
 
 ## Persistence / recovery
 
-snapshot schema v7은 v6의 item `combatModifiers`와 enemy `combatProfile`에 더해 `abilityState.cooldowns`를 명시적으로 저장한다. 기존 v5 snapshot은 item modifier를 0/0, enemy profile을 defense 10 / damage reduction 0으로 deterministic upgrade하고, v6 snapshot은 ability 의미가 없으므로 empty cooldown map으로만 v7에 승격한다. 현재 v7에서 필수 전투/ability 필드가 누락된 손상 snapshot은 조용히 기본값 처리하지 않는다.
+combat encounter는 schema v5, item/enemy combat modifier는 v6, `abilityState.cooldowns`는 v7에서 도입되었으며 현재 snapshot schema v8은 이 상태를 모두 보존하면서 `questState`까지 포함한다. v5→v6은 기존 item modifier를 0/0, enemy profile을 defense 10 / damage reduction 0으로, v6→v7은 empty cooldown map으로 deterministic upgrade한다. v7→v8은 전투/ability 상태를 재판정하지 않고 빈 quest/flag 상태만 추가한다.
+
+현재 v8에서 필수 combat/ability 필드가 누락되거나 손상된 snapshot은 조용히 기본값 처리하지 않는다.
 
 `game_turn_reservation.attack_result_request_id`와 `attack_result_json`은 최초 서버 Attack 판정과 그 판정을 만든 mutation request를 lease 소유권 아래 저장한다. 동일 idempotency request가 provider 실패 후 재시도되면 새 roll을 만들지 않고 이 판정을 재사용한다. 반대로 다른 mutation request가 만료 reservation을 takeover하면 이전 request의 판정을 재사용하지 않고 새 판정을 확정한다.
 
