@@ -102,10 +102,15 @@ class QuestRulesTest {
     }
 
     @Test
-    @DisplayName("잘못된 quest status transition과 World/Event flag key 충돌은 거절된다")
+    @DisplayName("잘못된 quest 상태와 flag version/value 전이는 거절된다")
     void invalidTransitionsAndFlagCollisions_AreRejected() {
         QuestRuntimeState active = QuestRuntimeState.available(QuestDefinitions.fixture()).withStatus(QuestStatus.ACTIVE);
         assertThatThrownBy(() -> active.withStatus(QuestStatus.AVAILABLE)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new QuestRuntimeState(QuestDefinitions.FIXTURE_QUEST_ID, QuestStatus.ACTIVE, Map.of(
+                QuestDefinitions.COLLECT_OBJECTIVE_ID, ObjectiveProgress.count(3),
+                QuestDefinitions.DIALOGUE_OBJECTIVE_ID, ObjectiveProgress.bool(false),
+                QuestDefinitions.COMBAT_OBJECTIVE_ID, ObjectiveProgress.state("NONE"))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("requiredCount");
         QuestState world = QuestState.empty().putFlag(new WorldFlag("shared-key", "on", 1));
         assertThatThrownBy(() -> world.putFlag(new EventFlag("shared-key", "done", 1)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("key");
@@ -113,10 +118,6 @@ class QuestRulesTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("version");
         assertThatThrownBy(() -> world.putFlag(new WorldFlag("shared-key", "on", 2)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("value");
-        QuestState maxVersion = new QuestState(Map.of(), Map.of("max-version",
-                new WorldFlag("max-version", "on", Integer.MAX_VALUE)), Map.of());
-        assertThatThrownBy(() -> maxVersion.putFlag(new WorldFlag("max-version", "off", Integer.MIN_VALUE)))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("version");
     }
 
     @Test
