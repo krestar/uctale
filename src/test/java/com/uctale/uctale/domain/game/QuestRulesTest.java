@@ -19,7 +19,6 @@ class QuestRulesTest {
     @DisplayName("known quest activation은 typed audit으로 AVAILABLE에서 ACTIVE로 한 번 전이하고 replay로 복구된다")
     void activation_IsTypedAndReplayable() {
         QuestRules.Result activated = rules.activate(QuestState.empty(), QuestDefinitions.FIXTURE_QUEST_ID);
-
         assertThat(activated.questState().quests().get(QuestDefinitions.FIXTURE_QUEST_ID).status()).isEqualTo(QuestStatus.ACTIVE);
         assertThat(activated.stateChanges()).containsExactly(new GameResult.QuestStatusChanged(
                 QuestDefinitions.FIXTURE_QUEST_ID, QuestStatus.AVAILABLE, QuestStatus.ACTIVE,
@@ -32,14 +31,11 @@ class QuestRulesTest {
     void collectionObjective_UsesInventoryAuditOnly() {
         QuestState active = activeFixture();
         GameState state = GameState.initial("세계", "캐릭터", "오프닝").withQuestState(active);
-        ItemDefinition definition = new ItemDefinition(QuestDefinitions.COLLECTION_ITEM_DEFINITION_ID,
-                ItemOwnershipType.STACK, null);
+        ItemDefinition definition = new ItemDefinition(QuestDefinitions.COLLECTION_ITEM_DEFINITION_ID, ItemOwnershipType.STACK, null);
         OwnedItem item = new OwnedItem("supply-stack", definition, 2);
-        PlayerAction action = choice(9, 1, "보급품을 챙긴다");
-
-        QuestRules.Result result = rules.resolve(state, action, active, List.of(new GameResult.ItemAcquired(item, 2)));
+        QuestRules.Result result = rules.resolve(state, choice(9, 1, "보급품을 챙긴다"), active,
+                List.of(new GameResult.ItemAcquired(item, 2)));
         QuestRuntimeState quest = result.questState().quests().get(QuestDefinitions.FIXTURE_QUEST_ID);
-
         assertThat(quest.objectiveProgress().get(QuestDefinitions.COLLECT_OBJECTIVE_ID)).isEqualTo(ObjectiveProgress.count(2));
         assertThat(result.questState().worldFlags()).containsKey(QuestRules.OBJECTIVE_FLAG_PREFIX
                 + QuestDefinitions.FIXTURE_QUEST_ID + "." + QuestDefinitions.COLLECT_OBJECTIVE_ID);
@@ -52,11 +48,9 @@ class QuestRulesTest {
     void dialogueObjective_UsesTypedChoiceCondition() {
         QuestState active = activeFixture();
         GameState state = GameState.initial("세계", "캐릭터", "오프닝").withQuestState(active);
-
         QuestRules.Result ignored = rules.resolve(state, choice(99, 1, "안내자와 대화를 끝내고 퀘스트 완료"), active, List.of());
         assertThat(ignored.stateChanges()).isEmpty();
         assertThat(ignored.questState()).isEqualTo(active);
-
         QuestRules.Result completed = rules.resolve(state, choice(QuestDefinitions.DIALOGUE_CHOICE_ID, 1, "안내자와 대화한다"), active, List.of());
         assertThat(completed.questState().quests().get(QuestDefinitions.FIXTURE_QUEST_ID)
                 .objectiveProgress().get(QuestDefinitions.DIALOGUE_OBJECTIVE_ID)).isEqualTo(ObjectiveProgress.bool(true));
@@ -70,8 +64,7 @@ class QuestRulesTest {
         QuestRuntimeState ready = new QuestRuntimeState(QuestDefinitions.FIXTURE_QUEST_ID, QuestStatus.ACTIVE, Map.of(
                 QuestDefinitions.COLLECT_OBJECTIVE_ID, ObjectiveProgress.count(2),
                 QuestDefinitions.DIALOGUE_OBJECTIVE_ID, ObjectiveProgress.bool(true),
-                QuestDefinitions.COMBAT_OBJECTIVE_ID, ObjectiveProgress.state("NONE")
-        ));
+                QuestDefinitions.COMBAT_OBJECTIVE_ID, ObjectiveProgress.state("NONE")));
         QuestState questState = QuestState.empty().addQuest(ready);
         GameState state = GameState.initial("세계", "캐릭터", "오프닝").withQuestState(questState);
         EnemyState enemy = new EnemyState("wolf", "늑대", CharacterVitals.defaults());
@@ -79,14 +72,12 @@ class QuestRulesTest {
                 state.playerCharacter().vitals()).encounter();
         EnemyState defeated = enemy.withVitals(enemy.vitals().withHp(enemy.vitals().hp().withCurrent(0)));
         CombatRules.Result combat = CombatRules.updateEnemy(activeCombat, defeated, state.playerCharacter().vitals());
-
         QuestRules.Result completed = rules.resolve(state, choice(9, 1, "공격한다"), questState, combat.stateChanges());
         QuestRuntimeState completedQuest = completed.questState().quests().get(QuestDefinitions.FIXTURE_QUEST_ID);
         assertThat(completedQuest.status()).isEqualTo(QuestStatus.COMPLETED);
         assertThat(completedQuest.objectiveProgress().get(QuestDefinitions.COMBAT_OBJECTIVE_ID))
                 .isEqualTo(ObjectiveProgress.state(CombatEncounterStatus.RESOLVED.name()));
         assertThat(completed.questState().eventFlags()).containsKey(QuestRules.COMPLETED_FLAG_PREFIX + QuestDefinitions.FIXTURE_QUEST_ID);
-
         QuestRules.Result retry = rules.resolve(state.withQuestState(completed.questState()), choice(9, 1, "다시 완료"),
                 completed.questState(), combat.stateChanges());
         assertThat(retry.stateChanges()).isEmpty();
@@ -94,11 +85,27 @@ class QuestRulesTest {
     }
 
     @Test
+    @DisplayName("failed quest는 typed terminal 전이 후 같은 action 결과를 다시 받아도 progress나 flag를 만들지 않는다")
+    void failedQuest_IsTerminalAndRetrySafe() {
+        QuestState active = activeFixture();
+        QuestRules.Result failed = rules.fail(active, QuestDefinitions.FIXTURE_QUEST_ID);
+        assertThat(failed.questState().quests().get(QuestDefinitions.FIXTURE_QUEST_ID).status()).isEqualTo(QuestStatus.FAILED);
+        assertThat(QuestRules.replay(active, failed.stateChanges())).isEqualTo(failed.questState());
+        GameState state = GameState.initial("세계", "캐릭터", "오프닝").withQuestState(failed.questState());
+        ItemDefinition definition = new ItemDefinition(QuestDefinitions.COLLECTION_ITEM_DEFINITION_ID, ItemOwnershipType.STACK, null);
+        QuestRules.Result retry = rules.resolve(state, choice(1, 1, "다시 시도"), failed.questState(),
+                List.of(new GameResult.ItemAcquired(new OwnedItem("supply-stack", definition, 2), 2)));
+        assertThat(retry.stateChanges()).isEmpty();
+        assertThat(retry.questState()).isEqualTo(failed.questState());
+        assertThatThrownBy(() -> rules.fail(failed.questState(), QuestDefinitions.FIXTURE_QUEST_ID))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("terminal");
+    }
+
+    @Test
     @DisplayName("잘못된 quest status transition과 World/Event flag key 충돌은 거절된다")
     void invalidTransitionsAndFlagCollisions_AreRejected() {
         QuestRuntimeState active = QuestRuntimeState.available(QuestDefinitions.fixture()).withStatus(QuestStatus.ACTIVE);
         assertThatThrownBy(() -> active.withStatus(QuestStatus.AVAILABLE)).isInstanceOf(IllegalArgumentException.class);
-
         QuestState world = QuestState.empty().putFlag(new WorldFlag("shared-key", "on", 1));
         assertThatThrownBy(() -> world.putFlag(new EventFlag("shared-key", "done", 1)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("key");
@@ -111,7 +118,6 @@ class QuestRulesTest {
     void turnProcessor_DoesNotTrustProse() {
         GameState state = GameState.initial("세계", "캐릭터", "오프닝").withQuestState(activeFixture());
         TurnResolution resolution = new TurnProcessor().resolve(state, choice(99, 1, "퀘스트 완료. 모든 목표 달성."));
-
         assertThat(resolution.stateTransition().nextState().questState()).isEqualTo(state.questState());
         assertThat(resolution.gameResult().stateChanges()).noneMatch(GameResult.ObjectiveProgressChanged.class::isInstance)
                 .noneMatch(GameResult.QuestStatusChanged.class::isInstance)
