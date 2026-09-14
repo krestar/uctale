@@ -4,6 +4,7 @@ import com.uctale.uctale.domain.action.PlayerAction;
 import com.uctale.uctale.domain.game.ActionResolver;
 import com.uctale.uctale.domain.game.AttackResult;
 import com.uctale.uctale.domain.game.GameState;
+import com.uctale.uctale.domain.game.QuestRules;
 import com.uctale.uctale.domain.game.RandomSource;
 import com.uctale.uctale.domain.game.SkillCheckResult;
 import com.uctale.uctale.domain.game.StateTransition;
@@ -15,12 +16,14 @@ import org.springframework.stereotype.Component;
 public final class TurnProcessor {
 
     private final ActionResolver actionResolver;
+    private final QuestRules questRules;
     private final SkillCheckDecisionService skillCheckDecisionService;
     private final AttackDecisionService attackDecisionService;
     private final RandomSource randomSource;
 
     public TurnProcessor() {
         this.actionResolver = new ActionResolver();
+        this.questRules = new QuestRules();
         this.skillCheckDecisionService = null;
         this.attackDecisionService = null;
         this.randomSource = null;
@@ -28,6 +31,7 @@ public final class TurnProcessor {
 
     public TurnProcessor(SkillCheckDecisionService skillCheckDecisionService, RandomSource randomSource) {
         this.actionResolver = new ActionResolver();
+        this.questRules = new QuestRules();
         this.skillCheckDecisionService = skillCheckDecisionService;
         this.attackDecisionService = null;
         this.randomSource = randomSource;
@@ -40,13 +44,14 @@ public final class TurnProcessor {
             RandomSource randomSource
     ) {
         this.actionResolver = new ActionResolver();
+        this.questRules = new QuestRules();
         this.skillCheckDecisionService = skillCheckDecisionService;
         this.attackDecisionService = attackDecisionService;
         this.randomSource = randomSource;
     }
 
     public TurnResolution resolve(GameState state, PlayerAction action) {
-        return actionResolver.resolve(state, action);
+        return questRules.apply(actionResolver.resolve(state, action));
     }
 
     public TurnResolution resolve(
@@ -64,10 +69,10 @@ public final class TurnProcessor {
                     reservationOwner,
                     () -> actionResolver.rollAttack(state, action, randomSource)
             );
-            return actionResolver.resolveAttack(state, action, result);
+            return questRules.apply(actionResolver.resolveAttack(state, action, result));
         }
         if (!actionResolver.requiresSkillCheck(action)) {
-            return actionResolver.resolve(state, action);
+            return questRules.apply(actionResolver.resolve(state, action));
         }
         if (skillCheckDecisionService == null || randomSource == null) {
             throw new IllegalStateException("Skill Check turn processor가 persistence/random source와 연결되지 않았습니다.");
@@ -77,13 +82,11 @@ public final class TurnProcessor {
                 reservationOwner,
                 () -> actionResolver.rollSkillCheck(state, action, randomSource)
         );
-        return actionResolver.resolve(state, action, result);
+        return questRules.apply(actionResolver.resolve(state, action, result));
     }
 
     public StateTransition attachNarrative(TurnResolution resolution, String storyText) {
-        if (resolution == null) {
-            throw new IllegalArgumentException("TurnResolution은 필수입니다.");
-        }
+        if (resolution == null) throw new IllegalArgumentException("TurnResolution은 필수입니다.");
         return resolution.attachNarrative(storyText);
     }
 }
