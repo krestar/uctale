@@ -111,6 +111,12 @@ class QuestRulesTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("key");
         assertThatThrownBy(() -> QuestState.empty().putFlag(new WorldFlag("bad-version", "on", 2)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("version");
+        assertThatThrownBy(() -> world.putFlag(new WorldFlag("shared-key", "on", 2)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("value");
+        QuestState maxVersion = new QuestState(Map.of(), Map.of("max-version",
+                new WorldFlag("max-version", "on", Integer.MAX_VALUE)), Map.of());
+        assertThatThrownBy(() -> maxVersion.putFlag(new WorldFlag("max-version", "off", Integer.MIN_VALUE)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("version");
     }
 
     @Test
