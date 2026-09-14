@@ -28,6 +28,17 @@ public final class QuestRules {
                 definitionId, QuestStatus.AVAILABLE, QuestStatus.ACTIVE, GameResult.QuestStatusChangeReason.ACTIVATED)));
     }
 
+    public Result fail(QuestState state, String definitionId) {
+        Objects.requireNonNull(state, "QuestState는 필수입니다.");
+        QuestRuntimeState current = state.quests().get(definitionId);
+        if (current == null) throw new IllegalArgumentException("존재하지 않는 quest입니다: " + definitionId);
+        if (current.status().terminal()) throw new IllegalStateException("terminal quest는 다시 실패 처리할 수 없습니다.");
+        QuestRuntimeState failed = current.withStatus(QuestStatus.FAILED);
+        QuestState next = state.replaceQuest(failed);
+        return new Result(next, List.of(new GameResult.QuestStatusChanged(
+                definitionId, current.status(), QuestStatus.FAILED, GameResult.QuestStatusChangeReason.FAILED)));
+    }
+
     public TurnResolution apply(TurnResolution resolution) {
         Objects.requireNonNull(resolution, "TurnResolution은 필수입니다.");
         GameState previous = resolution.stateTransition().previousState();
@@ -113,18 +124,23 @@ public final class QuestRules {
                                                  List<GameResult.StateChange> changes) {
         long increment = 0;
         for (GameResult.StateChange change : changes) {
+            long delta = 0;
             if (change instanceof GameResult.ItemAcquired acquired
                     && acquired.item().definition().id().equals(objective.targetKey())) {
-                increment += acquired.item().quantity();
+                delta = acquired.item().quantity();
             } else if (change instanceof GameResult.ItemQuantityChanged quantity
                     && quantity.definitionId().equals(objective.targetKey())
                     && quantity.nextQuantity() > quantity.previousQuantity()) {
-                increment += (long) quantity.nextQuantity() - quantity.previousQuantity();
+                delta = (long) quantity.nextQuantity() - quantity.previousQuantity();
+            }
+            if (delta > 0) {
+                increment = Math.min((long) objective.requiredCount(), increment + delta);
+                if (increment >= objective.requiredCount()) break;
             }
         }
         if (increment == 0) return progress;
-        long next = (long) progress.count() + increment;
-        return ObjectiveProgress.count((int) Math.min(next, objective.requiredCount()));
+        long next = Math.min((long) objective.requiredCount(), (long) progress.count() + increment);
+        return ObjectiveProgress.count((int) next);
     }
 
     private ObjectiveProgress dialogueProgress(ObjectiveDefinition objective, ObjectiveProgress progress,
