@@ -4,13 +4,17 @@ import com.uctale.uctale.domain.action.PlayerAction;
 import com.uctale.uctale.domain.game.ActionResolver;
 import com.uctale.uctale.domain.game.AttackResult;
 import com.uctale.uctale.domain.game.GameState;
+import com.uctale.uctale.domain.game.InventoryCommand;
 import com.uctale.uctale.domain.game.QuestRules;
 import com.uctale.uctale.domain.game.RandomSource;
 import com.uctale.uctale.domain.game.SkillCheckResult;
 import com.uctale.uctale.domain.game.StateTransition;
 import com.uctale.uctale.domain.game.TurnResolution;
+import com.uctale.uctale.domain.game.VitalsCommand;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
 
 @Component
 public final class TurnProcessor {
@@ -52,6 +56,16 @@ public final class TurnProcessor {
 
     public TurnResolution resolve(GameState state, PlayerAction action) {
         return questRules.apply(actionResolver.resolve(state, action));
+    }
+
+    public TurnResolution resolveWithInventory(GameState state, PlayerAction action, List<InventoryCommand> inventoryCommands) {
+        return questRules.apply(actionResolver.resolveWithInventory(state, action, inventoryCommands));
+    }
+
+    public TurnResolution resolveWithEffects(GameState state, PlayerAction action,
+                                             List<InventoryCommand> inventoryCommands,
+                                             List<VitalsCommand> vitalsCommands) {
+        return questRules.apply(actionResolver.resolveWithEffects(state, action, inventoryCommands, vitalsCommands));
     }
 
     public TurnResolution resolve(
