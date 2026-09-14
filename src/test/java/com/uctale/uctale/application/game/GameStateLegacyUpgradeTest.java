@@ -16,8 +16,8 @@ class GameStateLegacyUpgradeTest {
     private final GameStateUpgrader upgrader = new GameStateUpgrader();
 
     @Test
-    @DisplayName("production raw legacy snapshot은 현재 v7까지 deterministic upgrade된다")
-    void productionLegacy_UpgradesToV7() throws Exception {
+    @DisplayName("production raw legacy snapshot은 현재 v8까지 deterministic upgrade된다")
+    void productionLegacy_UpgradesToV8() throws Exception {
         String raw;
         try (var input = new ClassPathResource("fixtures/game-state/snapshot-v0-production.json").getInputStream()) {
             raw = new String(input.readAllBytes(), StandardCharsets.UTF_8);
@@ -28,7 +28,7 @@ class GameStateLegacyUpgradeTest {
     }
 
     @Test
-    @DisplayName("v1 legacy stats 값은 v7까지 보존된다")
+    @DisplayName("v1 legacy stats 값은 v8까지 보존된다")
     void v1Stats_ArePreserved() throws Exception {
         String json = """
                 {"schemaVersion":1,"rulesetVersion":1,"state":{
@@ -45,11 +45,9 @@ class GameStateLegacyUpgradeTest {
     }
 
     @Test
-    @DisplayName("v2부터 v5까지 각 legacy 경계는 현재 v7까지 순차 upgrade된다")
+    @DisplayName("v2부터 v5까지 각 legacy 경계는 현재 v8까지 순차 upgrade된다")
     void legacyVersionChain_UpgradesThroughEveryBoundary() throws Exception {
-        for (String json : new String[]{v2(), v3(), v4(), v5()}) {
-            assertCurrentBaseShape(upgrader.upgrade(objectMapper.readTree(json)));
-        }
+        for (String json : new String[]{v2(), v3(), v4(), v5()}) assertCurrentBaseShape(upgrader.upgrade(objectMapper.readTree(json)));
     }
 
     @Test
@@ -88,13 +86,16 @@ class GameStateLegacyUpgradeTest {
     }
 
     private void assertCurrentBaseShape(GameStateUpgrader.UpgradedSnapshot upgraded) {
-        assertThat(upgraded.schemaVersion()).isEqualTo(7);
+        assertThat(upgraded.schemaVersion()).isEqualTo(8);
         JsonNode state = upgraded.state();
         assertThat(state.get("inventory").get("items").isEmpty()).isTrue();
         assertThat(state.get("playerCharacter").get("vitals").get("hp").get("current").asInt()).isEqualTo(10);
         assertThat(state.has("combatEncounter")).isTrue();
         assertThat(state.get("combatEncounter").isNull()).isTrue();
         assertThat(state.get("abilityState").get("cooldowns").isEmpty()).isTrue();
+        assertThat(state.get("questState").get("quests").isEmpty()).isTrue();
+        assertThat(state.get("questState").get("worldFlags").isEmpty()).isTrue();
+        assertThat(state.get("questState").get("eventFlags").isEmpty()).isTrue();
     }
 
     private String v2() {
