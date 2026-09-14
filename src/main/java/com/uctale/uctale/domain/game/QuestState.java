@@ -64,8 +64,16 @@ public record QuestState(
     }
 
     private static void validateVersion(GameFlag previous, GameFlag next) {
-        if (previous == null && next.version() != 1) throw new IllegalArgumentException("새 flag version은 1이어야 합니다.");
-        if (previous != null && next.version() != previous.version() + 1) throw new IllegalArgumentException("flag version은 정확히 1 증가해야 합니다.");
+        if (previous == null) {
+            if (next.version() != 1) throw new IllegalArgumentException("새 flag version은 1이어야 합니다.");
+            return;
+        }
+        if (previous.version() == Integer.MAX_VALUE || next.version() != previous.version() + 1) {
+            throw new IllegalArgumentException("flag version은 정확히 1 증가해야 합니다.");
+        }
+        if (previous.value().equals(next.value())) {
+            throw new IllegalArgumentException("flag value는 실제로 변경되어야 합니다.");
+        }
     }
 
     private static Map<String, QuestRuntimeState> immutableQuests(Map<String, QuestRuntimeState> source) {
