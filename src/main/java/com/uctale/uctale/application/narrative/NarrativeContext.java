@@ -37,8 +37,9 @@ public record NarrativeContext(
 ) {
     public static final List<String> CANONICAL_MUTATION_GUARDRAILS = List.of(
             "GameResult.outcome과 서버가 확정한 성공/실패를 변경하거나 다시 판정하지 않는다.",
-            "GameResult.stateChanges에 없는 HP, 능력치, 아이템, 레벨, 위치, 생사 변화를 확정하지 않는다.",
+            "GameResult.stateChanges에 없는 HP, MP, status, ability cooldown, 능력치, 아이템, 레벨, 위치, 생사 변화를 확정하지 않는다.",
             "combat projection/stateChanges에 없는 enemy 생성·제거·사망·부활·encounter lifecycle 변화를 확정하지 않는다.",
+            "ability stateChanges에 기록된 비용·효과·target·cooldown을 변경하거나 다시 판정하지 않는다.",
             "서버가 제공하지 않은 roll이나 판정 결과를 새로 만들지 않는다.",
             "state projection과 canonical facts를 수정하거나 충돌하는 사실을 확정하지 않는다."
     );
@@ -99,6 +100,7 @@ public record NarrativeContext(
             boolean defeated,
             boolean incapacitated,
             Map<String, String> worldFlags,
+            Map<String, Integer> abilityCooldowns,
             CombatProjection combat
     ) {
         public StateProjection {
@@ -109,46 +111,35 @@ public record NarrativeContext(
             Objects.requireNonNull(playerVitals, "playerVitals는 필수입니다.");
             if (defeated != playerVitals.defeated() || incapacitated != playerVitals.incapacitated()) throw new IllegalArgumentException("vitals 파생 상태가 canonical 값과 일치해야 합니다.");
             worldFlags = worldFlags == null ? Map.of() : Map.copyOf(worldFlags);
+            abilityCooldowns = abilityCooldowns == null ? Map.of() : Collections.unmodifiableMap(new TreeMap<>(abilityCooldowns));
         }
 
         private static StateProjection from(GameState state) {
             CharacterVitals vitals = state.playerCharacter().vitals();
             return new StateProjection(state.turnNumber(), state.worldState().premise(), state.playerCharacter().description(),
                     state.playerCharacter().stats(), vitals, vitals.defeated(), vitals.incapacitated(),
-                    state.worldState().flags(), CombatProjection.from(state.combatEncounter()));
+                    state.worldState().flags(), state.abilityState().cooldowns(), CombatProjection.from(state.combatEncounter()));
         }
     }
 
-    public record CombatProjection(
-            String encounterId,
-            CombatEncounterStatus status,
-            Map<String, EnemyProjection> enemies,
-            List<String> turnOrder,
-            String currentActorId
-    ) {
+    public record CombatProjection(String encounterId, CombatEncounterStatus status, Map<String, EnemyProjection> enemies,
+                                   List<String> turnOrder, String currentActorId) {
         public CombatProjection {
             if (encounterId == null || encounterId.isBlank()) throw new IllegalArgumentException("encounterId는 필수입니다.");
             Objects.requireNonNull(status, "combat status는 필수입니다.");
             enemies = enemies == null ? Map.of() : Collections.unmodifiableMap(new TreeMap<>(enemies));
             turnOrder = turnOrder == null ? List.of() : List.copyOf(turnOrder);
         }
-
         private static CombatProjection from(CombatEncounter encounter) {
             if (encounter == null) return null;
             TreeMap<String, EnemyProjection> enemies = new TreeMap<>();
             encounter.enemies().forEach((id, enemy) -> enemies.put(id, EnemyProjection.from(enemy)));
-            return new CombatProjection(encounter.encounterId(), encounter.status(), enemies,
-                    encounter.turnOrder(), encounter.currentActorId());
+            return new CombatProjection(encounter.encounterId(), encounter.status(), enemies, encounter.turnOrder(), encounter.currentActorId());
         }
     }
 
-    public record EnemyProjection(
-            String enemyId,
-            String displayName,
-            CharacterVitals vitals,
-            boolean defeated,
-            boolean incapacitated
-    ) {
+    public record EnemyProjection(String enemyId, String displayName, CharacterVitals vitals,
+                                  boolean defeated, boolean incapacitated) {
         public EnemyProjection {
             if (enemyId == null || enemyId.isBlank() || displayName == null || displayName.isBlank()) throw new IllegalArgumentException("enemy projection 식별자는 필수입니다.");
             Objects.requireNonNull(vitals, "enemy vitals는 필수입니다.");

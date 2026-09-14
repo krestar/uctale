@@ -2,6 +2,7 @@ package com.uctale.uctale.application.game;
 
 import com.uctale.uctale.domain.GameLog;
 import com.uctale.uctale.domain.GameSession;
+import com.uctale.uctale.domain.game.AbilityRules;
 import com.uctale.uctale.domain.game.CombatRules;
 import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.domain.game.InventoryRules;
@@ -32,7 +33,7 @@ public class GameStateRecovery {
         }
         if (!inventoryAuditCodec.deserialize(opening.getInventoryChangesJson()).isEmpty()) throw new IllegalStateException("Opening GameLog에는 inventory state change가 있을 수 없습니다.");
         if (!vitalsAuditCodec.deserialize(opening.getVitalsChangesJson()).isEmpty()) throw new IllegalStateException("Opening GameLog에는 vitals/status state change가 있을 수 없습니다.");
-        if (!combatAuditCodec.deserialize(opening.getCombatChangesJson()).isEmpty()) throw new IllegalStateException("Opening GameLog에는 combat state change가 있을 수 없습니다.");
+        if (!combatAuditCodec.deserialize(opening.getCombatChangesJson()).isEmpty()) throw new IllegalStateException("Opening GameLog에는 combat/ability state change가 있을 수 없습니다.");
 
         GameState state = GameState.initial(session.getWorldSetting(), session.getCharacterSetting(), opening.getStoryText());
         for (int i = 1; i < logs.size(); i++) {
@@ -40,10 +41,15 @@ public class GameStateRecovery {
             if (log.getTurnNumber() != state.turnNumber() + 1 || log.getPreviousStateVersion() != state.turnNumber()
                     || log.getStateVersion() != state.turnNumber() + 1 || log.getInputChoiceText() == null
                     || log.getInputChoiceText().isBlank()) throw new IllegalStateException("GameLog state transition을 복구할 수 없습니다.");
-            var nextInventory = InventoryRules.replay(state.inventory(), inventoryAuditCodec.deserialize(log.getInventoryChangesJson()));
-            var nextVitals = VitalsRules.replay(state.playerCharacter().vitals(), vitalsAuditCodec.deserialize(log.getVitalsChangesJson()));
-            var nextCombat = CombatRules.replay(state.combatEncounter(), combatAuditCodec.deserialize(log.getCombatChangesJson()), nextVitals);
-            state = state.withRuleState(nextInventory, nextVitals, nextCombat).advance(log.getInputChoiceText(), log.getStoryText());
+            var inventoryChanges = inventoryAuditCodec.deserialize(log.getInventoryChangesJson());
+            var vitalsChanges = vitalsAuditCodec.deserialize(log.getVitalsChangesJson());
+            var combatChanges = combatAuditCodec.deserialize(log.getCombatChangesJson());
+            var nextInventory = InventoryRules.replay(state.inventory(), inventoryChanges);
+            var nextVitals = VitalsRules.replay(state.playerCharacter().vitals(), vitalsChanges);
+            var nextCombat = CombatRules.replay(state.combatEncounter(), combatChanges, nextVitals);
+            var nextAbilityState = AbilityRules.replay(state.abilityState(), combatChanges);
+            state = state.withRuleState(nextInventory, nextVitals, nextCombat, nextAbilityState)
+                    .advance(log.getInputChoiceText(), log.getStoryText());
         }
         return state;
     }

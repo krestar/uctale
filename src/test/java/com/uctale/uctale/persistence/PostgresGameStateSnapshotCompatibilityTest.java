@@ -35,40 +35,35 @@ class PostgresGameStateSnapshotCompatibilityTest extends PostgresIntegrationTest
     }
 
     @Test
-    @DisplayName("기존 production raw snapshot을 기본 typed stats/inventory/vitals/no-combat로 읽고 다음 write에서 schema v6로 저장한다")
+    @DisplayName("기존 production raw snapshot을 읽고 다음 write에서 schema v7과 empty ability state로 저장한다")
     void legacyRawSnapshot_IsReadAndRewrittenOnNextCanonicalWrite() throws Exception {
         GameSession session = gamePersistenceService.saveOpening(OWNER_KEY, "세계관", "캐릭터", "첫 이야기", "[]", null);
-        JsonNode openingSnapshot = objectMapper.readTree(jdbcTemplate.queryForObject(
-                "select state_json from game_state_snapshot where session_id = ?", String.class, session.getId()));
-        assertThat(openingSnapshot.get("schemaVersion").asInt()).isEqualTo(6);
+        JsonNode openingSnapshot = snapshot(session.getId());
+        assertThat(openingSnapshot.get("schemaVersion").asInt()).isEqualTo(7);
         assertThat(openingSnapshot.get("rulesetVersion").asInt()).isEqualTo(1);
         assertThat(openingSnapshot.get("state").get("playerCharacter").get("stats").get("might").asInt()).isEqualTo(CharacterStats.DEFAULT_SCORE);
         assertThat(openingSnapshot.get("state").get("inventory").get("items").isEmpty()).isTrue();
         assertThat(openingSnapshot.get("state").get("playerCharacter").get("vitals").get("hp").get("current").asInt()).isEqualTo(CharacterVitals.DEFAULT_MAX_HP);
-        assertThat(openingSnapshot.get("state").has("combatEncounter")).isTrue();
-        assertThat(openingSnapshot.get("state").get("combatEncounter").isNull()).isTrue();
+        assertThat(openingSnapshot.get("state").get("abilityState").get("cooldowns").isEmpty()).isTrue();
 
         GameState initialState = gamePersistenceService.loadLatestTurn(OWNER_KEY, session.getId(), 1).gameState();
         String legacyRawJson = legacyStateJson();
         jdbcTemplate.update("update game_state_snapshot set state_json = ? where session_id = ?", legacyRawJson, session.getId());
         GameState recovered = gamePersistenceService.loadLatestTurn(OWNER_KEY, session.getId(), 1).gameState();
         assertThat(recovered).isEqualTo(initialState);
-        assertThat(recovered.combatEncounter()).isNull();
-        assertThat(jdbcTemplate.queryForObject("select state_json from game_state_snapshot where session_id = ?", String.class, session.getId())).isEqualTo(legacyRawJson);
+        assertThat(recovered.abilityState().cooldowns()).isEmpty();
 
         GameState nextState = recovered.advance("진행", "두 번째 이야기");
         gamePersistenceService.saveNextTurn(OWNER_KEY, session.getId(),
                 new GameTurnCommit(1, 1, "진행", recovered, nextState, "두 번째 이야기", "[]", null));
-
-        JsonNode rewritten = objectMapper.readTree(jdbcTemplate.queryForObject(
-                "select state_json from game_state_snapshot where session_id = ?", String.class, session.getId()));
-        assertThat(rewritten.get("schemaVersion").asInt()).isEqualTo(6);
+        JsonNode rewritten = snapshot(session.getId());
+        assertThat(rewritten.get("schemaVersion").asInt()).isEqualTo(7);
         assertThat(rewritten.get("state").get("turnNumber").asInt()).isEqualTo(2);
-        assertThat(rewritten.get("state").get("combatEncounter").isNull()).isTrue();
+        assertThat(rewritten.get("state").get("abilityState").get("cooldowns").isEmpty()).isTrue();
     }
 
     @Test
-    @DisplayName("snapshot 없는 기존 session은 append-only GameLog 원장에서 기본 vitals/no-combat까지 복구한다")
+    @DisplayName("snapshot 없는 기존 session은 GameLog 원장에서 empty ability state까지 복구한다")
     void snapshotlessSession_RecoversFromCommittedTurnLedger() {
         GameSession session = gamePersistenceService.saveOpening(OWNER_KEY, "세계관", "캐릭터", "첫 이야기", "[]", null);
         GameState initialState = gamePersistenceService.loadLatestTurn(OWNER_KEY, session.getId(), 1).gameState();
@@ -78,7 +73,12 @@ class PostgresGameStateSnapshotCompatibilityTest extends PostgresIntegrationTest
         jdbcTemplate.update("delete from game_state_snapshot where session_id = ?", session.getId());
         GameState recovered = gamePersistenceService.loadLatestTurn(OWNER_KEY, session.getId(), 2).gameState();
         assertThat(recovered).isEqualTo(nextState);
-        assertThat(recovered.combatEncounter()).isNull();
+        assertThat(recovered.abilityState().cooldowns()).isEmpty();
+    }
+
+    private JsonNode snapshot(Long sessionId) throws Exception {
+        return objectMapper.readTree(jdbcTemplate.queryForObject(
+                "select state_json from game_state_snapshot where session_id = ?", String.class, sessionId));
     }
 
     private String legacyStateJson() throws Exception {
