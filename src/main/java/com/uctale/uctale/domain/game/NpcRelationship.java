@@ -9,6 +9,7 @@ public record NpcRelationship(
         RelationshipChangeReason lastChangeReason,
         int lastSourceTurn,
         String lastSourceKey,
+        int lastRequestedDelta,
         int lastAppliedDelta,
         NpcNarrativeMemory narrativeMemory
 ) {
@@ -21,26 +22,35 @@ public record NpcRelationship(
         Objects.requireNonNull(stage, "relationship stage는 필수입니다.");
         if (stage != RelationshipStage.fromAffinity(affinity)) throw new IllegalArgumentException("relationship stage가 affinity와 일치하지 않습니다.");
         narrativeMemory = narrativeMemory == null ? NpcNarrativeMemory.empty() : narrativeMemory;
-        boolean hasChange = lastChangeReason != null || lastSourceTurn != 0 || lastSourceKey != null || lastAppliedDelta != 0;
+        boolean hasChange = lastChangeReason != null || lastSourceTurn != 0 || lastSourceKey != null
+                || lastRequestedDelta != 0 || lastAppliedDelta != 0;
         if (hasChange) {
             Objects.requireNonNull(lastChangeReason, "lastChangeReason은 필수입니다.");
-            if (lastSourceTurn < 1 || lastSourceKey == null || lastSourceKey.isBlank() || lastAppliedDelta == 0) {
+            if (lastSourceTurn < 1 || lastSourceKey == null || lastSourceKey.isBlank()
+                    || lastRequestedDelta == 0 || lastAppliedDelta == 0) {
                 throw new IllegalArgumentException("마지막 관계 변화 metadata가 올바르지 않습니다.");
             }
         }
     }
 
     public static NpcRelationship neutral(NpcIdentity npc) {
-        return new NpcRelationship(npc, 0, RelationshipStage.NEUTRAL, null, 0, null, 0, NpcNarrativeMemory.empty());
+        return new NpcRelationship(npc, 0, RelationshipStage.NEUTRAL, null, 0, null, 0, 0, NpcNarrativeMemory.empty());
     }
 
     public NpcRelationship withMemory(NpcNarrativeMemory memory) {
         return new NpcRelationship(npc, affinity, stage, lastChangeReason, lastSourceTurn, lastSourceKey,
-                lastAppliedDelta, Objects.requireNonNull(memory, "NPC narrative memory는 필수입니다."));
+                lastRequestedDelta, lastAppliedDelta, Objects.requireNonNull(memory, "NPC narrative memory는 필수입니다."));
     }
 
     public boolean alreadyApplied(int sourceTurn, String sourceKey) {
         return lastSourceTurn == sourceTurn && Objects.equals(lastSourceKey, sourceKey);
+    }
+
+    public void validateRetry(RelationshipCommand command) {
+        if (!alreadyApplied(command.sourceTurn(), command.sourceKey())) return;
+        if (lastChangeReason != command.reason() || lastRequestedDelta != command.delta()) {
+            throw new IllegalArgumentException("같은 relationship source key를 다른 변화로 재사용할 수 없습니다.");
+        }
     }
 
     public NpcRelationship applyDelta(int delta, RelationshipChangeReason reason, int sourceTurn, String sourceKey) {
@@ -52,6 +62,6 @@ public record NpcRelationship(
         if (nextAffinity == affinity) return this;
         int appliedDelta = nextAffinity - affinity;
         return new NpcRelationship(npc, nextAffinity, RelationshipStage.fromAffinity(nextAffinity), reason,
-                sourceTurn, sourceKey, appliedDelta, narrativeMemory);
+                sourceTurn, sourceKey, delta, appliedDelta, narrativeMemory);
     }
 }
