@@ -35,6 +35,9 @@ public record StoryMemory(
         List<CanonicalFact> next = new ArrayList<>(canonicalFacts.size() + 1);
         for (CanonicalFact existing : canonicalFacts) {
             if (existing.key().equals(fact.key()) && existing.status() == CanonicalFactStatus.ACTIVE) {
+                if (fact.sourceTurn() <= existing.sourceTurn()) {
+                    throw new IllegalArgumentException("canonical fact 갱신 sourceTurn은 기존 ACTIVE fact보다 이후여야 합니다: " + fact.key());
+                }
                 next.add(existing.supersede());
             } else {
                 next.add(existing);
@@ -50,6 +53,11 @@ public record StoryMemory(
         }
         if (!rollingSummary.emptySummary() && summary.sourceFromTurn() != rollingSummary.sourceFromTurn()) {
             throw new IllegalArgumentException("summary 갱신은 기존 source 시작점을 보존해야 합니다.");
+        }
+        boolean sourceEndExists = recentTurns.stream()
+                .anyMatch(turn -> turn.turnNumber() == summary.sourceToTurn());
+        if (!sourceEndExists) {
+            throw new IllegalArgumentException("summary source 종료 turn은 현재 recent turn에 존재해야 합니다.");
         }
         List<GameTurn> remaining = recentTurns.stream()
                 .filter(turn -> turn.turnNumber() > summary.sourceToTurn())
