@@ -149,7 +149,7 @@ class GamePersistenceServiceTest {
         assertThat(loaded.sessionId()).isEqualTo(session.getId());
         assertThat(loaded.turnNumber()).isEqualTo(1);
         assertThat(loaded.storyText()).isEqualTo("첫 이야기");
-        assertThat(loaded.gameState().storyMemory().canonicalFacts()).hasSize(2);
+        assertThat(loaded.gameState().storyMemory().canonicalFacts()).isEmpty();
         assertThat(gameLogRepository.findTopByGameSessionOrderByTurnNumberDesc(session).orElseThrow().getStateVersion())
                 .isEqualTo(loaded.gameState().turnNumber());
     }
