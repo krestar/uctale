@@ -38,7 +38,7 @@ public record StoryMemory(
                 if (fact.sourceTurn() <= existing.sourceTurn()) {
                     throw new IllegalArgumentException("canonical fact 갱신 sourceTurn은 기존 ACTIVE fact보다 이후여야 합니다: " + fact.key());
                 }
-                next.add(existing.supersede());
+                next.add(existing.superseded());
             } else {
                 next.add(existing);
             }
