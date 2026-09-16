@@ -1,6 +1,7 @@
 package com.uctale.uctale.domain.game;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 public final class StoryMemoryFactPolicy {
@@ -31,7 +32,7 @@ public final class StoryMemoryFactPolicy {
         if (key == null || key.isBlank()) {
             return false;
         }
-        String normalized = key.trim();
+        String normalized = key.trim().toLowerCase(Locale.ROOT);
         if (EXACT_STATE_OWNED_KEYS.contains(normalized)) {
             return true;
         }
