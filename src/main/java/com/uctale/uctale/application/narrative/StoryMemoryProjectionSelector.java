@@ -18,6 +18,10 @@ public final class StoryMemoryProjectionSelector {
     public static final int SUMMARY_SOURCE_TOKEN_BUDGET = 2_400;
     public static final int SUMMARY_TRIGGER_TOKEN_BUDGET = 3_200;
 
+    private static final int CANONICAL_FACT_OVERHEAD = 32;
+    private static final int SUMMARY_OVERHEAD = 48;
+    private static final int TURN_OVERHEAD = 24;
+
     private StoryMemoryProjectionSelector() {
     }
 
@@ -25,7 +29,7 @@ public final class StoryMemoryProjectionSelector {
         List<CanonicalFact> facts = selectFacts(state.storyMemory().activeNarrativeFacts(), CANONICAL_FACT_TOKEN_BUDGET);
         StorySummary summary = selectSummary(state.storyMemory().rollingSummary(), state.turnNumber());
         List<RecentTurnProjection> turns = selectRecentTurns(state.storyMemory().recentTurns(), RECENT_TURN_TOKEN_BUDGET);
-        int estimated = estimateFacts(facts) + estimateSummary(summary) + estimateRecent(turns);
+        int estimated = Math.addExact(Math.addExact(estimateFacts(facts), estimateSummary(summary)), estimateRecent(turns));
         if (estimated > MEMORY_TOKEN_BUDGET) {
             throw new IllegalStateException("StoryMemory projection이 token budget을 초과했습니다: " + estimated);
         }
@@ -38,7 +42,7 @@ public final class StoryMemoryProjectionSelector {
         for (GameTurn turn : turns) {
             total = Math.addExact(total, estimate(turn.playerAction()));
             total = Math.addExact(total, estimate(turn.storyText()));
-            total = Math.addExact(total, 8);
+            total = Math.addExact(total, TURN_OVERHEAD);
         }
         return total;
     }
@@ -47,17 +51,18 @@ public final class StoryMemoryProjectionSelector {
         if (turns == null || turns.isEmpty()) return List.of();
         List<GameTurn> source = new ArrayList<>();
         int remaining = SUMMARY_SOURCE_TOKEN_BUDGET;
-        for (int i = 0; i < turns.size() - 1 && remaining > 0; i++) {
+        for (int i = 0; i < turns.size() - 1 && remaining > TURN_OVERHEAD; i++) {
             GameTurn turn = turns.get(i);
-            int fixed = 8 + estimate(turn.playerAction());
+            int actionCost = estimate(turn.playerAction());
+            int fixed = Math.addExact(TURN_OVERHEAD, actionCost);
             if (fixed >= remaining && source.isEmpty()) {
-                source.add(new GameTurn(turn.turnNumber(), truncate(turn.playerAction(), Math.max(0, remaining - 8)), ""));
+                source.add(new GameTurn(turn.turnNumber(), truncate(turn.playerAction(), Math.max(0, remaining - TURN_OVERHEAD)), ""));
                 break;
             }
             int storyBudget = Math.max(0, remaining - fixed);
             String story = truncate(turn.storyText(), storyBudget);
             source.add(new GameTurn(turn.turnNumber(), turn.playerAction(), story));
-            remaining -= fixed + estimate(story);
+            remaining -= Math.addExact(fixed, estimate(story));
             if (estimate(story) < estimate(turn.storyText())) break;
         }
         return List.copyOf(source);
@@ -67,10 +72,13 @@ public final class StoryMemoryProjectionSelector {
         List<CanonicalFact> selected = new ArrayList<>();
         int used = 0;
         for (CanonicalFact fact : facts) {
-            int cost = estimate(fact.key()) + estimate(fact.value()) + 8;
-            if (used + cost > budget) continue;
+            int cost = Math.addExact(
+                    Math.addExact(estimate(fact.key()), estimate(fact.value())),
+                    CANONICAL_FACT_OVERHEAD
+            );
+            if ((long) used + cost > budget) continue;
             selected.add(fact);
-            used += cost;
+            used = Math.addExact(used, cost);
         }
         return List.copyOf(selected);
     }
@@ -79,27 +87,25 @@ public final class StoryMemoryProjectionSelector {
         if (summary == null || summary.emptySummary() || summary.stateVersion() > currentStateVersion) {
             return StorySummary.empty();
         }
-        String bounded = truncate(summary.text(), SUMMARY_TOKEN_BUDGET);
+        String bounded = truncate(summary.text(), Math.max(0, SUMMARY_TOKEN_BUDGET - SUMMARY_OVERHEAD));
         if (bounded.isBlank()) return StorySummary.empty();
         return new StorySummary(summary.sourceFromTurn(), summary.sourceToTurn(), summary.stateVersion(), bounded);
     }
 
     private static List<RecentTurnProjection> selectRecentTurns(List<GameTurn> turns, int budget) {
-        if (turns == null || turns.isEmpty() || budget <= 0) return List.of();
+        if (turns == null || turns.isEmpty() || budget <= TURN_OVERHEAD) return List.of();
         List<RecentTurnProjection> reversed = new ArrayList<>();
         int remaining = budget;
-        for (int i = turns.size() - 1; i >= 0 && remaining > 0; i--) {
+        for (int i = turns.size() - 1; i >= 0 && remaining > TURN_OVERHEAD; i--) {
             GameTurn turn = turns.get(i);
-            int fixed = 8;
-            if (remaining <= fixed) break;
-            int actionBudget = Math.min(estimate(turn.playerAction()), Math.max(0, remaining / 4));
+            int actionBudget = Math.min(estimate(turn.playerAction()), Math.max(0, (remaining - TURN_OVERHEAD) / 4));
             String action = truncate(turn.playerAction(), actionBudget);
-            int storyBudget = Math.max(0, remaining - fixed - estimate(action));
+            int storyBudget = Math.max(0, remaining - TURN_OVERHEAD - estimate(action));
             String story = truncate(turn.storyText(), storyBudget);
             if (action.isBlank() && story.isBlank()) break;
             RecentTurnProjection projected = new RecentTurnProjection(turn.turnNumber(), action, story);
             reversed.add(projected);
-            remaining -= fixed + estimate(action) + estimate(story);
+            remaining -= Math.addExact(TURN_OVERHEAD, Math.addExact(estimate(action), estimate(story)));
             if (estimate(story) < estimate(turn.storyText()) || estimate(action) < estimate(turn.playerAction())) break;
         }
         Collections.reverse(reversed);
@@ -108,30 +114,61 @@ public final class StoryMemoryProjectionSelector {
 
     private static int estimateFacts(List<CanonicalFact> facts) {
         int total = 0;
-        for (CanonicalFact fact : facts) total += estimate(fact.key()) + estimate(fact.value()) + 8;
+        for (CanonicalFact fact : facts) {
+            total = Math.addExact(total, estimate(fact.key()));
+            total = Math.addExact(total, estimate(fact.value()));
+            total = Math.addExact(total, CANONICAL_FACT_OVERHEAD);
+        }
         return total;
     }
 
     private static int estimateSummary(StorySummary summary) {
-        return summary == null || summary.emptySummary() ? 0 : estimate(summary.text());
+        if (summary == null || summary.emptySummary()) return 0;
+        return Math.addExact(estimate(summary.text()), SUMMARY_OVERHEAD);
     }
 
     private static int estimateRecent(List<RecentTurnProjection> turns) {
         int total = 0;
-        for (RecentTurnProjection turn : turns) total += estimate(turn.playerAction()) + estimate(turn.storyText()) + 8;
+        for (RecentTurnProjection turn : turns) {
+            total = Math.addExact(total, estimate(turn.playerAction()));
+            total = Math.addExact(total, estimate(turn.storyText()));
+            total = Math.addExact(total, TURN_OVERHEAD);
+        }
         return total;
     }
 
     static int estimate(String value) {
-        return value == null ? 0 : value.codePointCount(0, value.length());
+        if (value == null || value.isEmpty()) return 0;
+        int bytes = 0;
+        for (int offset = 0; offset < value.length();) {
+            int codePoint = value.codePointAt(offset);
+            bytes = Math.addExact(bytes, utf8Bytes(codePoint));
+            offset += Character.charCount(codePoint);
+        }
+        return bytes;
     }
 
     static String truncate(String value, int budget) {
         if (value == null || budget <= 0) return "";
-        int codePoints = estimate(value);
-        if (codePoints <= budget) return value;
-        int end = value.offsetByCodePoints(0, budget);
-        return value.substring(0, end);
+        if (estimate(value) <= budget) return value;
+        StringBuilder bounded = new StringBuilder();
+        int used = 0;
+        for (int offset = 0; offset < value.length();) {
+            int codePoint = value.codePointAt(offset);
+            int cost = utf8Bytes(codePoint);
+            if ((long) used + cost > budget) break;
+            bounded.appendCodePoint(codePoint);
+            used += cost;
+            offset += Character.charCount(codePoint);
+        }
+        return bounded.toString();
+    }
+
+    private static int utf8Bytes(int codePoint) {
+        if (codePoint <= 0x7F) return 1;
+        if (codePoint <= 0x7FF) return 2;
+        if (codePoint <= 0xFFFF) return 3;
+        return 4;
     }
 
     public record RecentTurnProjection(int turnNumber, String playerAction, String storyText) {
