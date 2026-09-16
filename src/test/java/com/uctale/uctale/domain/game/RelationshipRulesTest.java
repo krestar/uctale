@@ -47,13 +47,32 @@ class RelationshipRulesTest {
     }
 
     @Test
-    @DisplayName("같은 turn이라도 서로 다른 source key의 관계 사건은 모두 적용된다")
-    void differentEventsInSameTurn_AreNotDropped() {
-        RelationshipRules.Result result = rules.apply(RelationshipState.empty(), List.of(
-                RelationshipCommand.talk(guide, 10, 4, "promise"),
-                RelationshipCommand.quest(guide, 15, 4, "escort")));
+    @DisplayName("같은 turn의 복수 사건 뒤 앞선 사건이 retry되어도 중복 적용되지 않는다")
+    void differentEventsInSameTurn_AreNotDroppedOrDuplicated() {
+        RelationshipCommand firstCommand = RelationshipCommand.talk(guide, 10, 4, "promise");
+        RelationshipCommand secondCommand = RelationshipCommand.quest(guide, 15, 4, "escort");
+        RelationshipRules.Result result = rules.apply(RelationshipState.empty(), List.of(firstCommand, secondCommand));
         assertThat(result.relationshipState().find("guide-1").affinity()).isEqualTo(25);
         assertThat(result.stateChanges()).hasSize(2);
+
+        RelationshipRules.Result retriedFirst = rules.apply(result.relationshipState(), List.of(firstCommand));
+        assertThat(retriedFirst.relationshipState()).isEqualTo(result.relationshipState());
+        assertThat(retriedFirst.stateChanges()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("clamp로 applied delta가 0이어도 source key를 기록해 충돌 retry를 차단한다")
+    void clampedNoOp_StillRecordsDedupeSource() {
+        RelationshipState maxed = rules.apply(RelationshipState.empty(),
+                List.of(RelationshipCommand.quest(guide, 100, 1, "max"))).relationshipState();
+        RelationshipCommand capped = RelationshipCommand.talk(guide, 10, 2, "already-max");
+        RelationshipRules.Result first = rules.apply(maxed, List.of(capped));
+        assertThat(first.relationshipState().find("guide-1").affinity()).isEqualTo(100);
+        assertThat(first.relationshipState().find("guide-1").lastAppliedDelta()).isZero();
+        assertThat(rules.apply(first.relationshipState(), List.of(capped)).stateChanges()).isEmpty();
+        assertThatThrownBy(() -> rules.apply(first.relationshipState(),
+                List.of(RelationshipCommand.talk(guide, -10, 2, "already-max"))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("source key");
     }
 
     @Test
