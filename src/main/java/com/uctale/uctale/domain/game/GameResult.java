@@ -45,7 +45,8 @@ public record GameResult(
         ABILITY_RESOLVED,
         COMBAT_ENCOUNTER_CHANGED,
         QUEST_UPDATED,
-        FLAG_CHANGED
+        FLAG_CHANGED,
+        RELATIONSHIP_CHANGED
     }
     public enum VitalResource { HP, MP }
     public enum VitalsChangeReason { DAMAGE, HEAL, SPEND, RESTORE }
@@ -58,7 +59,7 @@ public record GameResult(
             ItemQuantityChanged, ItemConsumed, ItemEquipped, ItemUnequipped, VitalsChanged,
             StatusEffectApplied, StatusEffectUpdated, StatusDurationChanged, StatusEffectRemoved,
             AttackResolved, AbilityResolved, AbilityCooldownChanged, CombatEncounterChanged,
-            ObjectiveProgressChanged, QuestStatusChanged, FlagChanged {
+            ObjectiveProgressChanged, QuestStatusChanged, FlagChanged, RelationshipChanged {
         default String getType() {
             if (this instanceof TurnAdvanced) return "TURN_ADVANCED";
             if (this instanceof ItemAcquired) return "ITEM_ACQUIRED";
@@ -79,6 +80,7 @@ public record GameResult(
             if (this instanceof ObjectiveProgressChanged) return "OBJECTIVE_PROGRESS_CHANGED";
             if (this instanceof QuestStatusChanged) return "QUEST_STATUS_CHANGED";
             if (this instanceof FlagChanged) return "FLAG_CHANGED";
+            if (this instanceof RelationshipChanged) return "RELATIONSHIP_CHANGED";
             throw new IllegalStateException("지원하지 않는 state change입니다.");
         }
     }
@@ -236,6 +238,21 @@ public record GameResult(
             } else {
                 if (!key.equals(previousValue.key()) || previousValue.namespace() != namespace) throw new IllegalArgumentException("previous flag key/namespace가 audit과 일치하지 않습니다.");
                 if (nextValue.version() != previousValue.version() + 1 || previousValue.value().equals(nextValue.value())) throw new IllegalArgumentException("flag version/value transition이 올바르지 않습니다.");
+            }
+        }
+    }
+
+    public record RelationshipChanged(NpcRelationship previousValue, NpcRelationship nextValue,
+                                      RelationshipChangeReason reason, int sourceTurn, String sourceKey) implements StateChange {
+        public RelationshipChanged {
+            Objects.requireNonNull(nextValue, "next relationship은 필수입니다.");
+            Objects.requireNonNull(reason, "relationship change reason은 필수입니다.");
+            if (sourceTurn < 1 || sourceKey == null || sourceKey.isBlank()) throw new IllegalArgumentException("relationship source metadata가 올바르지 않습니다.");
+            if (previousValue != null && !previousValue.npc().equals(nextValue.npc())) throw new IllegalArgumentException("relationship audit은 같은 NPC를 변경해야 합니다.");
+            if (previousValue != null && previousValue.equals(nextValue)) throw new IllegalArgumentException("relationship audit은 실제 상태를 변경해야 합니다.");
+            if (nextValue.lastChangeReason() != reason || nextValue.lastSourceTurn() != sourceTurn
+                    || !sourceKey.equals(nextValue.lastSourceKey())) {
+                throw new IllegalArgumentException("relationship audit metadata가 next state와 일치하지 않습니다.");
             }
         }
     }
