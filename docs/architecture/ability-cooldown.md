@@ -42,7 +42,9 @@ Ability의 사용 가능 여부, MP 비용, 효과, target, cooldown은 Narrativ
 
 ## Persistence / recovery
 
-snapshot schema v7은 `abilityState.cooldowns`를 명시적으로 저장한다. 기존 v6에는 ability 상태 의미가 없으므로 v6→v7 upgrade는 deterministic empty cooldown map만 추가한다. 반대로 현재 v7에서 `abilityState`나 `cooldowns`가 누락되거나 값이 0/비정수인 경우 손상 데이터로 실패하며 조용히 기본값으로 복구하지 않는다.
+`abilityState.cooldowns`는 schema v7에서 도입되었고 현재 snapshot schema v8에도 필수 canonical 상태로 저장된다. 기존 v6에는 ability 상태 의미가 없으므로 v6→v7 upgrade는 deterministic empty cooldown map만 추가하며, v7→v8은 ability 상태를 그대로 보존하고 빈 quest/flag 상태만 추가한다.
+
+현재 v8 snapshot에서 `abilityState`나 `cooldowns`가 누락되거나 cooldown 값이 0/비정수인 경우 손상 데이터로 실패하며 조용히 기본값으로 복구하지 않는다.
 
 Ability audit은 기존 `game_log.combat_changes_json`에 `ABILITY_RESOLVED`와 `ABILITY_COOLDOWN_CHANGED` typed entry로 저장한다. 별도 DB 컬럼을 추가하지 않는다. snapshot이 없어도 `GameStateRecovery`가 vitals/combat audit과 함께 cooldown audit을 replay해 동일 상태를 복구한다.
 

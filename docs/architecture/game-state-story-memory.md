@@ -9,110 +9,80 @@ UCTale의 결정적 게임 상태는 서버가 소유하고, LLM은 그 상태�
 `GameState`는 한 세션의 복원 가능한 현재 상태입니다.
 
 - `turnNumber`: 현재 적용된 턴 번호
-- `PlayerCharacter`: 설명과 서버 소유 `CharacterStats`
-- `WorldState`: 세계의 서버 소유 상태와 flags 확장 지점
+- `PlayerCharacter`: 설명, `CharacterStats`, `CharacterVitals`
+- `WorldState`: 세계의 기존 canonical 상태
 - `StoryMemory`: 장기 서사를 위한 제한된 내러티브 문맥
 - `Inventory`: 서버 소유 item/Equipment canonical state
+- `CombatEncounter`: 전투 lifecycle, 참가자, current actor와 enemy state
+- `AbilityState`: ability cooldown 상태
+- `QuestState`: quest/objective progress와 typed `WorldFlag`/`EventFlag`
 
 운영 DB에는 `game_state_snapshot` JSON snapshot으로 저장합니다. `game_session`과 append-only `game_log`는 세션/턴 무결성과 committed-turn 원장 역할을 담당합니다.
 
 ## CharacterStats와 Skill Check
 
-#7 이후 `PlayerCharacter.stats`는 임의 문자열 Map이 아니라 다음 canonical stat을 가진 immutable `CharacterStats`입니다.
+`PlayerCharacter.stats`는 임의 문자열 Map이 아니라 `MIGHT`, `AGILITY`, `INTELLECT`, `WILL`, `PRESENCE`를 가진 immutable `CharacterStats`입니다. 신규/legacy 기본 score는 10이고 stat score 1~30, d20 1~20, DC 1~40, situational modifier -20~20 범위를 검증합니다. 판정은 `rawRoll + statModifier + situationalModifier >= DC`이며 natural 1/20 특수 규칙은 없습니다.
 
-- `MIGHT` — 근력
-- `AGILITY` — 민첩
-- `INTELLECT` — 지능
-- `WILL` — 의지
-- `PRESENCE` — 매력
-
-표시명은 frontend/UI 책임이며 canonical enum 이름과 분리합니다.
-
-현재 최소 규칙:
-
-- 신규/legacy 기본 stat score: `10`
-- stat score 허용 범위: `1~30`
-- stat modifier: `floor((score - 10) / 2)`
-- d20 roll: `1~20`
-- DC 허용 범위: `1~40`
-- situational modifier: `-20~20`
-- 판정: `rawRoll + statModifier + situationalModifier >= DC`
-- natural 1/20 특수 성공·실패 규칙 없음
-- Skill Check ruleset version: `1`
-
-`SkillCheckResult`에는 stat type, raw roll, stat modifier, situational modifier, DC, total, outcome, ruleset version을 모두 기록해 후속 감사 저장에 필요한 계산 근거를 보존합니다.
-
-랜덤은 `RandomSource` port로 분리합니다. production adapter는 `SecureRandom`을 사용하고 테스트는 fixed/sequence source로 결정적으로 검증합니다. 이 pure domain 판정은 Narrative provider를 호출하지 않습니다. #37/#38 이후 실제 `/progress` vertical slice와 DB/UI projection까지 연결되어 있습니다.
+`SkillCheckResult`는 계산 근거와 outcome/ruleset version을 보존합니다. production random은 `SecureRandom`, 테스트는 fixed/sequence `RandomSource`를 사용합니다. 실제 `/progress` vertical slice와 DB/UI projection까지 연결되어 있습니다.
 
 ## Inventory / Equipment
 
-#39 이후 `GameState.inventory`는 stable owned item ID와 최소 equipment slot 상태를 소유합니다. acquire/remove/quantity/consume/equip/unequip은 `InventoryCommand`와 순수 `InventoryRules`에서만 canonical transition을 만듭니다.
+`GameState.inventory`는 stable owned item ID와 equipment slot 상태를 소유합니다. acquire/remove/quantity/consume/equip/unequip은 `InventoryCommand`와 순수 `InventoryRules`에서 canonical transition을 만듭니다. #42 이후 장착 item의 attack/damage modifier도 서버 전투 판정에 사용됩니다.
 
 Narrative provider 응답은 inventory command 입력이 아니므로 story prose만으로 item을 만들거나 소비하거나 장착할 수 없습니다. 상세 invariant, audit, recovery는 [inventory-equipment.md](./inventory-equipment.md)를 기준으로 합니다.
+
+## Vitals / Combat / Ability
+
+`PlayerCharacter.vitals`는 HP/MP/status를 소유하고 `CombatEncounter`는 encounter lifecycle, enemy, turn order/current actor를 소유합니다. `COMBAT_ATTACK`, `COMBAT_ABILITY`, `COMBAT_PASS`, `COMBAT_ESCAPE`는 서버 규칙으로 resolve되며 attack roll/damage/mitigation과 ability MP/effect/cooldown도 provider 호출 전에 확정됩니다.
+
+세부 규칙은 [vitals-status-effects.md](./vitals-status-effects.md), [combat-encounter.md](./combat-encounter.md), [ability-cooldown.md](./ability-cooldown.md)를 기준으로 합니다.
+
+## Quest / Objective / World·Event Flag
+
+#44 이후 `QuestState`는 quest runtime status, typed objective progress와 typed flag를 canonical state로 소유합니다. 최소 objective 형태는 `COUNT`, `BOOLEAN`, `STATE_MATCH`이고 collection/dialogue/combat fixture가 서버 action/state change를 관찰해 progress를 전이합니다.
+
+Quest 완료/실패, objective progress, flag key/value/version은 provider prose가 아니라 `QuestRules`와 typed audit으로 결정됩니다. 상세 규칙은 [quest-objective-flags.md](./quest-objective-flags.md)를 기준으로 합니다.
 
 ## Story Memory
 
 Story Memory는 세 계층으로 구분합니다.
 
-1. `canonicalFacts`
-   - 서버가 진실로 승인한 장기 사실
-   - 현재는 최초 세계관과 플레이어 설정으로 시작
-   - Game Engine의 검증된 state transition만 canonical truth를 변경
-2. `rollingSummary`
-   - 최근 문맥에서 밀려난 오래된 턴의 제한된 압축 기록
-   - 현재 별도 AI 호출 없이 서버가 결정적으로 누적
-   - 최대 4,000자
-3. `recentTurns`
-   - 가장 최근 6턴
-   - 플레이어 행동과 결과 본문 보관
+1. `canonicalFacts`: 서버가 승인한 장기 사실
+2. `rollingSummary`: 오래된 진행 내용을 제한된 크기로 누적한 기록
+3. `recentTurns`: 최근 플레이어 행동과 결과 본문
 
 Narrative Engine에는 전체 `game_log` 대신 read-only memory projection과 현재 요청에 필요한 canonical result/state 문맥만 전달합니다. Story Memory 자체의 canonical projection/token budget 재설계는 #46 범위입니다.
 
-## 메모리 우선순위
-
-충돌 시 다음 순서를 따릅니다.
-
-`GameResult / canonical state > canonicalFacts > rollingSummary > recentTurns > LLM 생성 내용`
-
-LLM 응답 자체는 canonical rule state 변경 권한이 없습니다.
+충돌 시 우선순위는 `GameResult / canonical state > canonicalFacts > rollingSummary > recentTurns > LLM 생성 내용`입니다. LLM 응답 자체는 canonical rule state 변경 권한이 없습니다.
 
 ## 현재 행동 경계
 
-#33 이후 main에는 `AvailableAction`과 `PlayerAction` 경계가 있습니다.
+서버 발급 `AvailableAction`은 현재 turn과 token/type/arguments를 묶습니다. `ActionResolver`가 처리하는 현재 action type은 `NARRATIVE_CHOICE`, `SKILL_CHECK`, `COMBAT_ATTACK`, `COMBAT_ABILITY`, `COMBAT_PASS`, `COMBAT_ESCAPE`입니다. Inventory/Vitals command는 같은 pure resolution 경계에서 서버가 주입하는 typed effect이며 QuestRules는 resolution 결과를 관찰해 canonical quest/flag 전이를 추가합니다.
 
-- Narrative가 제안한 choice는 서버가 현재 turn에 속한 `AvailableAction`으로 발급합니다.
-- 다음 `/progress`에서 서버는 제출된 action이 현재 turn의 발급 action과 일치하는지 검증합니다.
-- 만료되거나 변조된 action은 Narrative provider 또는 규칙 실행 전에 거절합니다.
-- 기존 choice ID는 compatibility adapter 경로로 유지합니다.
-
-#34 이후 검증된 `PlayerAction`은 `ActionResolver`에서 `TurnResolution(GameResult, StateTransition)`으로 resolve됩니다. 현재 실제 action type은 `NARRATIVE_CHOICE`, `SKILL_CHECK`이며, inventory/equipment effect는 별도의 provider 출력이 아니라 서버 명령이 있을 때 같은 pure resolution에서 적용됩니다.
-
-#36 이후 Narrative provider에는 raw state/action 문자열 조합 대신 확정된 `GameResult`와 canonical next-state에서 만든 provider-safe `NarrativeContext`를 전달합니다. 서버 발급 `PlayerAction.token`은 provider context에 포함하지 않습니다.
+Narrative provider에는 raw state/action 문자열 대신 확정된 `GameResult`와 canonical next-state에서 만든 provider-safe `NarrativeContext`를 전달합니다. 서버 발급 action token은 provider context에 포함하지 않습니다.
 
 ## 현재 턴 처리 흐름
 
 1. idempotency와 `(session_id, expected_turn)` reservation을 확인합니다.
-2. `expectedTurn`으로 현재 세션과 `GameState.turnNumber`를 검증합니다.
-3. 제출된 `PlayerAction`을 현재 서버 발급 `AvailableAction`과 대조합니다.
-4. 필요한 결정적 판정/effect를 서버에서 확정합니다.
-5. `ActionResolver`가 `GameResult`와 canonical next `StateTransition`을 pure domain operation으로 확정합니다.
+2. 현재 세션/turn과 server-issued action payload를 검증합니다.
+3. 필요한 Skill Check/Attack 판정과 typed command를 서버에서 확정합니다.
+4. `ActionResolver`가 `GameResult`와 canonical next `StateTransition`을 만듭니다.
+5. `QuestRules`가 typed action/state change만 관찰해 quest/objective/flag 전이를 적용합니다.
 6. 확정 결과와 canonical next state에서 provider-safe `NarrativeContext`를 구성합니다.
 7. rate limit과 provider budget/attempt 경계를 확인합니다.
 8. Narrative Engine이 확정 결과를 재판정하지 않고 story와 다음 choice 후보를 생성합니다.
-9. 검증된 story prose는 확정된 rule transition을 변경하지 않고 `StoryMemory` transcript에만 부착합니다.
+9. story prose는 rule transition을 변경하지 않고 `StoryMemory` transcript에만 부착합니다.
 10. 서버가 다음 server-issued available actions를 구성합니다.
-11. `GameTurnCommit`이 `StateTransition`, audit, narrative linkage를 소유한 채 canonical transaction에서 저장됩니다.
+11. `GameTurnCommit`이 state transition, typed audit, narrative linkage를 canonical transaction에서 저장합니다.
 
-세부 책임과 provider/transaction 경계는 [action-resolution.md](./action-resolution.md), prompt 계약과 retry/linkage 정책은 [narrative-context.md](./narrative-context.md)를 기준으로 합니다.
+세부 책임은 [action-resolution.md](./action-resolution.md), provider 계약은 [narrative-context.md](./narrative-context.md)를 기준으로 합니다.
 
 ## 기존 세션 호환성
 
-현재 snapshot schema는 v3입니다. #31 이전 raw `GameState`는 logical v0, typed stats 이전 envelope는 v1, inventory 이전 형식은 v2로 읽어 deterministic upgrader에서 v3까지 한 단계씩 승격합니다.
+현재 snapshot schema는 v8입니다. #31 이전 raw `GameState`는 logical v0으로 취급하고 `GameStateUpgrader`가 v1부터 v8까지 한 단계씩 deterministic하게 승격합니다.
 
-legacy stats가 없으면 기본값 10을 적용하고 canonical legacy stat 값이 있으면 검증 후 보존합니다. v0/v1/v2는 inventory 의미가 없으므로 빈 inventory를 명시적으로 추가합니다. read 자체는 DB를 다시 쓰지 않고 다음 정상 canonical commit에서 최신 snapshot 형식으로 저장합니다.
+각 schema에서 의미가 없던 신규 aggregate는 안전한 baseline만 추가합니다. 과거 story prose나 legacy `WorldState.flags`에서 전투/ability/quest/typed flag 의미를 추정하지 않습니다. 현재 v8의 필수 필드 누락이나 손상 값은 legacy로 간주해 기본값 처리하지 않고 명시적으로 실패합니다.
 
-`GameState.advance(playerAction, storyText)`는 legacy `GameLog` recovery에서 동일한 StoryMemory를 복원해야 하므로 compatibility method로 유지합니다. 새 turn pipeline은 규칙 단계의 `advanceTurn()`과 provider 이후의 `recordNarrativeTurn()`을 분리해 사용합니다.
-
-`game_log.canonical_result_id`와 `generated_story_id`는 legacy/opening 행에서 둘 다 `NULL`일 수 있습니다. 신규 inventory/equipment audit도 legacy/opening 행에서 `NULL`이면 변화 없음으로 해석하고, snapshotless recovery는 신규 audit만 순서대로 replay합니다.
+read 자체는 DB를 다시 쓰지 않고 다음 정상 canonical commit에서 최신 snapshot 형식으로 저장합니다. snapshotless recovery는 `GameLog`의 inventory/vitals/combat/ability/quest typed audit을 turn 순서대로 replay합니다.
 
 세부 snapshot 내용은 [game-state-snapshot-evolution.md](./game-state-snapshot-evolution.md)를 기준으로 합니다.
