@@ -36,7 +36,7 @@ class StoryMemoryProjectionSelectorTest {
         GameState state = GameState.initial("세계관", "캐릭터", "오프닝");
         StoryMemory memory = state.storyMemory()
                 .withCanonicalFact(new CanonicalFact("narrative.promise.guide", "북문에서 만나기로 함", 1))
-                .withCanonicalFact(new CanonicalFact("narrative.promise.guide", "약속이 취소됨", 1));
+                .withCanonicalFact(new CanonicalFact("narrative.promise.guide", "약속이 취소됨", 2));
         state = state.withStoryMemory(memory);
 
         StoryMemoryProjectionSelector.Projection projection = StoryMemoryProjectionSelector.project(state);
