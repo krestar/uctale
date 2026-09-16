@@ -54,7 +54,9 @@ class GameStateUpgraderTest {
     @Test
     @DisplayName("schema v8에 relationshipState가 이미 있으면 정의되지 않은 의미를 임의 승격하지 않는다")
     void schemaV8WithRelationshipState_FailsExplicitly() throws Exception {
-        String json = currentV8("2").replace("}}", ",\"relationshipState\":{\"relationships\":{}}}}" );
+        String json = currentV8("2").replace(
+                "\"questState\":{\"quests\":{},\"worldFlags\":{},\"eventFlags\":{}}",
+                "\"questState\":{\"quests\":{},\"worldFlags\":{},\"eventFlags\":{}},\"relationshipState\":{\"relationships\":{}}");
         assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree(json)))
                 .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("schema v8").hasMessageContaining("relationshipState");
     }
