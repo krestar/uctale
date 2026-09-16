@@ -32,6 +32,15 @@ public final class RelationshipRules {
 
     public TurnResolution apply(TurnResolution resolution, List<RelationshipCommand> commands) {
         Objects.requireNonNull(resolution, "TurnResolution은 필수입니다.");
+        int canonicalSourceTurn = resolution.stateTransition().previousState().turnNumber();
+        if (commands != null) {
+            for (RelationshipCommand command : commands) {
+                Objects.requireNonNull(command, "relationship command는 null일 수 없습니다.");
+                if (command.sourceTurn() != canonicalSourceTurn) {
+                    throw new IllegalArgumentException("relationship source turn이 canonical turn과 일치하지 않습니다.");
+                }
+            }
+        }
         GameState baseNext = resolution.stateTransition().nextState();
         Result relationship = apply(baseNext.relationshipState(), commands);
         if (relationship.stateChanges().isEmpty()) return resolution;
