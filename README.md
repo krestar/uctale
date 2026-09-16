@@ -14,7 +14,7 @@ UCTale은 사용자가 직접 입력한 세계관과 주인공 설정을 바탕�
 
 현재 `main`은 공유 베타 운영 안전망과 신뢰 가능한 턴 저장 기반 위에 서버 주도 action resolution을 확장하고 있습니다.
 
-- 서버: 세션 소유권, 현재 turn, idempotency/reservation, Skill Check, Inventory/Equipment, HP/MP/Status Effect, Combat Encounter/Attack, Ability/MP/Cooldown, Quest/Objective/World·Event Flag와 canonical commit을 결정합니다.
+- 서버: 세션 소유권, 현재 turn, idempotency/reservation, Skill Check, Inventory/Equipment, HP/MP/Status Effect, Combat Encounter/Attack, Ability/MP/Cooldown, Quest/Objective/World·Event Flag, NPC Relationship/Affinity와 canonical commit을 결정합니다.
 - Narrative AI: provider-safe `NarrativeContext`로 전달된 서버 확정 결과와 read-only state/memory projection을 서술합니다. canonical state를 직접 변경하거나 판정을 다시 수행하지 않습니다.
 - Image AI: 브라우저의 임의 prompt가 아니라 서버가 발급한 image asset 계약만 실행합니다.
 - Frontend: 서버가 반환한 선택 행동과 projection을 표시하며 게임 규칙을 재계산하지 않습니다.
@@ -48,8 +48,9 @@ UCTale은 사용자가 직접 입력한 세계관과 주인공 설정을 바탕�
 5. `ActionResolver`가 typed action/effect를 `GameResult`와 canonical next state로 resolve합니다.
 6. `QuestRules`가 서버 확정 action/state change만 관찰해 quest/objective/flag 전이를 적용합니다.
 7. provider-safe `NarrativeContext`를 구성하고 Narrative provider가 확정 결과를 story로 표현합니다.
-8. `GameTurnCommit`이 canonical state, typed audit, narrative linkage를 한 transaction으로 저장합니다.
-9. 시각적으로 표현할 장면이 있으면 서버 발급 image asset을 통해 삽화를 제공합니다.
+8. narrative transcript가 summary 기준을 넘으면 canonical state와 분리된 Story Memory summary를 best-effort로 갱신합니다.
+9. `GameTurnCommit`이 canonical state, typed audit, narrative linkage를 한 transaction으로 저장합니다.
+10. 시각적으로 표현할 장면이 있으면 서버 발급 image asset을 통해 삽화를 제공합니다.
 
 외부 provider의 strict exactly-once는 보장하지 않습니다. 대신 canonical DB commit의 중복 적용을 막고 provider attempt를 bounded하게 관리합니다.
 
@@ -99,9 +100,19 @@ UCTale은 사용자가 직접 입력한 세계관과 주인공 설정을 바탕�
 
 범용 quest scripting DSL, editor/admin UI, procedural quest generation, 전체 branching campaign, 상세 quest journal UI는 현재 범위가 아닙니다.
 
+### NPC Relationship / Affinity
+
+- stable NPC definition/instance identity와 typed relationship state
+- affinity와 relationship stage를 서버 canonical state로 관리
+- public/private `NpcNarrativeMemory`를 구조적으로 분리
+- relationship 변화는 typed audit/recovery 경계를 사용
+- `NarrativeContext`에는 affinity/stage와 public/private memory를 read-only projection으로 전달
+
+NPC별 독립 LLM agent나 memory microservice는 현재 범위가 아닙니다.
+
 ### GameState / Snapshot / Recovery
 
-현재 snapshot schema는 **v8**, ruleset version은 **1**입니다.
+현재 snapshot schema는 **v10**, ruleset version은 **1**입니다.
 
 - v0: pre-envelope raw `GameState`
 - v2: typed stats
@@ -111,21 +122,25 @@ UCTale은 사용자가 직접 입력한 세계관과 주인공 설정을 바탕�
 - v6: item combat modifier / enemy combat profile
 - v7: Ability cooldown state
 - v8: Quest/Objective/World·Event Flag state
+- v9: NPC Relationship/Affinity state
+- v10: Story Memory ownership 분리와 구조화 summary metadata
 
-`GameStateUpgrader`는 지원되는 legacy schema를 한 단계씩 deterministic하게 승격합니다. 의미를 안전하게 복구할 수 없는 값은 추측하지 않으며, 현재 v8의 필수 필드 누락이나 손상 값은 조용히 기본값으로 복구하지 않습니다. 기존 `WorldState.flags`도 typed World/Event Flag로 임의 승격하지 않습니다.
+`GameStateUpgrader`는 지원되는 legacy schema를 한 단계씩 deterministic하게 승격합니다. 의미를 안전하게 복구할 수 없는 값은 추측하지 않으며, 현재 v10의 필수 필드 누락이나 손상 값은 조용히 기본값으로 복구하지 않습니다. 기존 `WorldState.flags`도 typed World/Event Flag로 임의 승격하지 않습니다.
 
-`GameLog`는 append-only committed-turn ledger이고 snapshot은 최신 상태 복구용 materialized state입니다. snapshot이 없으면 inventory/vitals/combat/ability/quest audit을 순서대로 replay합니다.
+`GameLog`는 append-only committed-turn ledger이고 snapshot은 최신 상태 복구용 materialized state입니다. snapshot이 없으면 inventory/vitals/combat/ability/quest/relationship audit을 순서대로 replay합니다.
 
-### NarrativeContext / Provider
+### NarrativeContext / Story Memory / Provider
 
 - raw `GameState + 사용자 문자열` 대신 서버 확정 `GameResult`와 canonical next-state projection 사용
 - server-issued action token은 provider에 전달하지 않음
-- Skill Check, combat/ability, inventory/vitals, quest/flag state change를 read-only projection으로 전달
-- provider story는 canonical rule state를 변경하지 않고 StoryMemory transcript만 완성
+- Skill Check, combat/ability, inventory/vitals, quest/flag, NPC relationship/memory state를 read-only projection으로 전달
+- inventory/HP/quest/relationship 등 GameState 소유 사실은 StoryMemory canonical fact에 이중 저장하지 않음
+- narrative canonical fact는 stable key, source turn, `ACTIVE/SUPERSEDED` 상태를 사용
+- rolling summary는 source turn range와 state version metadata를 갖고 schema validation + bounded retry로 갱신
+- recent turn과 summary/canonical fact projection은 명시적 token budget으로 제한
+- summary 실패나 canonical-state 모순 가능성이 있는 응답은 canonical turn을 변경하지 않고 이전 memory를 보존
 - Gemini structured output schema와 adapter validation, bounded recovery 적용
 - 기본 Narrative model: `gemini-3.7-flash`
-
-Story Memory projection/token budget 전면 개선은 #46 범위입니다.
 
 ---
 
@@ -177,6 +192,7 @@ Story Memory projection/token budget 전면 개선은 #46 범위입니다.
 - [Combat Encounter / EnemyState](./docs/architecture/combat-encounter.md)
 - [Ability / Resource / Cooldown](./docs/architecture/ability-cooldown.md)
 - [Quest / Objective / World·Event Flag](./docs/architecture/quest-objective-flags.md)
+- [NPC Relationship / Affinity](./docs/architecture/npc-relationship-affinity.md)
 - [GameResult 기반 NarrativeContext](./docs/architecture/narrative-context.md)
 - [Gemini Narrative provider](./docs/architecture/gemini-narrative-provider.md)
 - [GameState / Story Memory](./docs/architecture/game-state-story-memory.md)
@@ -258,6 +274,6 @@ GitHub Actions CI도 backend unit test → PostgreSQL integration test → backe
 
 ### M3 — 서버 주도 행동 판정
 
-진행 중. 현재 main에는 server-issued action/action resolution, Skill Check, Inventory/Equipment, HP/MP/Status Effect, Combat Encounter/Attack, item combat modifier/enemy combat profile, Ability/MP/Cooldown, Quest/Objective/World·Event Flag와 provider-safe NarrativeContext가 반영되어 있습니다.
+진행 중. 현재 main에는 server-issued action/action resolution, Skill Check, Inventory/Equipment, HP/MP/Status Effect, Combat Encounter/Attack, item combat modifier/enemy combat profile, Ability/MP/Cooldown, Quest/Objective/World·Event Flag, NPC Relationship/Affinity, provider-safe NarrativeContext와 bounded Story Memory projection이 반영되어 있습니다.
 
-NPC 관계, 상점/거래·loot·강화, 복잡한 전투/캠페인 규칙 등은 아직 현재 기능으로 취급하지 않습니다.
+상점/거래·loot·강화, 복잡한 전투/캠페인 규칙, NPC별 독립 agent 등은 아직 현재 기능으로 취급하지 않습니다.
