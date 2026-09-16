@@ -4,6 +4,7 @@ import com.uctale.uctale.domain.game.CharacterStats;
 import com.uctale.uctale.domain.game.CharacterVitals;
 import com.uctale.uctale.domain.game.EnemyCombatProfile;
 import com.uctale.uctale.domain.game.ItemCombatModifiers;
+import com.uctale.uctale.domain.game.StoryMemoryFactPolicy;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.JsonNodeFactory;
@@ -48,6 +49,7 @@ public class GameStateUpgrader {
             case 6 -> upgradeV6ToV7(source);
             case 7 -> upgradeV7ToV8(source);
             case 8 -> upgradeV8ToV9(source);
+            case 9 -> upgradeV9ToV10(source);
             default -> throw new GameStateSnapshotException("snapshot schemaVersion " + source.schemaVersion() + "의 다음 upgrade 경로가 없습니다.");
         };
     }
@@ -168,6 +170,37 @@ public class GameStateUpgrader {
         return new VersionedState(9, source.rulesetVersion(), state);
     }
 
+    private VersionedState upgradeV9ToV10(VersionedState source) {
+        ObjectNode state = objectCopy(source.state());
+        JsonNode memoryNode = state.get("storyMemory");
+        if (!(memoryNode instanceof ObjectNode storyMemory)) {
+            throw new GameStateSnapshotException("schema v9 snapshot storyMemory가 누락되었거나 손상되었습니다.");
+        }
+        JsonNode facts = storyMemory.get("canonicalFacts");
+        if (facts == null || !facts.isArray()) {
+            throw new GameStateSnapshotException("schema v9 snapshot canonicalFacts가 누락되었거나 손상되었습니다.");
+        }
+        for (JsonNode fact : facts) {
+            String key = fact.path("key").asText("");
+            if (key.isBlank() || !StoryMemoryFactPolicy.isStateOwned(key)) {
+                throw new GameStateSnapshotException("schema v9 canonical fact의 source turn/status를 안전하게 복구할 수 없습니다: " + key);
+            }
+        }
+        JsonNode summary = storyMemory.get("rollingSummary");
+        JsonNode recentTurns = storyMemory.get("recentTurns");
+        if (summary == null || !summary.isTextual() || recentTurns == null || !recentTurns.isArray()) {
+            throw new GameStateSnapshotException("schema v9 snapshot rollingSummary/recentTurns가 손상되었습니다.");
+        }
+        storyMemory.set("canonicalFacts", JsonNodeFactory.instance.arrayNode());
+        ObjectNode nextSummary = JsonNodeFactory.instance.objectNode();
+        nextSummary.put("sourceFromTurn", 0);
+        nextSummary.put("sourceToTurn", 0);
+        nextSummary.put("stateVersion", 0);
+        nextSummary.put("text", "");
+        storyMemory.set("rollingSummary", nextSummary);
+        return new VersionedState(10, source.rulesetVersion(), state);
+    }
+
     private void validateCurrentShape(JsonNode state) {
         if (!state.has("combatEncounter")) throw new GameStateSnapshotException("현재 schema snapshot combatEncounter 필드가 누락되었습니다.");
         JsonNode inventoryNode = state.get("inventory");
@@ -209,6 +242,16 @@ public class GameStateUpgrader {
         if (!(relationshipNode instanceof ObjectNode relationshipState)
                 || !(relationshipState.get("relationships") instanceof ObjectNode)) {
             throw new GameStateSnapshotException("현재 schema snapshot relationshipState/relationships가 누락되었거나 손상되었습니다.");
+        }
+        JsonNode memoryNode = state.get("storyMemory");
+        if (!(memoryNode instanceof ObjectNode storyMemory)
+                || storyMemory.get("canonicalFacts") == null || !storyMemory.get("canonicalFacts").isArray()
+                || !(storyMemory.get("rollingSummary") instanceof ObjectNode summary)
+                || storyMemory.get("recentTurns") == null || !storyMemory.get("recentTurns").isArray()) {
+            throw new GameStateSnapshotException("현재 schema snapshot storyMemory 구조가 누락되었거나 손상되었습니다.");
+        }
+        if (!summary.has("sourceFromTurn") || !summary.has("sourceToTurn") || !summary.has("stateVersion") || !summary.has("text")) {
+            throw new GameStateSnapshotException("현재 schema snapshot rollingSummary metadata가 누락되었습니다.");
         }
     }
 

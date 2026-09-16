@@ -20,6 +20,7 @@ import com.uctale.uctale.application.narrative.NarrativeRecoveryExhaustedExcepti
 import com.uctale.uctale.application.narrative.NarrativeRecoveryExecutor;
 import com.uctale.uctale.application.narrative.NarrativeRecoveryInterruptedException;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
+import com.uctale.uctale.application.narrative.StoryMemorySummaryService;
 import com.uctale.uctale.domain.action.PlayerAction;
 import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.domain.game.StateTransition;
@@ -58,6 +59,7 @@ public class GameService {
     private final GameMutationFingerprint mutationFingerprint;
     private final GameMutationRequestService mutationRequestService;
     private final NarrativeRecoveryExecutor narrativeRecoveryExecutor = NarrativeRecoveryExecutor.production();
+    private StoryMemorySummaryService storyMemorySummaryService;
 
     @Autowired
     public GameService(
@@ -107,6 +109,11 @@ public class GameService {
                 mutationFingerprint,
                 mutationRequestService
         );
+    }
+
+    @Autowired(required = false)
+    void setStoryMemorySummaryService(StoryMemorySummaryService storyMemorySummaryService) {
+        this.storyMemorySummaryService = storyMemorySummaryService;
     }
 
     public GameResponse initGame(String ownerKey, GameInitRequest request) {
@@ -185,6 +192,9 @@ public class GameService {
             validateNarrativeTurn(nextTurn);
             String generatedStoryId = "story:" + UUID.randomUUID();
             StateTransition committedTransition = turnProcessor.attachNarrative(resolution, nextTurn.storyText());
+            if (storyMemorySummaryService != null) {
+                committedTransition = storyMemorySummaryService.compactBestEffort(committedTransition, providerContext);
+            }
             List<GameChoice> choices = choiceCodec.issue(nextTurn.choices(), request.expectedTurn() + 1);
 
             ImageAssetService.AssetReference imageAsset = null;
