@@ -11,7 +11,7 @@ import com.uctale.uctale.domain.game.EnemyState;
 import com.uctale.uctale.domain.game.EventFlag;
 import com.uctale.uctale.domain.game.GameResult;
 import com.uctale.uctale.domain.game.GameState;
-import com.uctale.uctale.domain.game.GameTurn;
+import com.uctale.uctale.domain.game.Inventory;
 import com.uctale.uctale.domain.game.NpcRelationship;
 import com.uctale.uctale.domain.game.ObjectiveProgress;
 import com.uctale.uctale.domain.game.QuestRuntimeState;
@@ -20,6 +20,7 @@ import com.uctale.uctale.domain.game.RelationshipStage;
 import com.uctale.uctale.domain.game.SkillCheckOutcome;
 import com.uctale.uctale.domain.game.SkillCheckResult;
 import com.uctale.uctale.domain.game.StatType;
+import com.uctale.uctale.domain.game.StorySummary;
 import com.uctale.uctale.domain.game.TurnResolution;
 import com.uctale.uctale.domain.game.WorldFlag;
 
@@ -109,6 +110,7 @@ public record NarrativeContext(
             boolean defeated,
             boolean incapacitated,
             Map<String, String> worldFlags,
+            Inventory inventory,
             Map<String, Integer> abilityCooldowns,
             Map<String, QuestProjection> quests,
             Map<String, WorldFlag> questWorldFlags,
@@ -122,6 +124,7 @@ public record NarrativeContext(
             playerDescription = playerDescription == null ? "" : playerDescription;
             Objects.requireNonNull(playerStats, "playerStats는 필수입니다.");
             Objects.requireNonNull(playerVitals, "playerVitals는 필수입니다.");
+            Objects.requireNonNull(inventory, "inventory는 필수입니다.");
             if (defeated != playerVitals.defeated() || incapacitated != playerVitals.incapacitated()) throw new IllegalArgumentException("vitals 파생 상태가 canonical 값과 일치해야 합니다.");
             worldFlags = worldFlags == null ? Map.of() : Map.copyOf(worldFlags);
             abilityCooldowns = abilityCooldowns == null ? Map.of() : Collections.unmodifiableMap(new TreeMap<>(abilityCooldowns));
@@ -139,7 +142,7 @@ public record NarrativeContext(
             state.relationshipState().relationships().forEach((id, relationship) -> relationships.put(id, NpcProjection.from(relationship)));
             return new StateProjection(state.turnNumber(), state.worldState().premise(), state.playerCharacter().description(),
                     state.playerCharacter().stats(), vitals, vitals.defeated(), vitals.incapacitated(),
-                    state.worldState().flags(), state.abilityState().cooldowns(), quests,
+                    state.worldState().flags(), state.inventory(), state.abilityState().cooldowns(), quests,
                     state.questState().worldFlags(), state.questState().eventFlags(), relationships,
                     CombatProjection.from(state.combatEncounter()));
         }
@@ -202,14 +205,26 @@ public record NarrativeContext(
         }
     }
 
-    public record MemoryProjection(List<CanonicalFact> canonicalFacts, String rollingSummary, List<GameTurn> recentTurns) {
+    public record MemoryProjection(
+            List<CanonicalFact> canonicalFacts,
+            StorySummary rollingSummary,
+            List<StoryMemoryProjectionSelector.RecentTurnProjection> recentTurns,
+            int estimatedTokens,
+            int tokenBudget
+    ) {
         public MemoryProjection {
             canonicalFacts = canonicalFacts == null ? List.of() : List.copyOf(canonicalFacts);
-            rollingSummary = rollingSummary == null ? "" : rollingSummary;
+            rollingSummary = rollingSummary == null ? StorySummary.empty() : rollingSummary;
             recentTurns = recentTurns == null ? List.of() : List.copyOf(recentTurns);
+            if (estimatedTokens < 0 || tokenBudget != StoryMemoryProjectionSelector.MEMORY_TOKEN_BUDGET
+                    || estimatedTokens > tokenBudget) {
+                throw new IllegalArgumentException("memory token budget이 올바르지 않습니다.");
+            }
         }
         private static MemoryProjection from(GameState state) {
-            return new MemoryProjection(state.storyMemory().canonicalFacts(), state.storyMemory().rollingSummary(), state.storyMemory().recentTurns());
+            StoryMemoryProjectionSelector.Projection projection = StoryMemoryProjectionSelector.project(state);
+            return new MemoryProjection(projection.canonicalFacts(), projection.rollingSummary(), projection.recentTurns(),
+                    projection.estimatedTokens(), StoryMemoryProjectionSelector.MEMORY_TOKEN_BUDGET);
         }
     }
 }

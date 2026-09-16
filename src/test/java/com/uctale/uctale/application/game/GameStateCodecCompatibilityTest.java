@@ -11,23 +11,24 @@ class GameStateCodecCompatibilityTest {
     private final GameStateCodec codec = new GameStateCodec(new ObjectMapper(), new GameStateUpgrader());
 
     @Test
-    @DisplayName("현재 schema v9에서 stats가 누락된 손상 snapshot은 기본값으로 숨기지 않는다")
+    @DisplayName("현재 schema v10에서 stats가 누락된 손상 snapshot은 기본값으로 숨기지 않는다")
     void currentSchemaMissingStats_FailsExplicitly() {
         assertThatThrownBy(() -> codec.deserialize(currentState("\"playerCharacter\":{\"description\":\"캐릭터\",\"vitals\":" + vitals() + "}")))
                 .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("역직렬화");
     }
 
     @Test
-    @DisplayName("현재 schema v9에서 inventory가 누락된 손상 snapshot은 빈 inventory로 숨기지 않는다")
+    @DisplayName("현재 schema v10에서 inventory가 누락된 손상 snapshot은 빈 inventory로 숨기지 않는다")
     void currentSchemaMissingInventory_FailsExplicitly() {
-        String json = "{\"schemaVersion\":9,\"rulesetVersion\":1,\"state\":{\"turnNumber\":1," + player()
-                + ",\"worldState\":{\"premise\":\"세계관\",\"flags\":{}},\"storyMemory\":{\"canonicalFacts\":[],\"rollingSummary\":\"\",\"recentTurns\":[]},\"combatEncounter\":null,\"abilityState\":{\"cooldowns\":{}},\"questState\":" + questState() + ",\"relationshipState\":" + relationshipState() + "}}";
+        String json = "{\"schemaVersion\":10,\"rulesetVersion\":1,\"state\":{\"turnNumber\":1," + player()
+                + ",\"worldState\":{\"premise\":\"세계관\",\"flags\":{}},\"storyMemory\":" + storyMemory()
+                + ",\"combatEncounter\":null,\"abilityState\":{\"cooldowns\":{}},\"questState\":" + questState() + ",\"relationshipState\":" + relationshipState() + "}}";
         assertThatThrownBy(() -> codec.deserialize(json))
                 .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("inventory/items");
     }
 
     @Test
-    @DisplayName("현재 schema v9에서 vitals가 누락된 손상 snapshot은 기본 vitals로 숨기지 않는다")
+    @DisplayName("현재 schema v10에서 vitals가 누락된 손상 snapshot은 기본 vitals로 숨기지 않는다")
     void currentSchemaMissingVitals_FailsExplicitly() {
         String player = "\"playerCharacter\":{\"description\":\"캐릭터\",\"stats\":" + stats() + "}";
         assertThatThrownBy(() -> codec.deserialize(currentState(player)))
@@ -35,7 +36,7 @@ class GameStateCodecCompatibilityTest {
     }
 
     @Test
-    @DisplayName("현재 schema v9에서 abilityState가 누락되면 empty cooldown으로 숨기지 않는다")
+    @DisplayName("현재 schema v10에서 abilityState가 누락되면 empty cooldown으로 숨기지 않는다")
     void currentSchemaMissingAbilityState_FailsExplicitly() {
         String json = baseWithoutTail(player()) + ",\"questState\":" + questState() + ",\"relationshipState\":" + relationshipState() + "}}";
         assertThatThrownBy(() -> codec.deserialize(json))
@@ -43,7 +44,7 @@ class GameStateCodecCompatibilityTest {
     }
 
     @Test
-    @DisplayName("현재 schema v9에서 questState가 누락되면 empty quest로 숨기지 않는다")
+    @DisplayName("현재 schema v10에서 questState가 누락되면 empty quest로 숨기지 않는다")
     void currentSchemaMissingQuestState_FailsExplicitly() {
         String json = baseWithoutTail(player()) + ",\"abilityState\":{\"cooldowns\":{}},\"relationshipState\":" + relationshipState() + "}}";
         assertThatThrownBy(() -> codec.deserialize(json))
@@ -51,7 +52,7 @@ class GameStateCodecCompatibilityTest {
     }
 
     @Test
-    @DisplayName("현재 schema v9에서 relationshipState가 누락되면 empty 관계로 숨기지 않는다")
+    @DisplayName("현재 schema v10에서 relationshipState가 누락되면 empty 관계로 숨기지 않는다")
     void currentSchemaMissingRelationshipState_FailsExplicitly() {
         String json = baseWithoutTail(player()) + ",\"abilityState\":{\"cooldowns\":{}},\"questState\":" + questState() + "}}";
         assertThatThrownBy(() -> codec.deserialize(json))
@@ -64,10 +65,12 @@ class GameStateCodecCompatibilityTest {
     }
 
     private String baseWithoutTail(String playerField) {
-        return "{\"schemaVersion\":9,\"rulesetVersion\":1,\"state\":{\"turnNumber\":1," + playerField
-                + ",\"worldState\":{\"premise\":\"세계관\",\"flags\":{}},\"storyMemory\":{\"canonicalFacts\":[],\"rollingSummary\":\"\",\"recentTurns\":[]},\"inventory\":{\"items\":{},\"equipment\":{\"slots\":{}}},\"combatEncounter\":null";
+        return "{\"schemaVersion\":10,\"rulesetVersion\":1,\"state\":{\"turnNumber\":1," + playerField
+                + ",\"worldState\":{\"premise\":\"세계관\",\"flags\":{}},\"storyMemory\":" + storyMemory()
+                + ",\"inventory\":{\"items\":{},\"equipment\":{\"slots\":{}}},\"combatEncounter\":null";
     }
 
+    private String storyMemory() { return "{\"canonicalFacts\":[],\"rollingSummary\":{\"sourceFromTurn\":0,\"sourceToTurn\":0,\"stateVersion\":0,\"text\":\"\"},\"recentTurns\":[]}"; }
     private String player() { return "\"playerCharacter\":{\"description\":\"캐릭터\",\"stats\":" + stats() + ",\"vitals\":" + vitals() + "}"; }
     private String questState() { return "{\"quests\":{},\"worldFlags\":{},\"eventFlags\":{}}"; }
     private String relationshipState() { return "{\"relationships\":{}}"; }

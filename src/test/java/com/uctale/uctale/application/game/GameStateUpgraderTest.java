@@ -13,32 +13,35 @@ class GameStateUpgraderTest {
     private final GameStateUpgrader upgrader = new GameStateUpgrader();
 
     @Test
-    @DisplayName("schema v6 snapshot은 ability, quest, relationship 빈 상태를 순차 추가해 v9로 승격한다")
-    void schemaV6_AddsEmptyAbilityQuestAndRelationshipState() throws Exception {
+    @DisplayName("schema v6 snapshot은 후속 canonical state를 순차 추가하고 StoryMemory를 v10으로 승격한다")
+    void schemaV6_UpgradesToV10() throws Exception {
         var upgraded = upgrader.upgrade(objectMapper.readTree(v6State()));
-        assertThat(upgraded.schemaVersion()).isEqualTo(9);
+        assertThat(upgraded.schemaVersion()).isEqualTo(10);
         JsonNode state = upgraded.state();
         assertThat(state.get("abilityState").get("cooldowns").isEmpty()).isTrue();
         assertThat(state.get("questState").get("quests").isEmpty()).isTrue();
         assertThat(state.get("questState").get("worldFlags").isEmpty()).isTrue();
         assertThat(state.get("questState").get("eventFlags").isEmpty()).isTrue();
         assertThat(state.get("relationshipState").get("relationships").isEmpty()).isTrue();
+        assertThat(state.get("storyMemory").get("canonicalFacts").isEmpty()).isTrue();
+        assertThat(state.get("storyMemory").get("rollingSummary").get("stateVersion").asInt()).isZero();
     }
 
     @Test
-    @DisplayName("schema v7 snapshot은 과거 의미를 추측하지 않고 빈 quest와 relationship state를 추가한다")
+    @DisplayName("schema v7 snapshot은 과거 의미를 추측하지 않고 빈 quest와 relationship state를 추가해 v10으로 승격한다")
     void schemaV7_AddsEmptyQuestAndRelationshipState() throws Exception {
         var upgraded = upgrader.upgrade(objectMapper.readTree(v7State("{}")));
-        assertThat(upgraded.schemaVersion()).isEqualTo(9);
+        assertThat(upgraded.schemaVersion()).isEqualTo(10);
         assertThat(upgraded.state().get("questState").get("quests").isEmpty()).isTrue();
         assertThat(upgraded.state().get("relationshipState").get("relationships").isEmpty()).isTrue();
+        assertThat(upgraded.state().get("storyMemory").get("rollingSummary").get("text").asText()).isEmpty();
     }
 
     @Test
-    @DisplayName("schema v8 snapshot은 과거 의미를 추측하지 않고 빈 relationship state만 추가한다")
+    @DisplayName("schema v8 snapshot은 과거 의미를 추측하지 않고 빈 relationship state를 추가해 v10으로 승격한다")
     void schemaV8_AddsEmptyRelationshipState() throws Exception {
         var upgraded = upgrader.upgrade(objectMapper.readTree(currentV8("2")));
-        assertThat(upgraded.schemaVersion()).isEqualTo(9);
+        assertThat(upgraded.schemaVersion()).isEqualTo(10);
         assertThat(upgraded.state().get("relationshipState").get("relationships").isEmpty()).isTrue();
     }
 
@@ -70,11 +73,48 @@ class GameStateUpgraderTest {
     }
 
     @Test
-    @DisplayName("현재 schema v9 relationshipState 누락은 조용히 empty로 복구하지 않는다")
+    @DisplayName("schema v9 relationshipState 누락은 v10 승격 과정에서 조용히 empty로 복구하지 않는다")
     void schemaV9MissingRelationshipState_FailsExplicitly() throws Exception {
         String json = currentV8("2").replace("\"schemaVersion\":8", "\"schemaVersion\":9");
         assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree(json)))
                 .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("relationshipState/relationships");
+    }
+
+    @Test
+    @DisplayName("schema v9의 state-owned StoryMemory fact는 canonical state와 중복되므로 제거한다")
+    void schemaV9_RemovesStateOwnedFacts() throws Exception {
+        String json = currentV9()
+                .replace("\"canonicalFacts\":[]",
+                        "\"canonicalFacts\":[{\"key\":\"world.premise\",\"value\":\"세계관\"},{\"key\":\"player.description\",\"value\":\"캐릭터\"}]");
+
+        var upgraded = upgrader.upgrade(objectMapper.readTree(json));
+
+        assertThat(upgraded.schemaVersion()).isEqualTo(10);
+        assertThat(upgraded.state().get("storyMemory").get("canonicalFacts").isEmpty()).isTrue();
+        assertThat(upgraded.state().get("storyMemory").get("rollingSummary").get("text").asText()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("schema v9의 비 state-owned fact는 source turn/status를 추측하지 않고 명시적으로 거절한다")
+    void schemaV9NarrativeFact_FailsExplicitly() throws Exception {
+        String json = currentV9().replace("\"canonicalFacts\":[]",
+                "\"canonicalFacts\":[{\"key\":\"narrative.promise.guide\",\"value\":\"북문에서 만나기로 함\"}]");
+
+        assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree(json)))
+                .isInstanceOf(GameStateSnapshotException.class)
+                .hasMessageContaining("source turn/status");
+    }
+
+    @Test
+    @DisplayName("현재 schema v10 StoryMemory metadata 누락은 조용히 복구하지 않는다")
+    void schemaV10MissingSummaryMetadata_FailsExplicitly() throws Exception {
+        String json = currentV9()
+                .replace("\"schemaVersion\":9", "\"schemaVersion\":10")
+                .replace("\"rollingSummary\":\"\"", "\"rollingSummary\":{\"text\":\"\"}");
+
+        assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree(json)))
+                .isInstanceOf(GameStateSnapshotException.class)
+                .hasMessageContaining("rollingSummary metadata");
     }
 
     @Test
@@ -91,10 +131,17 @@ class GameStateUpgraderTest {
     @Test
     @DisplayName("미래 schema와 미지원 ruleset은 명시적으로 실패한다")
     void unsupportedVersions_FailExplicitly() throws Exception {
-        assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree("{\"schemaVersion\":10,\"rulesetVersion\":1,\"state\":{}}")))
+        assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree("{\"schemaVersion\":11,\"rulesetVersion\":1,\"state\":{}}")))
                 .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("미래 snapshot schemaVersion");
-        assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree("{\"schemaVersion\":9,\"rulesetVersion\":2,\"state\":{}}")))
+        assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree("{\"schemaVersion\":10,\"rulesetVersion\":2,\"state\":{}}")))
                 .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("rulesetVersion");
+    }
+
+    private String currentV9() {
+        return currentV8("2")
+                .replace("\"schemaVersion\":8", "\"schemaVersion\":9")
+                .replace("\"questState\":{\"quests\":{},\"worldFlags\":{},\"eventFlags\":{}}",
+                        "\"questState\":{\"quests\":{},\"worldFlags\":{},\"eventFlags\":{}},\"relationshipState\":{\"relationships\":{}}");
     }
 
     private String currentV8(String cooldownValue) {

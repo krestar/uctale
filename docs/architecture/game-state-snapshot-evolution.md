@@ -8,19 +8,19 @@ snapshot 구조는 `state_json` 내부에서 진화하고, 별도의 audit이 �
 
 ## 현재 snapshot 형식
 
-새 write는 schema `9`, ruleset `1`을 사용합니다. 현재 `GameState`에는 typed stats/vitals, inventory/equipment, combat encounter, ability cooldown, quest/objective와 typed World/Event Flag, NPC relationship/affinity 상태가 포함됩니다.
+새 write는 schema `10`, ruleset `1`을 사용합니다. 현재 `GameState`에는 typed stats/vitals, inventory/equipment, combat encounter, ability cooldown, quest/objective와 typed World/Event Flag, NPC relationship/affinity 상태, 구조화 StoryMemory summary metadata가 포함됩니다.
 
 - `schemaVersion`: snapshot JSON 구조/필드 의미의 evolution version
 - `rulesetVersion`: 저장 상태를 해석하는 결정적 게임 규칙 계약 version
 - `state`: canonical `GameState`
 
-schema와 ruleset version은 서로 다른 축입니다. 저장 구조는 v9까지 확장되었지만 과거 결과를 현재 규칙으로 재판정하지 않으므로 ruleset은 1을 유지합니다.
+schema와 ruleset version은 서로 다른 축입니다. 저장 구조는 v10까지 확장되었지만 과거 결과를 현재 규칙으로 재판정하지 않으므로 ruleset은 1을 유지합니다.
 
 ## 지원 경로
 
 ### v0 raw GameState
 
-#31 이전 production 형식은 envelope 없이 `GameState` 자체를 저장했습니다. logical schema v0, legacy ruleset baseline 1로 취급하며 v0부터 v9까지 한 단계씩 순수 변환합니다.
+#31 이전 production 형식은 envelope 없이 `GameState` 자체를 저장했습니다. logical schema v0, legacy ruleset baseline 1로 취급하며 v0부터 v10까지 한 단계씩 순수 변환합니다.
 
 ### v1 -> v2 typed stats
 
@@ -59,11 +59,20 @@ v7에는 typed quest/flag 의미가 없으므로 `questState.quests`, `worldFlag
 
 v8에는 typed NPC relationship 의미가 없으므로 `relationshipState.relationships`를 빈 map으로 추가합니다. 과거 story prose나 StoryMemory에서 NPC identity, affinity, stage를 추론하지 않습니다.
 
+### v9 -> v10 Story Memory ownership / summary metadata
+
+v9 `StoryMemory.canonicalFacts`는 `sourceTurn/status`가 없는 과거 형식입니다. v10은 GameState가 소유하는 canonical 사실과 narrative memory 책임을 분리합니다.
+
+- v9 fact가 `world.premise`, `player.description` 또는 inventory/vitals/quest/relationship/NPC/world flag/event/combat/ability 등 state-owned key이면 GameState projection에 이미 존재하므로 StoryMemory에서 제거합니다.
+- 비 state-owned fact는 `sourceTurn/status`를 안전하게 복구할 근거가 없으므로 임의 기본값을 넣지 않고 명시적으로 실패합니다.
+- 과거 `rollingSummary` 문자열은 source turn range/state version을 안전하게 복구할 수 없으므로 빈 구조화 summary(`sourceFromTurn=0`, `sourceToTurn=0`, `stateVersion=0`, `text=""`)로 전환합니다. 과거 prose를 현재 canonical 사실로 재해석하지 않습니다.
+- `recentTurns`는 그대로 보존합니다.
+
 ## 현재 schema 검증
 
-현재 v9 snapshot은 stats, inventory, vitals, combatEncounter, abilityState, questState, relationshipState 등 현재 schema의 필수 구조를 명시적으로 검증합니다. 현재 schema의 필드 누락이나 손상 값을 legacy로 간주해 조용히 기본값으로 복구하지 않습니다.
+현재 v10 snapshot은 stats, inventory, vitals, combatEncounter, abilityState, questState, relationshipState와 StoryMemory 구조를 명시적으로 검증합니다. `rollingSummary`에는 `sourceFromTurn`, `sourceToTurn`, `stateVersion`, `text`가 모두 있어야 합니다. 현재 schema의 필드 누락이나 손상 값을 legacy로 간주해 조용히 기본값으로 복구하지 않습니다.
 
-특히 ability cooldown의 잘못된 값, quest/objective shape 불일치, COUNT progress의 target 초과, flag namespace/key/value/version 불변식 위반, relationship affinity/stage/identity 불변식 위반은 현재 상태 손상으로 거절합니다.
+특히 ability cooldown의 잘못된 값, quest/objective shape 불일치, COUNT progress의 target 초과, flag namespace/key/value/version 불변식 위반, relationship affinity/stage/identity 불변식 위반, StoryMemory summary metadata 누락은 현재 상태 손상으로 거절합니다.
 
 ## read / write 정책
 
@@ -73,7 +82,7 @@ v8에는 typed NPC relationship 의미가 없으므로 `relationshipState.relati
 - **미지원 ruleset:** 자동 재판정하지 않고 명시적 실패
 - **손상 snapshot:** legacy raw state로 명확히 식별되지 않으면 명시적 실패
 
-읽기만으로 DB를 즉시 다시 쓰지 않습니다. read-time upgrade는 메모리에서만 수행하고 다음 정상 canonical turn commit에서 최신 v9 envelope로 자연스럽게 재작성합니다.
+읽기만으로 DB를 즉시 다시 쓰지 않습니다. read-time upgrade는 메모리에서만 수행하고 다음 정상 canonical turn commit에서 최신 v10 envelope로 자연스럽게 재작성합니다.
 
 ## GameLog state version과의 관계
 
@@ -87,7 +96,7 @@ v8에는 typed NPC relationship 의미가 없으므로 `relationshipState.relati
 
 ## snapshot 없는 session
 
-snapshot이 없으면 append-only `GameLog`를 통해 `GameStateRecovery`가 현재 상태를 복구합니다. legacy log에는 신규 audit이 없으므로 각 aggregate의 안전한 baseline에서 시작하고 audit이 있는 turn부터 typed state change를 순서대로 replay합니다. 복구 뒤 다음 정상 write에서 schema v9 snapshot이 생성됩니다.
+snapshot이 없으면 append-only `GameLog`를 통해 `GameStateRecovery`가 현재 상태를 복구합니다. legacy log에는 신규 audit이 없으므로 각 aggregate의 안전한 baseline에서 시작하고 audit이 있는 turn부터 typed state change를 순서대로 replay합니다. 복구 뒤 다음 정상 write에서 schema v10 snapshot이 생성됩니다.
 
 ## 향후 규칙
 

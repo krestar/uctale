@@ -28,11 +28,11 @@ NPC별로 최신 source turn의 source-key dedupe ledger만 bounded하게 보존
 
 ## Snapshot
 
-Snapshot schema v9에서 `relationshipState.relationships`가 필수다. v8 이하에는 typed relationship 의미가 없으므로 v8→v9 upgrade는 빈 관계 상태만 추가한다. 과거 prose나 기존 story memory에서 affinity/stage를 추정하지 않는다. 현재 v9 snapshot에 관계 필드가 누락되면 손상 데이터로 거절한다.
+현재 snapshot schema는 v10이며 `relationshipState.relationships`가 필수다. v8 이하에는 typed relationship 의미가 없으므로 v8→v9 upgrade는 빈 관계 상태만 추가한다. v9→v10은 Story Memory ownership/summary 형식만 변경하며 relationship state는 그대로 보존한다. 과거 prose나 기존 StoryMemory에서 affinity/stage를 추정하지 않는다. 현재 v10 snapshot에 관계 필드가 누락되면 손상 데이터로 거절한다.
 
 ## Narrative memory projection
 
-`NpcNarrativeMemory`는 public/private fact map을 구조적으로 분리한다. `NarrativeContext.NpcProjection`도 두 영역을 별도로 전달하여 provider가 정보 가시성 경계를 인지할 수 있게 한다. 이 구분은 relationship 수치의 canonical ownership을 StoryMemory나 LLM으로 넘기지 않는다.
+`NpcNarrativeMemory`는 public/private fact map을 구조적으로 분리한다. `NarrativeContext.NpcProjection`도 두 영역을 별도로 전달하여 provider가 정보 가시성 경계를 인지할 수 있게 한다. affinity/stage와 NPC identity는 `RelationshipState`에서 read-only projection하며 StoryMemory canonical fact로 이중 저장하지 않는다.
 
 ## Availability
 

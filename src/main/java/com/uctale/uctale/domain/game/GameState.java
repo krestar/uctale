@@ -55,6 +55,12 @@ public record GameState(
                 AbilityState.empty(), QuestState.empty(), RelationshipState.empty());
     }
 
+    public GameState withStoryMemory(StoryMemory nextStoryMemory) {
+        if (nextStoryMemory == null) throw new IllegalArgumentException("storyMemory는 null일 수 없습니다.");
+        return new GameState(turnNumber, playerCharacter, worldState, nextStoryMemory, inventory, combatEncounter,
+                abilityState, questState, relationshipState);
+    }
+
     public GameState withInventory(Inventory nextInventory) {
         if (nextInventory == null) throw new IllegalArgumentException("inventory는 null일 수 없습니다.");
         return new GameState(turnNumber, playerCharacter, worldState, storyMemory, nextInventory, combatEncounter,
