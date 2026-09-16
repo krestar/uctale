@@ -47,6 +47,7 @@ public class GameStateUpgrader {
             case 5 -> upgradeV5ToV6(source);
             case 6 -> upgradeV6ToV7(source);
             case 7 -> upgradeV7ToV8(source);
+            case 8 -> upgradeV8ToV9(source);
             default -> throw new GameStateSnapshotException("snapshot schemaVersion " + source.schemaVersion() + "의 다음 upgrade 경로가 없습니다.");
         };
     }
@@ -158,6 +159,15 @@ public class GameStateUpgrader {
         return new VersionedState(8, source.rulesetVersion(), state);
     }
 
+    private VersionedState upgradeV8ToV9(VersionedState source) {
+        ObjectNode state = objectCopy(source.state());
+        if (state.has("relationshipState")) throw new GameStateSnapshotException("schema v8 snapshot에는 relationshipState 필드가 정의되어 있지 않습니다.");
+        ObjectNode relationshipState = JsonNodeFactory.instance.objectNode();
+        relationshipState.set("relationships", JsonNodeFactory.instance.objectNode());
+        state.set("relationshipState", relationshipState);
+        return new VersionedState(9, source.rulesetVersion(), state);
+    }
+
     private void validateCurrentShape(JsonNode state) {
         if (!state.has("combatEncounter")) throw new GameStateSnapshotException("현재 schema snapshot combatEncounter 필드가 누락되었습니다.");
         JsonNode inventoryNode = state.get("inventory");
@@ -194,6 +204,11 @@ public class GameStateUpgrader {
                 || !(questState.get("worldFlags") instanceof ObjectNode)
                 || !(questState.get("eventFlags") instanceof ObjectNode)) {
             throw new GameStateSnapshotException("현재 schema snapshot questState/quests/worldFlags/eventFlags가 누락되었거나 손상되었습니다.");
+        }
+        JsonNode relationshipNode = state.get("relationshipState");
+        if (!(relationshipNode instanceof ObjectNode relationshipState)
+                || !(relationshipState.get("relationships") instanceof ObjectNode)) {
+            throw new GameStateSnapshotException("현재 schema snapshot relationshipState/relationships가 누락되었거나 손상되었습니다.");
         }
     }
 
