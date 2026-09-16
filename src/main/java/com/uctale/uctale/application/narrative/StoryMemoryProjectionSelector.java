@@ -55,8 +55,10 @@ public final class StoryMemoryProjectionSelector {
             GameTurn turn = turns.get(i);
             int actionCost = estimate(turn.playerAction());
             int fixed = Math.addExact(TURN_OVERHEAD, actionCost);
-            if (fixed >= remaining && source.isEmpty()) {
-                source.add(new GameTurn(turn.turnNumber(), truncate(turn.playerAction(), Math.max(0, remaining - TURN_OVERHEAD)), ""));
+            if (fixed >= remaining) {
+                if (source.isEmpty()) {
+                    source.add(new GameTurn(turn.turnNumber(), truncate(turn.playerAction(), Math.max(0, remaining - TURN_OVERHEAD)), ""));
+                }
                 break;
             }
             int storyBudget = Math.max(0, remaining - fixed);
