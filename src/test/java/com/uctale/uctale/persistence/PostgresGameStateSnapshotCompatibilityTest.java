@@ -35,11 +35,11 @@ class PostgresGameStateSnapshotCompatibilityTest extends PostgresIntegrationTest
     }
 
     @Test
-    @DisplayName("기존 production raw snapshot을 읽고 다음 write에서 schema v9과 empty ability/quest/relationship state로 저장한다")
+    @DisplayName("기존 production raw snapshot을 읽고 다음 write에서 schema v10과 empty rule state/StoryMemory metadata로 저장한다")
     void legacyRawSnapshot_IsReadAndRewrittenOnNextCanonicalWrite() throws Exception {
         GameSession session = gamePersistenceService.saveOpening(OWNER_KEY, "세계관", "캐릭터", "첫 이야기", "[]", null);
         JsonNode openingSnapshot = snapshot(session.getId());
-        assertThat(openingSnapshot.get("schemaVersion").asInt()).isEqualTo(9);
+        assertThat(openingSnapshot.get("schemaVersion").asInt()).isEqualTo(10);
         assertThat(openingSnapshot.get("rulesetVersion").asInt()).isEqualTo(1);
         assertThat(openingSnapshot.get("state").get("playerCharacter").get("stats").get("might").asInt()).isEqualTo(CharacterStats.DEFAULT_SCORE);
         assertThat(openingSnapshot.get("state").get("inventory").get("items").isEmpty()).isTrue();
@@ -47,6 +47,8 @@ class PostgresGameStateSnapshotCompatibilityTest extends PostgresIntegrationTest
         assertThat(openingSnapshot.get("state").get("abilityState").get("cooldowns").isEmpty()).isTrue();
         assertThat(openingSnapshot.get("state").get("questState").get("quests").isEmpty()).isTrue();
         assertThat(openingSnapshot.get("state").get("relationshipState").get("relationships").isEmpty()).isTrue();
+        assertThat(openingSnapshot.get("state").get("storyMemory").get("canonicalFacts").isEmpty()).isTrue();
+        assertThat(openingSnapshot.get("state").get("storyMemory").get("rollingSummary").get("stateVersion").asInt()).isZero();
 
         GameState initialState = gamePersistenceService.loadLatestTurn(OWNER_KEY, session.getId(), 1).gameState();
         String legacyRawJson = legacyStateJson();
@@ -61,7 +63,7 @@ class PostgresGameStateSnapshotCompatibilityTest extends PostgresIntegrationTest
         gamePersistenceService.saveNextTurn(OWNER_KEY, session.getId(),
                 new GameTurnCommit(1, 1, "진행", recovered, nextState, "두 번째 이야기", "[]", null));
         JsonNode rewritten = snapshot(session.getId());
-        assertThat(rewritten.get("schemaVersion").asInt()).isEqualTo(9);
+        assertThat(rewritten.get("schemaVersion").asInt()).isEqualTo(10);
         assertThat(rewritten.get("state").get("turnNumber").asInt()).isEqualTo(2);
         assertThat(rewritten.get("state").get("abilityState").get("cooldowns").isEmpty()).isTrue();
         assertThat(rewritten.get("state").get("questState").get("quests").isEmpty()).isTrue();
