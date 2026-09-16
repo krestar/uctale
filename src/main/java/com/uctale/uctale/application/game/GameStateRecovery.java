@@ -7,6 +7,7 @@ import com.uctale.uctale.domain.game.CombatRules;
 import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.domain.game.InventoryRules;
 import com.uctale.uctale.domain.game.QuestRules;
+import com.uctale.uctale.domain.game.RelationshipRules;
 import com.uctale.uctale.domain.game.VitalsRules;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -21,19 +22,28 @@ public class GameStateRecovery {
     private final VitalsAuditCodec vitalsAuditCodec;
     private final CombatAuditCodec combatAuditCodec;
     private final QuestAuditCodec questAuditCodec;
+    private final RelationshipAuditCodec relationshipAuditCodec;
 
     @Autowired
     public GameStateRecovery(InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec,
-            CombatAuditCodec combatAuditCodec, QuestAuditCodec questAuditCodec) {
+            CombatAuditCodec combatAuditCodec, QuestAuditCodec questAuditCodec, RelationshipAuditCodec relationshipAuditCodec) {
         this.inventoryAuditCodec = inventoryAuditCodec;
         this.vitalsAuditCodec = vitalsAuditCodec;
         this.combatAuditCodec = combatAuditCodec;
         this.questAuditCodec = questAuditCodec;
+        this.relationshipAuditCodec = relationshipAuditCodec;
+    }
+
+    public GameStateRecovery(InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec,
+            CombatAuditCodec combatAuditCodec, QuestAuditCodec questAuditCodec) {
+        this(inventoryAuditCodec, vitalsAuditCodec, combatAuditCodec, questAuditCodec,
+                new RelationshipAuditCodec(new ObjectMapper()));
     }
 
     public GameStateRecovery(InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec,
             CombatAuditCodec combatAuditCodec) {
-        this(inventoryAuditCodec, vitalsAuditCodec, combatAuditCodec, new QuestAuditCodec(new ObjectMapper()));
+        this(inventoryAuditCodec, vitalsAuditCodec, combatAuditCodec, new QuestAuditCodec(new ObjectMapper()),
+                new RelationshipAuditCodec(new ObjectMapper()));
     }
 
     public GameState recover(GameSession session, List<GameLog> logs) {
@@ -46,6 +56,7 @@ public class GameStateRecovery {
         if (!vitalsAuditCodec.deserialize(opening.getVitalsChangesJson()).isEmpty()) throw new IllegalStateException("Opening GameLog에는 vitals/status state change가 있을 수 없습니다.");
         if (!combatAuditCodec.deserialize(opening.getCombatChangesJson()).isEmpty()) throw new IllegalStateException("Opening GameLog에는 combat/ability state change가 있을 수 없습니다.");
         if (!questAuditCodec.deserialize(opening.getQuestChangesJson()).isEmpty()) throw new IllegalStateException("Opening GameLog에는 quest/flag state change가 있을 수 없습니다.");
+        if (!relationshipAuditCodec.deserialize(opening.getRelationshipChangesJson()).isEmpty()) throw new IllegalStateException("Opening GameLog에는 relationship state change가 있을 수 없습니다.");
 
         GameState state = GameState.initial(session.getWorldSetting(), session.getCharacterSetting(), opening.getStoryText());
         for (int i = 1; i < logs.size(); i++) {
@@ -57,12 +68,15 @@ public class GameStateRecovery {
             var vitalsChanges = vitalsAuditCodec.deserialize(log.getVitalsChangesJson());
             var combatChanges = combatAuditCodec.deserialize(log.getCombatChangesJson());
             var questChanges = questAuditCodec.deserialize(log.getQuestChangesJson());
+            var relationshipChanges = relationshipAuditCodec.deserialize(log.getRelationshipChangesJson());
             var nextInventory = InventoryRules.replay(state.inventory(), inventoryChanges);
             var nextVitals = VitalsRules.replay(state.playerCharacter().vitals(), vitalsChanges);
             var nextCombat = CombatRules.replay(state.combatEncounter(), combatChanges, nextVitals);
             var nextAbilityState = AbilityRules.replay(state.abilityState(), combatChanges);
             var nextQuestState = QuestRules.replay(state.questState(), questChanges);
-            state = state.withRuleState(nextInventory, nextVitals, nextCombat, nextAbilityState, nextQuestState)
+            var nextRelationshipState = RelationshipRules.replay(state.relationshipState(), relationshipChanges);
+            state = state.withRuleState(nextInventory, nextVitals, nextCombat, nextAbilityState, nextQuestState,
+                            nextRelationshipState)
                     .advance(log.getInputChoiceText(), log.getStoryText());
         }
         return state;

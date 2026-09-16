@@ -12,9 +12,11 @@ import com.uctale.uctale.domain.game.EventFlag;
 import com.uctale.uctale.domain.game.GameResult;
 import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.domain.game.GameTurn;
+import com.uctale.uctale.domain.game.NpcRelationship;
 import com.uctale.uctale.domain.game.ObjectiveProgress;
 import com.uctale.uctale.domain.game.QuestRuntimeState;
 import com.uctale.uctale.domain.game.QuestStatus;
+import com.uctale.uctale.domain.game.RelationshipStage;
 import com.uctale.uctale.domain.game.SkillCheckOutcome;
 import com.uctale.uctale.domain.game.SkillCheckResult;
 import com.uctale.uctale.domain.game.StatType;
@@ -42,10 +44,11 @@ public record NarrativeContext(
 ) {
     public static final List<String> CANONICAL_MUTATION_GUARDRAILS = List.of(
             "GameResult.outcome과 서버가 확정한 성공/실패를 변경하거나 다시 판정하지 않는다.",
-            "GameResult.stateChanges에 없는 HP, MP, status, ability cooldown, quest/objective, flag, 능력치, 아이템, 레벨, 위치, 생사 변화를 확정하지 않는다.",
+            "GameResult.stateChanges에 없는 HP, MP, status, ability cooldown, quest/objective, flag, relationship, 능력치, 아이템, 레벨, 위치, 생사 변화를 확정하지 않는다.",
             "combat projection/stateChanges에 없는 enemy 생성·제거·사망·부활·encounter lifecycle 변화를 확정하지 않는다.",
             "ability stateChanges에 기록된 비용·효과·target·cooldown을 변경하거나 다시 판정하지 않는다.",
             "quest/objective/flag projection과 stateChanges를 변경하거나 prose만으로 완료·실패·progress·flag를 선언하지 않는다.",
+            "NPC affinity/stage와 public/private memory 경계를 변경하거나 prose만으로 관계 수치를 선언하지 않는다.",
             "서버가 제공하지 않은 roll이나 판정 결과를 새로 만들지 않는다.",
             "state projection과 canonical facts를 수정하거나 충돌하는 사실을 확정하지 않는다."
     );
@@ -110,6 +113,7 @@ public record NarrativeContext(
             Map<String, QuestProjection> quests,
             Map<String, WorldFlag> questWorldFlags,
             Map<String, EventFlag> eventFlags,
+            Map<String, NpcProjection> relationships,
             CombatProjection combat
     ) {
         public StateProjection {
@@ -124,16 +128,20 @@ public record NarrativeContext(
             quests = quests == null ? Map.of() : Collections.unmodifiableMap(new TreeMap<>(quests));
             questWorldFlags = questWorldFlags == null ? Map.of() : Collections.unmodifiableMap(new TreeMap<>(questWorldFlags));
             eventFlags = eventFlags == null ? Map.of() : Collections.unmodifiableMap(new TreeMap<>(eventFlags));
+            relationships = relationships == null ? Map.of() : Collections.unmodifiableMap(new TreeMap<>(relationships));
         }
 
         private static StateProjection from(GameState state) {
             CharacterVitals vitals = state.playerCharacter().vitals();
             TreeMap<String, QuestProjection> quests = new TreeMap<>();
             state.questState().quests().forEach((id, quest) -> quests.put(id, QuestProjection.from(quest)));
+            TreeMap<String, NpcProjection> relationships = new TreeMap<>();
+            state.relationshipState().relationships().forEach((id, relationship) -> relationships.put(id, NpcProjection.from(relationship)));
             return new StateProjection(state.turnNumber(), state.worldState().premise(), state.playerCharacter().description(),
                     state.playerCharacter().stats(), vitals, vitals.defeated(), vitals.incapacitated(),
                     state.worldState().flags(), state.abilityState().cooldowns(), quests,
-                    state.questState().worldFlags(), state.questState().eventFlags(), CombatProjection.from(state.combatEncounter()));
+                    state.questState().worldFlags(), state.questState().eventFlags(), relationships,
+                    CombatProjection.from(state.combatEncounter()));
         }
     }
 
@@ -146,6 +154,23 @@ public record NarrativeContext(
         }
         private static QuestProjection from(QuestRuntimeState quest) {
             return new QuestProjection(quest.definitionId(), quest.status(), quest.objectiveProgress());
+        }
+    }
+
+    public record NpcProjection(String definitionId, String instanceId, int affinity, RelationshipStage stage,
+                                Map<String, String> publicMemory, Map<String, String> privateMemory) {
+        public NpcProjection {
+            if (definitionId == null || definitionId.isBlank() || instanceId == null || instanceId.isBlank()) {
+                throw new IllegalArgumentException("NPC projection 식별자는 필수입니다.");
+            }
+            Objects.requireNonNull(stage, "NPC relationship stage는 필수입니다.");
+            publicMemory = publicMemory == null ? Map.of() : Collections.unmodifiableMap(new TreeMap<>(publicMemory));
+            privateMemory = privateMemory == null ? Map.of() : Collections.unmodifiableMap(new TreeMap<>(privateMemory));
+        }
+        private static NpcProjection from(NpcRelationship relationship) {
+            return new NpcProjection(relationship.npc().definitionId(), relationship.npc().instanceId(),
+                    relationship.affinity(), relationship.stage(), relationship.narrativeMemory().publicFacts(),
+                    relationship.narrativeMemory().privateFacts());
         }
     }
 

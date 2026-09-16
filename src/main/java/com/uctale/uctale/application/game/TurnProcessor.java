@@ -7,6 +7,8 @@ import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.domain.game.InventoryCommand;
 import com.uctale.uctale.domain.game.QuestRules;
 import com.uctale.uctale.domain.game.RandomSource;
+import com.uctale.uctale.domain.game.RelationshipCommand;
+import com.uctale.uctale.domain.game.RelationshipRules;
 import com.uctale.uctale.domain.game.SkillCheckResult;
 import com.uctale.uctale.domain.game.StateTransition;
 import com.uctale.uctale.domain.game.TurnResolution;
@@ -21,6 +23,7 @@ public final class TurnProcessor {
 
     private final ActionResolver actionResolver;
     private final QuestRules questRules;
+    private final RelationshipRules relationshipRules;
     private final SkillCheckDecisionService skillCheckDecisionService;
     private final AttackDecisionService attackDecisionService;
     private final RandomSource randomSource;
@@ -28,6 +31,7 @@ public final class TurnProcessor {
     public TurnProcessor() {
         this.actionResolver = new ActionResolver();
         this.questRules = new QuestRules();
+        this.relationshipRules = new RelationshipRules();
         this.skillCheckDecisionService = null;
         this.attackDecisionService = null;
         this.randomSource = null;
@@ -36,6 +40,7 @@ public final class TurnProcessor {
     public TurnProcessor(SkillCheckDecisionService skillCheckDecisionService, RandomSource randomSource) {
         this.actionResolver = new ActionResolver();
         this.questRules = new QuestRules();
+        this.relationshipRules = new RelationshipRules();
         this.skillCheckDecisionService = skillCheckDecisionService;
         this.attackDecisionService = null;
         this.randomSource = randomSource;
@@ -49,6 +54,7 @@ public final class TurnProcessor {
     ) {
         this.actionResolver = new ActionResolver();
         this.questRules = new QuestRules();
+        this.relationshipRules = new RelationshipRules();
         this.skillCheckDecisionService = skillCheckDecisionService;
         this.attackDecisionService = attackDecisionService;
         this.randomSource = randomSource;
@@ -56,6 +62,11 @@ public final class TurnProcessor {
 
     public TurnResolution resolve(GameState state, PlayerAction action) {
         return questRules.apply(actionResolver.resolve(state, action));
+    }
+
+    public TurnResolution resolveWithRelationships(GameState state, PlayerAction action,
+                                                   List<RelationshipCommand> relationshipCommands) {
+        return relationshipRules.apply(resolve(state, action), relationshipCommands);
     }
 
     public TurnResolution resolveWithInventory(GameState state, PlayerAction action, List<InventoryCommand> inventoryCommands) {
@@ -66,6 +77,13 @@ public final class TurnProcessor {
                                              List<InventoryCommand> inventoryCommands,
                                              List<VitalsCommand> vitalsCommands) {
         return questRules.apply(actionResolver.resolveWithEffects(state, action, inventoryCommands, vitalsCommands));
+    }
+
+    public TurnResolution resolveWithEffects(GameState state, PlayerAction action,
+                                             List<InventoryCommand> inventoryCommands,
+                                             List<VitalsCommand> vitalsCommands,
+                                             List<RelationshipCommand> relationshipCommands) {
+        return relationshipRules.apply(resolveWithEffects(state, action, inventoryCommands, vitalsCommands), relationshipCommands);
     }
 
     public TurnResolution resolve(

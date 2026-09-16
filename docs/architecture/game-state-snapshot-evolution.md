@@ -8,19 +8,19 @@ snapshot 구조는 `state_json` 내부에서 진화하고, 별도의 audit이 �
 
 ## 현재 snapshot 형식
 
-새 write는 schema `8`, ruleset `1`을 사용합니다. 현재 `GameState`에는 typed stats/vitals, inventory/equipment, combat encounter, ability cooldown, quest/objective와 typed World/Event Flag 상태가 포함됩니다.
+새 write는 schema `9`, ruleset `1`을 사용합니다. 현재 `GameState`에는 typed stats/vitals, inventory/equipment, combat encounter, ability cooldown, quest/objective와 typed World/Event Flag, NPC relationship/affinity 상태가 포함됩니다.
 
 - `schemaVersion`: snapshot JSON 구조/필드 의미의 evolution version
 - `rulesetVersion`: 저장 상태를 해석하는 결정적 게임 규칙 계약 version
 - `state`: canonical `GameState`
 
-schema와 ruleset version은 서로 다른 축입니다. 저장 구조는 v8까지 확장되었지만 과거 결과를 현재 규칙으로 재판정하지 않으므로 ruleset은 1을 유지합니다.
+schema와 ruleset version은 서로 다른 축입니다. 저장 구조는 v9까지 확장되었지만 과거 결과를 현재 규칙으로 재판정하지 않으므로 ruleset은 1을 유지합니다.
 
 ## 지원 경로
 
 ### v0 raw GameState
 
-#31 이전 production 형식은 envelope 없이 `GameState` 자체를 저장했습니다. logical schema v0, legacy ruleset baseline 1로 취급하며 v0부터 v8까지 한 단계씩 순수 변환합니다.
+#31 이전 production 형식은 envelope 없이 `GameState` 자체를 저장했습니다. logical schema v0, legacy ruleset baseline 1로 취급하며 v0부터 v9까지 한 단계씩 순수 변환합니다.
 
 ### v1 -> v2 typed stats
 
@@ -55,11 +55,15 @@ v6에는 ability cooldown 의미가 없으므로 `abilityState.cooldowns`에 빈
 
 v7에는 typed quest/flag 의미가 없으므로 `questState.quests`, `worldFlags`, `eventFlags`를 모두 빈 map으로 추가합니다. 기존 `WorldState.flags`는 과거 의미를 추측해 새 `WorldFlag`/`EventFlag`로 승격하지 않습니다.
 
+### v8 -> v9 NPC Relationship / Affinity State
+
+v8에는 typed NPC relationship 의미가 없으므로 `relationshipState.relationships`를 빈 map으로 추가합니다. 과거 story prose나 StoryMemory에서 NPC identity, affinity, stage를 추론하지 않습니다.
+
 ## 현재 schema 검증
 
-현재 v8 snapshot은 stats, inventory, vitals, combatEncounter, abilityState, questState 등 현재 schema의 필수 구조를 명시적으로 검증합니다. 현재 schema의 필드 누락이나 손상 값을 legacy로 간주해 조용히 기본값으로 복구하지 않습니다.
+현재 v9 snapshot은 stats, inventory, vitals, combatEncounter, abilityState, questState, relationshipState 등 현재 schema의 필수 구조를 명시적으로 검증합니다. 현재 schema의 필드 누락이나 손상 값을 legacy로 간주해 조용히 기본값으로 복구하지 않습니다.
 
-특히 ability cooldown의 잘못된 값, quest/objective shape 불일치, COUNT progress의 target 초과, flag namespace/key/value/version 불변식 위반은 현재 상태 손상으로 거절합니다.
+특히 ability cooldown의 잘못된 값, quest/objective shape 불일치, COUNT progress의 target 초과, flag namespace/key/value/version 불변식 위반, relationship affinity/stage/identity 불변식 위반은 현재 상태 손상으로 거절합니다.
 
 ## read / write 정책
 
@@ -69,7 +73,7 @@ v7에는 typed quest/flag 의미가 없으므로 `questState.quests`, `worldFlag
 - **미지원 ruleset:** 자동 재판정하지 않고 명시적 실패
 - **손상 snapshot:** legacy raw state로 명확히 식별되지 않으면 명시적 실패
 
-읽기만으로 DB를 즉시 다시 쓰지 않습니다. read-time upgrade는 메모리에서만 수행하고 다음 정상 canonical turn commit에서 최신 v8 envelope로 자연스럽게 재작성합니다.
+읽기만으로 DB를 즉시 다시 쓰지 않습니다. read-time upgrade는 메모리에서만 수행하고 다음 정상 canonical turn commit에서 최신 v9 envelope로 자연스럽게 재작성합니다.
 
 ## GameLog state version과의 관계
 
@@ -79,11 +83,11 @@ v7에는 typed quest/flag 의미가 없으므로 `questState.quests`, `worldFlag
 
 서로 비교하거나 대체하지 않습니다.
 
-현재 typed audit은 inventory/equipment를 `inventory_changes_json`, HP/MP/status를 `vitals_changes_json`, combat/attack/ability/cooldown을 `combat_changes_json`, quest/objective/World/Event Flag를 `quest_changes_json`에 기록합니다. legacy/opening log의 audit `NULL`은 해당 변화 없음으로 해석합니다.
+현재 typed audit은 inventory/equipment를 `inventory_changes_json`, HP/MP/status를 `vitals_changes_json`, combat/attack/ability/cooldown을 `combat_changes_json`, quest/objective/World/Event Flag를 `quest_changes_json`, NPC relationship/affinity를 `relationship_changes_json`에 기록합니다. legacy/opening log의 audit `NULL`은 해당 변화 없음으로 해석합니다.
 
 ## snapshot 없는 session
 
-snapshot이 없으면 append-only `GameLog`를 통해 `GameStateRecovery`가 현재 상태를 복구합니다. legacy log에는 신규 audit이 없으므로 각 aggregate의 안전한 baseline에서 시작하고 audit이 있는 turn부터 typed state change를 순서대로 replay합니다. 복구 뒤 다음 정상 write에서 schema v8 snapshot이 생성됩니다.
+snapshot이 없으면 append-only `GameLog`를 통해 `GameStateRecovery`가 현재 상태를 복구합니다. legacy log에는 신규 audit이 없으므로 각 aggregate의 안전한 baseline에서 시작하고 audit이 있는 turn부터 typed state change를 순서대로 replay합니다. 복구 뒤 다음 정상 write에서 schema v9 snapshot이 생성됩니다.
 
 ## 향후 규칙
 
