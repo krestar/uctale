@@ -52,7 +52,7 @@ Story Memory는 canonical rule state를 복제하지 않고 장기 서사에 필
 2. `rollingSummary`: `sourceFromTurn`, `sourceToTurn`, `stateVersion`, `text`를 가진 구조화 요약입니다. summary 생성은 schema/range/version과 canonical-key 참조를 검증하고 최대 2회 bounded retry합니다. 실패하면 기존 StoryMemory와 canonical turn을 그대로 보존합니다.
 3. `recentTurns`: 저장 자체는 turn 수로 자르지 않고 transcript를 보존하며, provider projection 시 명시적 token budget으로 최신 turn부터 선택합니다.
 
-`NarrativeContext`는 inventory, player vitals/stats, quest/objective/World·Event Flag, NPC relationship/memory, combat, ability를 `GameState`에서 read-only canonical projection으로 만듭니다. StoryMemory projection은 canonical fact 512, summary 1024, recent turn 1600의 estimate budget을 각각 적용하며 총 memory budget 3136을 넘지 않습니다. summary source도 별도 budget으로 제한합니다.
+`NarrativeContext`는 inventory, player vitals/stats, quest/objective/World·Event Flag, NPC relationship/memory, combat, ability를 `GameState`에서 read-only canonical projection으로 만듭니다. StoryMemory projection은 canonical fact 512, summary 1024, recent turn 1600의 budget을 각각 적용하며 총 memory budget 3136을 넘지 않습니다. provider tokenizer에 직접 의존하지 않기 위해 UTF-8 byte 수와 구조 overhead를 token 수의 보수적 상한 proxy로 사용하고, 한국어와 supplementary Unicode 문자를 code point 경계에서 안전하게 자릅니다. summary source도 같은 방식의 별도 budget으로 제한합니다.
 
 충돌 시 우선순위는 `GameResult / canonical state > canonicalFacts > rollingSummary > recentTurns > LLM 생성 내용`입니다. summary가 미래 state version을 가리키면 projection에서 제외하고, summary 생성 응답이 state-owned canonical key를 참조하면 모순 가능성이 있는 응답으로 거절해 재시도합니다. 자연어 전체를 의미 분석해 사실 검증하는 것은 이 경계의 책임이 아닙니다.
 
