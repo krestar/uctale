@@ -2,10 +2,13 @@ package com.uctale.uctale.application.narrative;
 
 import com.uctale.uctale.domain.game.CanonicalFact;
 import com.uctale.uctale.domain.game.GameState;
+import com.uctale.uctale.domain.game.GameTurn;
 import com.uctale.uctale.domain.game.StoryMemory;
 import com.uctale.uctale.domain.game.StorySummary;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -22,12 +25,25 @@ class StoryMemoryProjectionSelectorTest {
         }
 
         StoryMemoryProjectionSelector.Projection projection = StoryMemoryProjectionSelector.project(state);
+        List<GameTurn> summarySource = StoryMemoryProjectionSelector.selectSummarySource(state.storyMemory().recentTurns());
 
         assertThat(projection.estimatedTokens()).isLessThanOrEqualTo(StoryMemoryProjectionSelector.MEMORY_TOKEN_BUDGET);
         assertThat(projection.recentTurns()).isNotEmpty();
         assertThat(projection.recentTurns().getLast().turnNumber()).isEqualTo(30);
         assertThat(StoryMemoryProjectionSelector.estimateRawTurns(state.storyMemory().recentTurns()))
                 .isGreaterThan(StoryMemoryProjectionSelector.SUMMARY_TRIGGER_TOKEN_BUDGET);
+        assertThat(StoryMemoryProjectionSelector.estimateRawTurns(summarySource))
+                .isLessThanOrEqualTo(StoryMemoryProjectionSelector.SUMMARY_SOURCE_TOKEN_BUDGET);
+    }
+
+    @Test
+    @DisplayName("UTF-8 byte 기반 보수적 estimate와 truncate는 한국어/보충문자 경계를 깨지 않는다")
+    void tokenEstimate_UsesConservativeUtf8Bound() {
+        assertThat(StoryMemoryProjectionSelector.estimate("한")).isEqualTo(3);
+        assertThat(StoryMemoryProjectionSelector.estimate("A")).isEqualTo(1);
+        assertThat(StoryMemoryProjectionSelector.estimate("😀")).isEqualTo(4);
+        assertThat(StoryMemoryProjectionSelector.truncate("가나다", 4)).isEqualTo("가");
+        assertThat(StoryMemoryProjectionSelector.truncate("😀나", 4)).isEqualTo("😀");
     }
 
     @Test
