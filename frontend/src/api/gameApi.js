@@ -35,6 +35,19 @@ export const progressGame = async (sessionId, choice, expectedTurn, idempotencyK
     return mapGameResponse(response.data);
 };
 
+export const listGameSessions = async () => {
+    const response = await apiClient.get(`${BASE_URL}/sessions`);
+    return response.data;
+};
+
+export const resumeGameSession = async (sessionId) => {
+    const response = await apiClient.get(`${BASE_URL}/sessions/${sessionId}`);
+    return {
+        ...response.data,
+        game: response.data?.game ? mapGameResponse(response.data.game) : null,
+    };
+};
+
 export const resolveGameAssetUrl = (assetUrl) => {
     if (!assetUrl || !assetUrl.startsWith('/')) {
         return assetUrl;

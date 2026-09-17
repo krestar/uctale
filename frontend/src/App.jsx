@@ -1,6 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { checkAccessSession, createIdempotencyKey, initGame, progressGame, resolveGameAssetUrl, verifyPassword } from './api/gameApi'
+import {
+  checkAccessSession,
+  createIdempotencyKey,
+  initGame,
+  listGameSessions,
+  progressGame,
+  resolveGameAssetUrl,
+  resumeGameSession,
+  verifyPassword,
+} from './api/gameApi'
 import { getApiErrorCode, getApiErrorMessage, isAccessAuthError } from './api/apiError'
+import { createResumeMeta } from './session/sessionRecovery.js'
 import AccessScreen from './screens/AccessScreen'
 import GamePlayScreen from './screens/GamePlayScreen'
 import GameSetupScreen from './screens/GameSetupScreen'
@@ -23,6 +33,7 @@ function App() {
   const [world, setWorld] = useState('')
   const [character, setCharacter] = useState('')
   const [gameData, setGameData] = useState(null)
+  const [resumeMeta, setResumeMeta] = useState(null)
   const [isTypingComplete, setIsTypingComplete] = useState(false)
   const initIdempotencyKeyRef = useRef(null)
 
@@ -31,6 +42,11 @@ function App() {
   const [authMessage, setAuthMessage] = useState('')
   const [authMessageKind, setAuthMessageKind] = useState('api')
   const [isAuthLoading, setIsAuthLoading] = useState(false)
+
+  const [sessions, setSessions] = useState([])
+  const [sessionsLoading, setSessionsLoading] = useState(false)
+  const [sessionsError, setSessionsError] = useState('')
+  const [resumingSessionId, setResumingSessionId] = useState(null)
 
   const [setupFieldErrors, setSetupFieldErrors] = useState({})
   const [setupError, setSetupError] = useState('')
@@ -44,19 +60,41 @@ function App() {
   const turnNumber = gameData?.turnNumber
   const mainImageUrl = resolveGameAssetUrl(gameData?.mainImageUrl)
 
-  useEffect(() => {
-    checkAccessSession()
-      .then(() => setAuthState('authenticated'))
-      .catch(() => setAuthState('login'))
-  }, [])
-
   const requireReauthentication = (error) => {
     if (!isAccessAuthError(error)) return false
     setAuthMessage(getApiErrorMessage(error))
     setAuthMessageKind('api')
     setAuthState('login')
+    setGameData(null)
+    setResumeMeta(null)
     return true
   }
+
+  const loadSessions = async () => {
+    setSessionsLoading(true)
+    setSessionsError('')
+    try {
+      const data = await listGameSessions()
+      setSessions(Array.isArray(data) ? data : [])
+    } catch (error) {
+      if (!requireReauthentication(error)) {
+        setSessionsError(getApiErrorMessage(error, '저장된 이야기를 불러오지 못했습니다.'))
+      }
+    } finally {
+      setSessionsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    checkAccessSession()
+      .then(() => {
+        setAuthState('authenticated')
+        return loadSessions()
+      })
+      .catch(() => setAuthState('login'))
+  // Access session is checked only on initial mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleLogin = async () => {
     if (isAuthLoading) return
@@ -75,6 +113,7 @@ function App() {
       setPassword('')
       setAuthMessage('')
       setAuthState('authenticated')
+      await loadSessions()
     } catch (error) {
       setAuthMessage(getApiErrorMessage(error, '로그인에 실패했습니다.'))
       setAuthMessageKind('api')
@@ -127,6 +166,7 @@ function App() {
       const data = await initGame(world, character, idempotencyKey)
       initIdempotencyKeyRef.current = null
       setGameData(data)
+      setResumeMeta({ status: 'READY', statusMessage: '현재 완료 턴에서 계속할 수 있습니다.', canProgress: true })
       setIsTypingComplete(false)
       setProgressError(null)
       setPendingChoiceId(null)
@@ -143,8 +183,33 @@ function App() {
     }
   }
 
+  const handleResume = async (targetSessionId) => {
+    if (resumingSessionId != null) return
+    setResumingSessionId(targetSessionId)
+    setSessionsError('')
+    try {
+      const resumed = await resumeGameSession(targetSessionId)
+      if (!resumed.game) {
+        setSessionsError(resumed.statusMessage || '이 세션은 안전하게 재개할 수 없습니다.')
+        await loadSessions()
+        return
+      }
+      setGameData(resumed.game)
+      setResumeMeta(createResumeMeta(resumed))
+      setIsTypingComplete(false)
+      setProgressError(null)
+      setPendingChoiceId(null)
+    } catch (error) {
+      if (!requireReauthentication(error)) {
+        setSessionsError(getApiErrorMessage(error, '세션을 재개하지 못했습니다.'))
+      }
+    } finally {
+      setResumingSessionId(null)
+    }
+  }
+
   const handleChoice = async (choiceId, retryIdempotencyKey = null) => {
-    if (!sessionId || turnNumber == null || isProgressing || !isTypingComplete) return
+    if (!sessionId || turnNumber == null || isProgressing || !isTypingComplete || resumeMeta?.canProgress === false) return
 
     const choice = gameData?.choices?.find((candidate) => candidate.id === choiceId)
     if (!choice) return
@@ -157,6 +222,7 @@ function App() {
     try {
       const nextData = await progressGame(sessionId, choice, turnNumber, idempotencyKey)
       setGameData(nextData)
+      setResumeMeta({ status: 'READY', statusMessage: '현재 완료 턴에서 계속할 수 있습니다.', canProgress: true })
       setIsTypingComplete(false)
       setProgressError(null)
     } catch (error) {
@@ -188,9 +254,11 @@ function App() {
     if (isProgressing) return
     initIdempotencyKeyRef.current = null
     setGameData(null)
+    setResumeMeta(null)
     setIsTypingComplete(false)
     setProgressError(null)
     setPendingChoiceId(null)
+    loadSessions()
   }
 
   if (authState !== 'authenticated') {
@@ -219,6 +287,7 @@ function App() {
         isTypingComplete={isTypingComplete}
         pendingChoiceId={pendingChoiceId}
         progressError={progressError}
+        resumeMeta={resumeMeta}
         onTypingComplete={() => setIsTypingComplete(true)}
         onChoice={handleChoice}
         onRetryChoice={handleRetryChoice}
@@ -235,6 +304,13 @@ function App() {
       fieldErrors={setupFieldErrors}
       requestError={setupError}
       isLoading={isStarting}
+      sessions={sessions}
+      sessionsLoading={sessionsLoading}
+      sessionsError={sessionsError}
+      resumingSessionId={resumingSessionId}
+      onReloadSessions={loadSessions}
+      onResumeSession={handleResume}
+      onAuthError={requireReauthentication}
       onWorldChange={handleWorldChange}
       onCharacterChange={handleCharacterChange}
       onStart={handleStartGame}

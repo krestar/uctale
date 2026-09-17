@@ -1,4 +1,5 @@
 import BrandHeader from '../components/BrandHeader'
+import SessionLibrary from '../components/SessionLibrary'
 
 function GameSetupScreen({
   world,
@@ -6,6 +7,13 @@ function GameSetupScreen({
   fieldErrors,
   requestError,
   isLoading,
+  sessions,
+  sessionsLoading,
+  sessionsError,
+  resumingSessionId,
+  onReloadSessions,
+  onResumeSession,
+  onAuthError,
   onWorldChange,
   onCharacterChange,
   onStart,
@@ -22,7 +30,17 @@ function GameSetupScreen({
     <div className="app-shell">
       <BrandHeader />
       <main className="screen screen--reading">
-        <section className="setup-intro">
+        <SessionLibrary
+          sessions={sessions}
+          isLoading={sessionsLoading}
+          error={sessionsError}
+          resumingSessionId={resumingSessionId}
+          onResume={onResumeSession}
+          onReload={onReloadSessions}
+          onAuthError={onAuthError}
+        />
+
+        <section className="setup-intro setup-intro--new-game">
           <p className="eyebrow">Create a story</p>
           <h1 className="screen-title">당신이 살아갈 장면을 정해주세요.</h1>
           <p className="supporting-copy">
