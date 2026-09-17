@@ -25,6 +25,20 @@ class GeminiProviderSettingsTest {
     }
 
     @Test
+    @DisplayName("provider transient retry는 설정된 stable fallback 모델을 선택한다")
+    void providerTransientRetry_UsesStableFallbackModel() {
+        GeminiProviderSettings settings = new GeminiProviderSettings(
+                "key", "gemini-3.7-flash", "gemini-3.6-flash", "medium", "low"
+        );
+
+        assertThat(settings.retryModelId("PROVIDER_HTTP_503")).isEqualTo("gemini-3.6-flash");
+        assertThat(settings.retryModelId("PROVIDER_RATE_LIMIT")).isEqualTo("gemini-3.6-flash");
+        assertThat(settings.retryModelId("MALFORMED_JSON")).isEqualTo("gemini-3.7-flash");
+        assertThat(settings.generateContentUrl(settings.fallbackModelId()))
+                .endsWith("/models/gemini-3.6-flash:generateContent");
+    }
+
+    @Test
     @DisplayName("Gemini 2.5 rollback은 legacy thinkingBudget 경계에서 호환한다")
     void gemini25Stable_UsesLegacyThinkingBudget() {
         GeminiProviderSettings settings = new GeminiProviderSettings(

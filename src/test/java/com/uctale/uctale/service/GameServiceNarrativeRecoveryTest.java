@@ -48,6 +48,7 @@ class GameServiceNarrativeRecoveryTest {
 
     @BeforeEach
     void setUp() {
+        events.clear();
         Clock clock = Clock.systemUTC();
         given(mutationRequestService.begin(anyString(), anyString(), anyString(), any(), any(), anyString())).willReturn(new GameMutationRequestService.BeginResult(100L, false, null, null, null));
         gameService = new GameService(narrativeGenerator, imageAssetService, gamePersistenceService, new ChoiceCodec(new ObjectMapper()), new TurnProcessor(), new ImagePromptComposer(), new CostRateLimiter(new CostRateLimitPolicy(1_000, 1_000, 60), clock), new ProviderCallTelemetry(clock, events::add), new GameMutationFingerprint(), mutationRequestService);
@@ -65,11 +66,36 @@ class GameServiceNarrativeRecoveryTest {
         verify(imageAssetService, never()).issue(any(), any());
         verify(gamePersistenceService, never()).saveOpening(any(), any(), any(), any(), any(), any(), any(), any());
         verify(mutationRequestService).markFailed(100L);
+        assertProviderFailureAttempts(3);
+    }
+
+    @Test
+    @DisplayName("provider 일시 장애 recovery도 실제 3회 provider attempt만 기록하고 opening을 commit하지 않는다")
+    void initGame_ProviderTransientRecoveryExhausted_TracksActualAttempts() {
+        GameInitRequest request = new GameInitRequest("세계관", "캐릭터");
+        given(narrativeGenerator.createOpening("세계관", "캐릭터")).willThrow(new RecoverableNarrativeResponseException("PROVIDER_HTTP_503", "unavailable"));
+        given(narrativeGenerator.repairOpening("세계관", "캐릭터", "PROVIDER_HTTP_503")).willThrow(new RecoverableNarrativeResponseException("PROVIDER_HTTP_503", "unavailable"));
+
+        assertThatThrownBy(() -> gameService.initGame(OWNER_KEY, request))
+                .isInstanceOfSatisfying(NarrativeRecoveryExhaustedException.class, exception -> {
+                    assertThat(exception.retryCount()).isEqualTo(2);
+                    assertThat(exception.reasonCode()).isEqualTo("PROVIDER_HTTP_503");
+                });
+
+        verify(narrativeGenerator).createOpening("세계관", "캐릭터");
+        verify(narrativeGenerator, times(2)).repairOpening("세계관", "캐릭터", "PROVIDER_HTTP_503");
+        verify(imageAssetService, never()).issue(any(), any());
+        verify(gamePersistenceService, never()).saveOpening(any(), any(), any(), any(), any(), any(), any(), any());
+        verify(mutationRequestService).markFailed(100L);
+        assertProviderFailureAttempts(3);
+    }
+
+    private void assertProviderFailureAttempts(int attemptCount) {
         assertThat(events).singleElement().satisfies(event -> {
             assertThat(event.provider()).isEqualTo("gemini");
             assertThat(event.outcome()).isEqualTo("FAILURE");
-            assertThat(event.retryCount()).isEqualTo(2);
-            assertThat(event.attemptCount()).isEqualTo(3);
+            assertThat(event.retryCount()).isEqualTo(attemptCount - 1);
+            assertThat(event.attemptCount()).isEqualTo(attemptCount);
         });
     }
 }

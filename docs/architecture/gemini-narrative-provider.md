@@ -4,7 +4,7 @@
 
 UCTale의 Narrative provider 모델 버전을 game domain이나 `NarrativeGenerator` port에 노출하지 않고 provider adapter 설정으로 관리합니다.
 
-현재 production 기본 모델은 `gemini-3.7-flash`입니다. 2026-09-01 기준 Google 공식 문서에서 GA stable이며 production-ready Flash로 안내되고, structured outputs와 `low` / `medium` / `high` thinking level을 지원합니다.
+현재 production primary 기본 모델은 `gemini-3.7-flash`입니다. Google 공식 문서에서 stable Flash로 제공되며 structured outputs와 `low` / `medium` / `high` thinking level을 지원합니다. 일시적인 provider 408/429/5xx 또는 network failure가 발생하면 bounded recovery의 다음 실제 provider attempt에서 stable `gemini-3.6-flash` fallback을 사용할 수 있습니다.
 
 모델 선택 근거와 당시 가격은 구현 PR에 기록합니다. 이 문서는 현재 runtime 계약을 설명하며 별도 자체 benchmark 결과를 주장하지 않습니다.
 
@@ -12,12 +12,13 @@ UCTale의 Narrative provider 모델 버전을 game domain이나 `NarrativeGenera
 
 `application.properties`의 기본값은 다음 환경변수로 override할 수 있습니다.
 
-- `GOOGLE_AI_MODEL`: 명시적인 stable Flash model ID. 기본 `gemini-3.7-flash`
+- `GOOGLE_AI_MODEL`: primary stable Flash model ID. 기본 `gemini-3.7-flash`
+- `GOOGLE_AI_FALLBACK_MODEL`: transient provider failure용 stable Flash model ID. 기본 `gemini-3.6-flash`
 - `GOOGLE_AI_THINKING_OPENING`: opening thinking level. 기본 `medium`
 - `GOOGLE_AI_THINKING_PROGRESS`: progress thinking level. 기본 `low`
 - `GOOGLE_AI_API_KEY`: Gemini API key
 
-`latest`, preview, experimental alias는 production 설정으로 허용하지 않습니다. 모델 ID는 `gemini-{major}.{minor}-flash` 형태의 명시적인 stable Flash ID만 허용합니다.
+`latest`, preview, experimental alias는 production 설정으로 허용하지 않습니다. primary와 fallback 모두 `gemini-{major}.{minor}-flash` 형태의 명시적인 stable Flash ID만 허용합니다.
 
 ## compatibility boundary
 
@@ -46,7 +47,23 @@ Gemini request는 다음을 유지합니다.
 - `responseMimeType=application/json`
 - response schema 기반 structured output
 - opening과 progress의 thinking level 독립 적용
-- repair 요청은 원 요청과 동일한 operation thinking level 사용
+- malformed response repair 요청은 원 요청과 동일한 operation thinking level 및 primary model 사용
+- transient provider failure retry는 원 prompt를 변경하지 않고 fallback model 사용
+
+### transient provider recovery
+
+다음 실패만 일시적 provider failure로 분류해 기존 bounded recovery에 포함합니다.
+
+- HTTP 408
+- HTTP 429
+- HTTP 5xx
+- connect/read I/O 등 `ResourceAccessException`
+
+이 retry는 adapter 내부에서 숨겨진 추가 호출을 만들지 않습니다. 첫 호출과 각 retry는 각각 하나의 실제 provider attempt이며 `NarrativeRecoveryExecutor`의 retry count와 일치합니다. progress에서는 기존 `markProviderAttemptStarted` callback이 각 실제 provider attempt 전에 한 번씩 실행됩니다. 따라서 provider 호출이 재시도되어도 canonical game state는 narrative 성공 후 기존 commit 경계에서 한 번만 저장됩니다.
+
+transient retry가 모두 소진되면 API는 `503 NARRATIVE_PROVIDER_UNAVAILABLE`을 반환합니다. retry 대상이 아닌 provider 4xx는 반복하지 않고 `502 NARRATIVE_PROVIDER_FAILURE`로 변환합니다. malformed/invalid structured response recovery 소진은 기존 `502 PROVIDER_RESPONSE_INVALID` 계약을 유지합니다.
+
+외부 provider 자체의 strict exactly-once는 보장하지 않습니다.
 
 ### Narrative 출력 언어 계약
 
@@ -55,7 +72,8 @@ Gemini request는 다음을 유지합니다.
 - `title`, `story_text`, `choices[].text`는 세계관/캐릭터 설정과 현재 narrative context에서 확립된 주 언어를 유지합니다.
 - 세계관/캐릭터 설정의 주 언어가 한국어이면 opening의 `title`, `story_text`, `choices[].text`를 한국어로 작성하도록 명시합니다.
 - progress는 `worldPremise`, `playerDescription`, Story Memory와 최근 narrative context의 주 언어를 계속 사용하도록 명시합니다.
-- repair는 원 요청에서 확립된 Narrative 주 언어를 그대로 유지하며 번역하거나 다른 언어로 전환하지 않습니다.
+- malformed response repair는 원 요청에서 확립된 Narrative 주 언어를 그대로 유지하며 번역하거나 다른 언어로 전환하지 않습니다.
+- transient provider retry는 원 prompt 자체를 다시 사용하므로 별도 repair 지시를 추가하지 않습니다.
 - `visual_assets.background`, `visual_assets.characters`, `visual_assets.assets`는 기존 image prompt pipeline과의 호환성을 위해 항상 영어 설명을 사용합니다.
 - JSON field 이름과 `visual_assets`의 영어 계약은 사용자 노출 Narrative를 영어로 전환할 근거가 아닙니다.
 
@@ -63,9 +81,9 @@ Gemini request는 다음을 유지합니다.
 
 ## 관측성
 
-기존 `provider_call` event는 설정된 Narrative model ID를 기록합니다. Gemini adapter는 provider attempt별 `gemini_provider_result` 구조화 로그에 다음을 추가로 기록합니다.
+기존 operation-level `provider_call` event는 configured primary Narrative model ID와 전체 bounded recovery의 retry/attempt count를 기록합니다. Gemini adapter는 실제 provider attempt별 `gemini_provider_result` 구조화 로그에 다음을 기록합니다.
 
-- model
+- 실제 호출 model(primary 또는 fallback)
 - thinkingLevel
 - context (`opening`, `opening_repair`, `progress`, `progress_repair`)
 - latencyMs
@@ -75,27 +93,28 @@ Gemini request는 다음을 유지합니다.
 - thoughtsTokens
 - totalTokens
 
-토큰 수는 Gemini `usageMetadata`가 제공될 때만 기록됩니다. prompt/story 전문과 API key는 기록하지 않습니다.
+따라서 fallback을 사용한 요청에서는 operation-level event의 model은 primary를 나타내고, attempt별 실제 모델은 adapter 로그에서 구분합니다. 토큰 수는 Gemini `usageMetadata`가 제공될 때만 기록됩니다. prompt/story 전문과 API key는 기록하지 않습니다.
 
-bounded recovery와 canonical commit 경계는 #35에서 확립한 정책을 그대로 유지합니다. 모델 설정이나 Narrative 출력 언어 계약은 provider attempt 횟수나 게임 상태 저장 의미를 변경하지 않습니다.
+bounded recovery와 canonical commit 경계는 기존 정책을 그대로 유지합니다. 모델 설정이나 Narrative 출력 언어 계약은 canonical game state 저장 의미를 변경하지 않습니다.
 
 ## rollback
 
-production에서 문제가 발생하면 코드 변경 없이 `GOOGLE_AI_MODEL`과 필요한 thinking 설정을 이전 stable Flash로 변경해 rollback할 수 있습니다.
+production에서 문제가 발생하면 코드 변경 없이 `GOOGLE_AI_MODEL`, `GOOGLE_AI_FALLBACK_MODEL`과 필요한 thinking 설정을 검증된 stable Flash로 변경해 rollback할 수 있습니다.
 
 rollback 후에는 최소한 다음을 확인합니다.
 
 - 한국어 설정의 opening title/story/choices가 한국어로 유지되는지
-- progress와 repair에서 Narrative 언어가 유지되는지
+- progress와 malformed response repair에서 Narrative 언어가 유지되는지
+- transient failure에서 fallback model로 bounded retry 되는지
+- fallback 소진 시 generic 500이 아니라 provider-specific error가 반환되는지
 - `visual_assets` 영어 설명 계약
 - structured output validation
-- invalid response bounded recovery
-- provider telemetry의 model/thinking 값
+- provider telemetry의 attempt count와 adapter model/thinking 로그
 
 ## 공식 참고
 
 - Google Gemini models: https://ai.google.dev/gemini-api/docs/models
 - Gemini 3.7 Flash: https://ai.google.dev/gemini-api/docs/models/gemini-3.7-flash
-- Gemini 3.7 migration guide: https://ai.google.dev/gemini-api/docs/latest-model
+- Gemini 3.6 Flash: https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash
 - Thinking: https://ai.google.dev/gemini-api/docs/generate-content/thinking
 - Pricing: https://ai.google.dev/gemini-api/docs/pricing
