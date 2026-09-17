@@ -11,6 +11,8 @@ import com.uctale.uctale.application.game.TurnConflictException;
 import com.uctale.uctale.application.image.ImageAssetNotFoundException;
 import com.uctale.uctale.application.image.ImageGenerationException;
 import com.uctale.uctale.application.narrative.InvalidNarrativeResponseException;
+import com.uctale.uctale.application.narrative.NarrativeProviderException;
+import com.uctale.uctale.application.narrative.NarrativeRecoveryExhaustedException;
 import com.uctale.uctale.security.AccessAuthenticationRateLimitExceededException;
 import com.uctale.uctale.security.AccessRequestForbiddenException;
 import com.uctale.uctale.security.AccessSessionException;
@@ -58,6 +60,17 @@ public class ApiExceptionHandler {
     public ResponseEntity<ApiError> handleTurnConflict(TurnConflictException exception) { return error(HttpStatus.CONFLICT, "TURN_CONFLICT", exception.getMessage()); }
     @ExceptionHandler(InvalidChoiceException.class)
     public ResponseEntity<ApiError> handleInvalidChoice(InvalidChoiceException exception) { return error(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_CHOICE", exception.getMessage()); }
+    @ExceptionHandler(NarrativeRecoveryExhaustedException.class)
+    public ResponseEntity<ApiError> handleNarrativeRecoveryExhausted(NarrativeRecoveryExhaustedException exception) {
+        if (exception.reasonCode().startsWith("PROVIDER_")) {
+            return error(HttpStatus.SERVICE_UNAVAILABLE, "NARRATIVE_PROVIDER_UNAVAILABLE", "Narrative provider가 일시적으로 응답하지 않습니다.");
+        }
+        return error(HttpStatus.BAD_GATEWAY, "PROVIDER_RESPONSE_INVALID", "Narrative provider 응답이 올바르지 않습니다.");
+    }
+    @ExceptionHandler(NarrativeProviderException.class)
+    public ResponseEntity<ApiError> handleNarrativeProvider(NarrativeProviderException exception) {
+        return error(HttpStatus.BAD_GATEWAY, "NARRATIVE_PROVIDER_FAILURE", "Narrative provider 요청에 실패했습니다.");
+    }
     @ExceptionHandler(InvalidNarrativeResponseException.class)
     public ResponseEntity<ApiError> handleInvalidNarrativeResponse(InvalidNarrativeResponseException exception) { return error(HttpStatus.BAD_GATEWAY, "PROVIDER_RESPONSE_INVALID", "Narrative provider 응답이 올바르지 않습니다."); }
     @ExceptionHandler(PersistenceOperationException.class)

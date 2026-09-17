@@ -1,5 +1,6 @@
 package com.uctale.uctale.provider.gemini;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -17,34 +18,36 @@ public final class GeminiProviderSettings {
 
     private final String apiKey;
     private final String modelId;
-    private final int modelMajor;
-    private final int modelMinor;
+    private final String fallbackModelId;
+    private final ModelVersion modelVersion;
+    private final ModelVersion fallbackModelVersion;
     private final ThinkingLevel openingThinkingLevel;
     private final ThinkingLevel progressThinkingLevel;
 
+    @Autowired
     public GeminiProviderSettings(
             @Value("${google.ai.api-key}") String apiKey,
             @Value("${google.ai.model}") String modelId,
+            @Value("${google.ai.fallback-model:gemini-3.6-flash}") String fallbackModelId,
             @Value("${google.ai.thinking.opening}") String openingThinkingLevel,
             @Value("${google.ai.thinking.progress}") String progressThinkingLevel
     ) {
         this.apiKey = requireNonBlank(apiKey, "Gemini API key");
         this.modelId = requireNonBlank(modelId, "Gemini model ID");
-
-        Matcher matcher = STABLE_FLASH_MODEL.matcher(this.modelId);
-        if (!matcher.matches()) {
-            throw new IllegalArgumentException(
-                    "Gemini Narrative 모델은 명시적인 stable Flash model ID여야 합니다: " + this.modelId
-            );
-        }
-        this.modelMajor = Integer.parseInt(matcher.group(1));
-        this.modelMinor = Integer.parseInt(matcher.group(2));
-        if (!supportsConfiguredThinkingContract()) {
-            throw new IllegalArgumentException("지원하지 않는 Gemini Narrative model family입니다: " + this.modelId);
-        }
-
+        this.fallbackModelId = requireNonBlank(fallbackModelId, "Gemini fallback model ID");
+        this.modelVersion = parseSupportedModel(this.modelId, "Gemini Narrative 모델");
+        this.fallbackModelVersion = parseSupportedModel(this.fallbackModelId, "Gemini Narrative fallback 모델");
         this.openingThinkingLevel = ThinkingLevel.parse(openingThinkingLevel, "opening");
         this.progressThinkingLevel = ThinkingLevel.parse(progressThinkingLevel, "progress");
+    }
+
+    public GeminiProviderSettings(
+            String apiKey,
+            String modelId,
+            String openingThinkingLevel,
+            String progressThinkingLevel
+    ) {
+        this(apiKey, modelId, "gemini-3.6-flash", openingThinkingLevel, progressThinkingLevel);
     }
 
     String apiKey() {
@@ -55,8 +58,24 @@ public final class GeminiProviderSettings {
         return modelId;
     }
 
+    String fallbackModelId() {
+        return fallbackModelId;
+    }
+
     String generateContentUrl() {
-        return GENERATE_CONTENT_URL.formatted(modelId);
+        return generateContentUrl(modelId);
+    }
+
+    String generateContentUrl(String requestedModelId) {
+        String normalized = requireNonBlank(requestedModelId, "Gemini model ID");
+        if (!normalized.equals(modelId) && !normalized.equals(fallbackModelId)) {
+            throw new IllegalArgumentException("설정되지 않은 Gemini model ID입니다: " + normalized);
+        }
+        return GENERATE_CONTENT_URL.formatted(normalized);
+    }
+
+    String retryModelId(String reasonCode) {
+        return isProviderTransientReason(reasonCode) ? fallbackModelId : modelId;
     }
 
     ThinkingLevel openingThinkingLevel() {
@@ -68,14 +87,39 @@ public final class GeminiProviderSettings {
     }
 
     Map<String, Object> thinkingConfig(ThinkingLevel level) {
-        if (modelMajor == 2 && modelMinor == 5) {
+        return thinkingConfig(level, modelId);
+    }
+
+    Map<String, Object> thinkingConfig(ThinkingLevel level, String requestedModelId) {
+        ModelVersion version;
+        if (modelId.equals(requestedModelId)) {
+            version = modelVersion;
+        } else if (fallbackModelId.equals(requestedModelId)) {
+            version = fallbackModelVersion;
+        } else {
+            throw new IllegalArgumentException("설정되지 않은 Gemini model ID입니다: " + requestedModelId);
+        }
+        if (version.major() == 2 && version.minor() == 5) {
             return Map.of("thinkingBudget", level.legacyThinkingBudget());
         }
         return Map.of("thinkingLevel", level.apiValue());
     }
 
-    private boolean supportsConfiguredThinkingContract() {
-        return (modelMajor == 2 && modelMinor == 5) || modelMajor == 3;
+    private ModelVersion parseSupportedModel(String value, String label) {
+        Matcher matcher = STABLE_FLASH_MODEL.matcher(value);
+        if (!matcher.matches()) {
+            throw new IllegalArgumentException(label + "은 명시적인 stable Flash model ID여야 합니다: " + value);
+        }
+        int major = Integer.parseInt(matcher.group(1));
+        int minor = Integer.parseInt(matcher.group(2));
+        if (!((major == 2 && minor == 5) || major == 3)) {
+            throw new IllegalArgumentException("지원하지 않는 Gemini Narrative model family입니다: " + value);
+        }
+        return new ModelVersion(major, minor);
+    }
+
+    private boolean isProviderTransientReason(String reasonCode) {
+        return reasonCode != null && reasonCode.startsWith("PROVIDER_");
     }
 
     private String requireNonBlank(String value, String label) {
@@ -85,6 +129,8 @@ public final class GeminiProviderSettings {
         }
         return normalized;
     }
+
+    private record ModelVersion(int major, int minor) {}
 
     enum ThinkingLevel {
         LOW("low", 1_024),
