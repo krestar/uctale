@@ -13,6 +13,14 @@ import java.util.Optional;
 public interface GameMutationRequestRepository extends JpaRepository<GameMutationRequest, Long> {
     Optional<GameMutationRequest> findByOwnerKeyAndIdempotencyKey(String ownerKey, String idempotencyKey);
 
+    Optional<GameMutationRequest> findTopByOwnerKeyAndSessionIdAndExpectedTurnAndOperationOrderByUpdatedAtDesc(
+            String ownerKey, Long sessionId, Integer expectedTurn, String operation
+    );
+
+    Optional<GameMutationRequest> findTopByOwnerKeyAndResultSessionIdAndResultTurnAndStatusOrderByUpdatedAtDesc(
+            String ownerKey, Long resultSessionId, Integer resultTurn, GameMutationRequest.Status status
+    );
+
     @Modifying
     @Query(value = """
             INSERT INTO game_mutation_request (
