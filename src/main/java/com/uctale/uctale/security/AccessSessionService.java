@@ -108,8 +108,14 @@ public class AccessSessionService {
 
     public IssuedSession authenticate(String candidatePassword, String ownerToken) {
         verifyPassword(candidatePassword);
-        String ownerKey = ownerKeyFromToken(ownerToken).orElseGet(this::generateOwnerKey);
-        return new IssuedSession(issueAccessToken(ownerKey), issueOwnerToken(ownerKey), ownerKey);
+        Optional<String> existingOwnerKey = ownerKeyFromToken(ownerToken);
+        String ownerKey = existingOwnerKey.orElseGet(this::generateOwnerKey);
+        return new IssuedSession(
+                issueAccessToken(ownerKey),
+                issueOwnerToken(ownerKey),
+                ownerKey,
+                existingOwnerKey.isEmpty()
+        );
     }
 
     public String authenticate(String candidatePassword) {
