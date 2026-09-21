@@ -25,8 +25,10 @@ const RETRYABLE_PROGRESS_ERROR_CODES = new Set([
 
 function isRetryableProgressError(error) {
   if (!error?.response) return true
+  const code = getApiErrorCode(error)
+  if (code === 'NARRATIVE_PROVIDER_RECOVERY_WAIT') return false
   if (error.response.status >= 500) return true
-  return RETRYABLE_PROGRESS_ERROR_CODES.has(getApiErrorCode(error))
+  return RETRYABLE_PROGRESS_ERROR_CODES.has(code)
 }
 
 function App() {
@@ -228,6 +230,21 @@ function App() {
     } catch (error) {
       if (!requireReauthentication(error)) {
         console.error(error)
+        const errorCode = getApiErrorCode(error)
+        let resumedMeta = null
+        if (isRetryableProgressError(error) || errorCode === 'NARRATIVE_PROVIDER_RECOVERY_WAIT') {
+          try {
+            const resumed = await resumeGameSession(sessionId)
+            if (resumed?.game) {
+              resumedMeta = createResumeMeta(resumed)
+              setResumeMeta(resumedMeta)
+            }
+          } catch (resumeError) {
+            if (!requireReauthentication(resumeError)) {
+              console.error(resumeError)
+            }
+          }
+        }
         setProgressError({
           choiceId,
           choiceText: choice.text,
@@ -236,7 +253,7 @@ function App() {
             error,
             '선택을 진행하지 못했습니다. 연결 상태를 확인하고 다시 시도해주세요.',
           ),
-          canRetry: isRetryableProgressError(error),
+          canRetry: isRetryableProgressError(error) && resumedMeta?.canProgress !== false,
         })
       }
     } finally {

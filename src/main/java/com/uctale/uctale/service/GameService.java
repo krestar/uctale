@@ -15,7 +15,9 @@ import com.uctale.uctale.application.game.TurnProcessor;
 import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.application.narrative.InvalidNarrativeResponseException;
 import com.uctale.uctale.application.narrative.NarrativeContext;
+import com.uctale.uctale.application.narrative.NarrativeExecutionPolicy;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
+import com.uctale.uctale.application.narrative.NarrativeRecoveryDeferredException;
 import com.uctale.uctale.application.narrative.NarrativeRecoveryExhaustedException;
 import com.uctale.uctale.application.narrative.NarrativeRecoveryExecutor;
 import com.uctale.uctale.application.narrative.NarrativeRecoveryInterruptedException;
@@ -58,7 +60,8 @@ public class GameService {
     private final ProviderCallTelemetry providerCallTelemetry;
     private final GameMutationFingerprint mutationFingerprint;
     private final GameMutationRequestService mutationRequestService;
-    private final NarrativeRecoveryExecutor narrativeRecoveryExecutor = NarrativeRecoveryExecutor.production();
+    private final NarrativeExecutionPolicy narrativeExecutionPolicy;
+    private final NarrativeRecoveryExecutor narrativeRecoveryExecutor;
     private StoryMemorySummaryService storyMemorySummaryService;
 
     @Autowired
@@ -72,7 +75,8 @@ public class GameService {
             CostRateLimiter costRateLimiter,
             ProviderCallTelemetry providerCallTelemetry,
             GameMutationFingerprint mutationFingerprint,
-            GameMutationRequestService mutationRequestService
+            GameMutationRequestService mutationRequestService,
+            NarrativeExecutionPolicy narrativeExecutionPolicy
     ) {
         this.narrativeGenerator = narrativeGenerator;
         this.imageAssetService = imageAssetService;
@@ -84,6 +88,35 @@ public class GameService {
         this.providerCallTelemetry = providerCallTelemetry;
         this.mutationFingerprint = mutationFingerprint;
         this.mutationRequestService = mutationRequestService;
+        this.narrativeExecutionPolicy = narrativeExecutionPolicy;
+        this.narrativeRecoveryExecutor = NarrativeRecoveryExecutor.production(narrativeExecutionPolicy);
+    }
+
+    public GameService(
+            NarrativeGenerator narrativeGenerator,
+            ImageAssetService imageAssetService,
+            GamePersistenceService gamePersistenceService,
+            ChoiceCodec choiceCodec,
+            TurnProcessor turnProcessor,
+            ImagePromptComposer imagePromptComposer,
+            CostRateLimiter costRateLimiter,
+            ProviderCallTelemetry providerCallTelemetry,
+            GameMutationFingerprint mutationFingerprint,
+            GameMutationRequestService mutationRequestService
+    ) {
+        this(
+                narrativeGenerator,
+                imageAssetService,
+                gamePersistenceService,
+                choiceCodec,
+                turnProcessor,
+                imagePromptComposer,
+                costRateLimiter,
+                providerCallTelemetry,
+                mutationFingerprint,
+                mutationRequestService,
+                NarrativeExecutionPolicy.defaults()
+        );
     }
 
     public GameService(
@@ -224,6 +257,23 @@ public class GameService {
                     loadedTurn.sessionId(), savedTurn, nextTurn.title(), nextTurn.storyText(), choices, imageUrl,
                     committedTransition.nextState(), resolution.gameResult().skillCheckResult()
             );
+        } catch (NarrativeRecoveryDeferredException exception) {
+            mutationRequestService.markRecoveryDeferred(
+                    mutation.requestId(), mutation.reservationOwner(), exception.retryAfterSeconds()
+            );
+            throw exception;
+        } catch (NarrativeRecoveryExhaustedException exception) {
+            if (exception.reasonCode().startsWith("PROVIDER_")) {
+                long retryAfterSeconds = narrativeExecutionPolicy.recoveryCooldownSeconds();
+                mutationRequestService.markRecoveryDeferred(
+                        mutation.requestId(), mutation.reservationOwner(), retryAfterSeconds
+                );
+                throw new NarrativeRecoveryDeferredException(
+                        exception.retryCount(), exception.reasonCode(), retryAfterSeconds, exception
+                );
+            }
+            mutationRequestService.markFailed(mutation.requestId(), mutation.reservationOwner());
+            throw exception;
         } catch (RuntimeException exception) {
             mutationRequestService.markFailed(mutation.requestId(), mutation.reservationOwner());
             throw exception;
@@ -281,6 +331,9 @@ public class GameService {
     }
 
     private int narrativeRetryCountFromFailure(RuntimeException exception) {
+        if (exception instanceof NarrativeRecoveryDeferredException deferred) {
+            return deferred.retryCount();
+        }
         if (exception instanceof NarrativeRecoveryExhaustedException exhausted) {
             return exhausted.retryCount();
         }

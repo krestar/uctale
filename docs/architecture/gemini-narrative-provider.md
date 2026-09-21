@@ -17,6 +17,10 @@ UCTale의 Narrative provider 모델 버전을 game domain이나 `NarrativeGenera
 - `GOOGLE_AI_THINKING_OPENING`: opening thinking level. 기본 `medium`
 - `GOOGLE_AI_THINKING_PROGRESS`: progress thinking level. 기본 `low`
 - `GOOGLE_AI_API_KEY`: Gemini API key
+- `GOOGLE_AI_CONNECT_TIMEOUT_MS`: connect timeout. 기본 10,000ms
+- `GOOGLE_AI_READ_TIMEOUT_MS`: read timeout. 기본 40,000ms
+- `GAME_TURN_RESERVATION_LEASE_SECONDS`: progress reservation lease. 기본 180초
+- `GAME_TURN_RECOVERY_COOLDOWN_SECONDS`: provider recovery cooldown. 기본 30초
 
 `latest`, preview, experimental alias는 production 설정으로 허용하지 않습니다. primary와 fallback 모두 `gemini-{major}.{minor}-flash` 형태의 명시적인 stable Flash ID만 허용합니다.
 
@@ -61,7 +65,9 @@ Gemini request는 다음을 유지합니다.
 
 이 retry는 adapter 내부에서 숨겨진 추가 호출을 만들지 않습니다. 첫 호출과 각 retry는 각각 하나의 실제 provider attempt이며 `NarrativeRecoveryExecutor`의 retry count와 일치합니다. progress에서는 기존 `markProviderAttemptStarted` callback이 각 실제 provider attempt 전에 한 번씩 실행됩니다. 따라서 provider 호출이 재시도되어도 canonical game state는 narrative 성공 후 기존 commit 경계에서 한 번만 저장됩니다.
 
-transient retry가 모두 소진되면 API는 `503 NARRATIVE_PROVIDER_UNAVAILABLE`을 반환합니다. retry 대상이 아닌 provider 4xx는 반복하지 않고 `502 NARRATIVE_PROVIDER_FAILURE`로 변환합니다. malformed/invalid structured response recovery 소진은 기존 `502 PROVIDER_RESPONSE_INVALID` 계약을 유지합니다.
+HTTP 429는 짧은 50ms/150ms backoff로 즉시 재호출하지 않습니다. 명시적 30초 recovery cooldown으로 전환하고 `503 NARRATIVE_PROVIDER_RECOVERY_WAIT`과 `Retry-After`를 반환합니다. 408/5xx/network failure는 현재 recovery window에서 최대 3회까지 bounded retry하며, 모두 소진되면 동일한 recovery wait 경계로 전환합니다. cooldown이 지난 뒤 새 reservation owner가 recovery window를 획득하면 다시 시도할 수 있습니다.
+
+progress의 transient retry가 모두 소진되면 API는 영구 차단 대신 `503 NARRATIVE_PROVIDER_RECOVERY_WAIT`을 반환합니다. retry 대상이 아닌 provider 4xx는 반복하지 않고 `502 NARRATIVE_PROVIDER_FAILURE`로 변환합니다. malformed/invalid structured response recovery 소진은 기존 `502 PROVIDER_RESPONSE_INVALID` 계약을 유지합니다.
 
 외부 provider 자체의 strict exactly-once는 보장하지 않습니다.
 

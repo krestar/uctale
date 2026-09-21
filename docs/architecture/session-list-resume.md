@@ -8,7 +8,7 @@ UCTale은 별도 save slot을 만들지 않는다. 각 게임의 저장 단위�
 
 - `GET /api/game/sessions`
   - 현재 owner의 session만 `updatedAt` 내림차순으로 반환한다.
-  - 최소 metadata: `sessionId`, `title`, `currentTurn`, `updatedAt`, `status`, `statusMessage`, `retryable`, `canResume`, `thumbnailUrl`.
+  - 최소 metadata: `sessionId`, `title`, `currentTurn`, `updatedAt`, `status`, `statusMessage`, `retryable`, `canResume`, `retryAfterSeconds`, `thumbnailUrl`.
 - `GET /api/game/sessions/{sessionId}`
   - 다른 owner의 session은 기존 ownership 정책과 동일하게 찾을 수 없는 session으로 처리한다.
   - 마지막 완료 turn의 story, choices, image와 canonical state projection을 함께 반환한다.
@@ -33,7 +33,8 @@ Snapshot이 없으면 기존 `GameStateRecovery`로 append-only log를 replay한
 
 - `READY`: 마지막 완료 turn에서 새 선택을 시작할 수 있다.
 - `PROCESSING`: 현재 turn에 유효한 lease가 있다. 마지막 완료 turn은 표시하지만 새 progress는 잠근다.
-- `FAILED`: 진행 요청이 완료되지 않았다. lease가 만료되고 provider retry budget이 남아 있으면 마지막 완료 turn에서 다시 진행할 수 있다. provider attempt 한도에 도달했다면 `retryable=false`, `canProgress=false`다.
+- `RECOVERY_WAIT`: provider 429 또는 현재 recovery window의 provider attempt 3회 소진으로 cooldown 중이다. 마지막 완료 turn은 표시하지만 `canProgress=false`이며 `retryAfterSeconds`를 함께 반환한다.
+- `FAILED`: 진행 요청이 완료되지 않았고 현재 즉시 다시 reservation을 획득할 수 있다. `retryable=true`, `canProgress=true`다.
 - `UNRECOVERABLE`: canonical snapshot/log/actions를 안전하게 같은 turn으로 구성할 수 없다. 저장 데이터는 변경하지 않으며 resume progress를 허용하지 않는다.
 
 유효 lease에서 provider attempt count가 최대치인 경우에도 마지막 provider attempt가 실제 실행 중일 수 있으므로 lease가 유효한 동안은 `PROCESSING`이 우선한다.

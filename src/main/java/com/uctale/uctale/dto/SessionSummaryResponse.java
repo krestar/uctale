@@ -11,5 +11,6 @@ public record SessionSummaryResponse(
         String statusMessage,
         boolean retryable,
         boolean canResume,
+        Long retryAfterSeconds,
         String thumbnailUrl
 ) {}

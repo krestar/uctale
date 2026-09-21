@@ -5,21 +5,30 @@ import java.util.function.Supplier;
 
 public final class NarrativeRecoveryExecutor {
 
-    private static final int DEFAULT_MAX_ATTEMPTS = 3;
-    private static final long[] DEFAULT_BACKOFF_MILLIS = {50L, 150L};
+    private static final int DEFAULT_MAX_ATTEMPTS = NarrativeExecutionPolicy.MAX_PROVIDER_ATTEMPTS;
 
     private final int maxAttempts;
     private final Sleeper sleeper;
+    private final NarrativeExecutionPolicy policy;
 
     public NarrativeRecoveryExecutor(int maxAttempts, Sleeper sleeper) {
+        this(maxAttempts, sleeper, NarrativeExecutionPolicy.defaults());
+    }
+
+    NarrativeRecoveryExecutor(int maxAttempts, Sleeper sleeper, NarrativeExecutionPolicy policy) {
         if (maxAttempts < 1) {
             throw new IllegalArgumentException("Narrative provider attempt 상한은 1 이상이어야 합니다.");
         }
         this.maxAttempts = maxAttempts;
         this.sleeper = sleeper == null ? ignored -> {} : sleeper;
+        this.policy = policy == null ? NarrativeExecutionPolicy.defaults() : policy;
     }
 
     public static NarrativeRecoveryExecutor production() {
+        return production(NarrativeExecutionPolicy.defaults());
+    }
+
+    public static NarrativeRecoveryExecutor production(NarrativeExecutionPolicy policy) {
         return new NarrativeRecoveryExecutor(DEFAULT_MAX_ATTEMPTS, millis -> {
             try {
                 Thread.sleep(millis);
@@ -27,7 +36,7 @@ public final class NarrativeRecoveryExecutor {
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException("Narrative recovery backoff가 중단되었습니다.", exception);
             }
-        });
+        }, policy);
     }
 
     public Result execute(
@@ -56,6 +65,14 @@ public final class NarrativeRecoveryExecutor {
                 return new Result(turn, attempt - 1);
             } catch (RecoverableNarrativeResponseException exception) {
                 previousReason = exception.reasonCode();
+                if ("PROVIDER_RATE_LIMIT".equals(previousReason)) {
+                    throw new NarrativeRecoveryDeferredException(
+                            attempt - 1,
+                            previousReason,
+                            policy.recoveryCooldownSeconds(),
+                            exception
+                    );
+                }
                 if (attempt == maxAttempts) {
                     throw new NarrativeRecoveryExhaustedException(attempt - 1, previousReason, exception);
                 }
@@ -71,8 +88,7 @@ public final class NarrativeRecoveryExecutor {
     }
 
     private long backoffMillis(int retryIndex) {
-        int index = Math.min(Math.max(retryIndex, 1) - 1, DEFAULT_BACKOFF_MILLIS.length - 1);
-        return DEFAULT_BACKOFF_MILLIS[index];
+        return policy.retryBackoffMillis(retryIndex);
     }
 
     @FunctionalInterface

@@ -38,7 +38,13 @@ function GamePlayScreen({
 
         {resumeMeta?.status && resumeMeta.status !== 'READY' && (
           <div className={`resume-state resume-state--${resumeMeta.status.toLowerCase()}`} role="status">
-            <strong>{resumeMeta.status === 'PROCESSING' ? '마지막 완료 턴을 표시 중입니다.' : '복구 상태'}</strong>
+            <strong>
+              {resumeMeta.status === 'PROCESSING'
+                ? '마지막 완료 턴을 표시 중입니다.'
+                : resumeMeta.status === 'RECOVERY_WAIT'
+                  ? 'Provider 복구를 기다리고 있습니다.'
+                  : '복구 상태'}
+            </strong>
             <p>{resumeMeta.statusMessage}</p>
           </div>
         )}
@@ -81,7 +87,9 @@ function GamePlayScreen({
             <p className="status-message" role="status">
               {resumeMeta?.status === 'PROCESSING'
                 ? '현재 턴 처리가 끝난 뒤 목록에서 새로고침해 주세요.'
-                : '이 세션은 현재 상태에서 새 진행을 시작할 수 없습니다.'}
+                : resumeMeta?.status === 'RECOVERY_WAIT'
+                  ? `약 ${resumeMeta.retryAfterSeconds ?? 1}초 뒤 다시 시도할 수 있습니다.`
+                  : '이 세션은 현재 상태에서 새 진행을 시작할 수 없습니다.'}
             </p>
           )}
 
