@@ -12,6 +12,7 @@ import com.uctale.uctale.application.image.ImageAssetNotFoundException;
 import com.uctale.uctale.application.image.ImageGenerationException;
 import com.uctale.uctale.application.narrative.InvalidNarrativeResponseException;
 import com.uctale.uctale.application.narrative.NarrativeProviderException;
+import com.uctale.uctale.application.narrative.NarrativeRecoveryDeferredException;
 import com.uctale.uctale.application.narrative.NarrativeRecoveryExhaustedException;
 import com.uctale.uctale.security.AccessAuthenticationRateLimitExceededException;
 import com.uctale.uctale.security.AccessRequestForbiddenException;
@@ -60,6 +61,15 @@ public class ApiExceptionHandler {
     public ResponseEntity<ApiError> handleTurnConflict(TurnConflictException exception) { return error(HttpStatus.CONFLICT, "TURN_CONFLICT", exception.getMessage()); }
     @ExceptionHandler(InvalidChoiceException.class)
     public ResponseEntity<ApiError> handleInvalidChoice(InvalidChoiceException exception) { return error(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_CHOICE", exception.getMessage()); }
+    @ExceptionHandler(NarrativeRecoveryDeferredException.class)
+    public ResponseEntity<ApiError> handleNarrativeRecoveryDeferred(NarrativeRecoveryDeferredException exception) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(exception.retryAfterSeconds()))
+                .body(new ApiError(
+                        "NARRATIVE_PROVIDER_RECOVERY_WAIT",
+                        "Narrative provider 복구를 기다리고 있습니다. 잠시 후 다시 시도해 주세요."
+                ));
+    }
     @ExceptionHandler(NarrativeRecoveryExhaustedException.class)
     public ResponseEntity<ApiError> handleNarrativeRecoveryExhausted(NarrativeRecoveryExhaustedException exception) {
         if (exception.reasonCode().startsWith("PROVIDER_")) {
