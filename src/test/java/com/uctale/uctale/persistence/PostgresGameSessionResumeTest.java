@@ -64,8 +64,8 @@ class PostgresGameSessionResumeTest extends PostgresIntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("만료 lease와 provider 재시도 한도는 spinner 대신 명시적 FAILED 복구 상태가 된다")
-    void expiredAndExhaustedLease_AreReportedAsFailedRecoveryStates() {
+    @DisplayName("만료 lease와 provider cooldown은 FAILED와 RECOVERY_WAIT 상태로 구분된다")
+    void expiredLeaseAndProviderCooldown_AreReportedAsDistinctRecoveryStates() {
         var session = persistenceService.saveOpening(
                 OWNER_KEY, "세계", "인물", "완료된 이야기",
                 choiceCodec.serialize(List.of(new GameChoice(1, "진행한다"))), null
@@ -91,15 +91,31 @@ class PostgresGameSessionResumeTest extends PostgresIntegrationTestSupport {
         assertThat(expired.game()).isNotNull();
 
         jdbcTemplate.update(
-                "update game_turn_reservation set provider_attempt_count = 3 where request_id = ?",
+                """
+                update game_turn_reservation
+                set provider_attempt_count = 3,
+                    recovery_available_at = current_timestamp + interval '30 seconds'
+                where request_id = ?
+                """,
                 mutation.requestId()
         );
 
-        var exhausted = queryService.resumeSession(OWNER_KEY, session.getId());
-        assertThat(exhausted.status()).isEqualTo("FAILED");
-        assertThat(exhausted.retryable()).isFalse();
-        assertThat(exhausted.canProgress()).isFalse();
-        assertThat(exhausted.game()).isNotNull();
+        var waiting = queryService.resumeSession(OWNER_KEY, session.getId());
+        assertThat(waiting.status()).isEqualTo("RECOVERY_WAIT");
+        assertThat(waiting.retryable()).isTrue();
+        assertThat(waiting.canProgress()).isFalse();
+        assertThat(waiting.retryAfterSeconds()).isPositive();
+        assertThat(waiting.game()).isNotNull();
+
+        jdbcTemplate.update(
+                "update game_turn_reservation set recovery_available_at = current_timestamp - interval '1 second' where request_id = ?",
+                mutation.requestId()
+        );
+
+        var recoverable = queryService.resumeSession(OWNER_KEY, session.getId());
+        assertThat(recoverable.status()).isEqualTo("FAILED");
+        assertThat(recoverable.retryable()).isTrue();
+        assertThat(recoverable.canProgress()).isTrue();
     }
 
     @Test
