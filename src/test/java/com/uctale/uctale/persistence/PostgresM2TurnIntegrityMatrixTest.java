@@ -15,6 +15,8 @@ import com.uctale.uctale.application.game.TurnConflictException;
 import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.application.narrative.NarrativeContext;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
+import com.uctale.uctale.application.narrative.NarrativeRecoveryDeferredException;
+import com.uctale.uctale.application.narrative.RecoverableNarrativeResponseException;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
 import com.uctale.uctale.dto.GameInitRequest;
 import com.uctale.uctale.dto.GameProgressRequest;
@@ -191,6 +193,47 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
             narrativeGenerator.releaseProgress();
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    @DisplayName("provider 3회 소진 뒤 cooldown이 지나면 새 recovery window에서 성공 commit할 수 있다")
+    void exhaustedProviderWindow_RecoversAfterCooldownAndCommitsOnce() {
+        GameResponse opening = createOpening("matrix-opening-recovery");
+        GameProgressRequest request = new GameProgressRequest(opening.sessionId(), 1, 1);
+        narrativeGenerator.failNextProgressAttempts(3);
+
+        assertThatThrownBy(() -> gameService.progressGame(
+                progressContext("matrix-recovery-key-a", opening.sessionId()), request
+        )).isInstanceOfSatisfying(NarrativeRecoveryDeferredException.class, exception -> {
+            assertThat(exception.retryCount()).isEqualTo(2);
+            assertThat(exception.retryAfterSeconds()).isEqualTo(30);
+        });
+
+        assertThat(narrativeGenerator.progressCalls()).isEqualTo(3);
+        assertThat(jdbcTemplate.queryForObject(
+                "select provider_attempt_count from game_turn_reservation where session_id = ? and expected_turn = ?",
+                Integer.class, opening.sessionId(), 1
+        )).isEqualTo(3);
+        assertThat(jdbcTemplate.queryForObject(
+                "select recovery_available_at is not null from game_turn_reservation where session_id = ? and expected_turn = ?",
+                Boolean.class, opening.sessionId(), 1
+        )).isTrue();
+
+        assertThatThrownBy(() -> gameService.progressGame(
+                progressContext("matrix-recovery-key-b", opening.sessionId()), request
+        )).isInstanceOf(MutationInProgressException.class);
+        assertThat(narrativeGenerator.progressCalls()).isEqualTo(3);
+
+        clock.advance(Duration.ofSeconds(31));
+
+        GameResponse recovered = gameService.progressGame(
+                progressContext("matrix-recovery-key-c", opening.sessionId()), request
+        );
+
+        assertThat(recovered.turnNumber()).isEqualTo(2);
+        assertThat(narrativeGenerator.progressCalls()).isEqualTo(4);
+        assertCanonicalTurn(opening.sessionId(), "matrix-recovery-key-c", 2, 2);
+        assertThat(reservationCount(opening.sessionId(), 1)).isZero();
     }
 
     @Test
@@ -420,6 +463,7 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
     private static final class FakeNarrativeGenerator implements NarrativeGenerator {
         private final AtomicInteger openingCalls = new AtomicInteger();
         private final AtomicInteger progressCalls = new AtomicInteger();
+        private final AtomicInteger progressFailuresRemaining = new AtomicInteger();
         private final AtomicReference<CountDownLatch> progressEntered = new AtomicReference<>();
         private final AtomicReference<CountDownLatch> progressRelease = new AtomicReference<>();
 
@@ -432,6 +476,9 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
         @Override
         public NarrativeTurn createNextTurn(NarrativeContext context) {
             int call = progressCalls.incrementAndGet();
+            if (progressFailuresRemaining.getAndUpdate(value -> Math.max(0, value - 1)) > 0) {
+                throw new RecoverableNarrativeResponseException("PROVIDER_HTTP_503", "provider unavailable");
+            }
             CountDownLatch entered = progressEntered.get();
             CountDownLatch release = progressRelease.get();
             if (entered != null && release != null) {
@@ -446,6 +493,10 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
                 }
             }
             return turn("progress-title", "progress-story-" + call);
+        }
+
+        void failNextProgressAttempts(int attempts) {
+            progressFailuresRemaining.set(attempts);
         }
 
         void blockNextProgress() {
