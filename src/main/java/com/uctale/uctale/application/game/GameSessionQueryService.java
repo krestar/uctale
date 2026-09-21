@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 @Slf4j
@@ -77,7 +78,7 @@ public class GameSessionQueryService {
         if (view.completedTurn() == null) {
             return new SessionResumeResponse(
                     session.getId(), view.title(), session.getCurrentTurn(), session.getUpdatedAt(),
-                    view.status().name(), view.statusMessage(), false, false, null, null
+                    view.status().name(), view.statusMessage(), false, false, view.retryAfterSeconds(), null, null
             );
         }
 
@@ -94,7 +95,7 @@ public class GameSessionQueryService {
             return new SessionResumeResponse(
                     session.getId(), view.title(), session.getCurrentTurn(), session.getUpdatedAt(),
                     view.status().name(), view.statusMessage(), view.retryable(), canProgress,
-                    completedTurn.gameState().turnNumber(), game
+                    view.retryAfterSeconds(), completedTurn.gameState().turnNumber(), game
             );
         } catch (RuntimeException exception) {
             log.warn("세션 resume projection을 안전하게 구성할 수 없습니다. sessionId={}", session.getId(), exception);
@@ -115,14 +116,14 @@ public class GameSessionQueryService {
             return new SessionView(
                     session, title, thumbnailUrl, SessionStatus.UNRECOVERABLE,
                     "저장된 canonical 상태를 안전하게 복구할 수 없습니다. 마지막 완료 턴 데이터는 변경하지 않았습니다.",
-                    false, null
+                    false, null, null
             );
         }
 
         ProcessingState processing = processingState(ownerKey, session);
         return new SessionView(
                 session, title, thumbnailUrl, processing.status(), processing.message(),
-                processing.retryable(), completedTurn
+                processing.retryable(), processing.retryAfterSeconds(), completedTurn
         );
     }
 
@@ -155,7 +156,22 @@ public class GameSessionQueryService {
             return new ProcessingState(
                     SessionStatus.PROCESSING,
                     "새 턴을 처리 중입니다. 완료되기 전까지 마지막 완료 턴을 안전하게 표시합니다.",
-                    false
+                    false,
+                    null
+            );
+        }
+
+        if (reservation != null && reservation.recoveryAvailableAt() != null
+                && reservation.recoveryAvailableAt().isAfter(now)) {
+            long retryAfterSeconds = Math.max(
+                    1,
+                    ChronoUnit.SECONDS.between(now, reservation.recoveryAvailableAt())
+            );
+            return new ProcessingState(
+                    SessionStatus.RECOVERY_WAIT,
+                    "Narrative provider 복구를 기다리고 있습니다. 마지막 완료 턴은 안전하게 보존되어 있습니다.",
+                    true,
+                    retryAfterSeconds
             );
         }
 
@@ -164,40 +180,36 @@ public class GameSessionQueryService {
                         ownerKey, session.getId(), session.getCurrentTurn(), GameMutationRequestService.PROGRESS
                 )
                 .orElse(null);
-        boolean exhausted = reservation != null && reservation.providerAttemptCount() >= MAX_PROVIDER_ATTEMPTS;
-        if (exhausted) {
-            return new ProcessingState(
-                    SessionStatus.FAILED,
-                    "진행 요청의 provider 재시도 한도에 도달했습니다. 마지막 완료 턴은 보존되어 있습니다.",
-                    false
-            );
-        }
         if (latestRequest != null && (latestRequest.getStatus() == GameMutationRequest.Status.FAILED
                 || latestRequest.getStatus() == GameMutationRequest.Status.PROCESSING)) {
             return new ProcessingState(
                     SessionStatus.FAILED,
                     "이전 진행 요청이 완료되지 않았습니다. 마지막 완료 턴에서 다시 선택할 수 있습니다.",
-                    true
+                    true,
+                    null
             );
         }
         return new ProcessingState(
                 SessionStatus.READY,
                 "마지막 완료 턴에서 계속할 수 있습니다.",
-                false
+                false,
+                null
         );
     }
 
     private ReservationState findReservation(Long sessionId, int expectedTurn) {
         return jdbcTemplate.query(
                 """
-                        SELECT lease_expires_at, provider_attempt_count
+                        SELECT lease_expires_at, provider_attempt_count, recovery_available_at
                         FROM game_turn_reservation
                         WHERE session_id = ? AND expected_turn = ?
                         """,
                 rs -> rs.next()
                         ? new ReservationState(
                         rs.getTimestamp("lease_expires_at").toLocalDateTime(),
-                        rs.getInt("provider_attempt_count")
+                        rs.getInt("provider_attempt_count"),
+                        rs.getTimestamp("recovery_available_at") == null
+                                ? null : rs.getTimestamp("recovery_available_at").toLocalDateTime()
                 )
                         : null,
                 sessionId, expectedTurn
@@ -230,20 +242,30 @@ public class GameSessionQueryService {
                 session.getId(), title, session.getCurrentTurn(), session.getUpdatedAt(),
                 SessionStatus.UNRECOVERABLE.name(),
                 "저장된 canonical 상태를 안전하게 복구할 수 없습니다. 마지막 완료 턴 데이터는 변경하지 않았습니다.",
-                false, false, null, null
+                false, false, null, null, null
         );
     }
 
     private enum SessionStatus {
         READY,
         PROCESSING,
+        RECOVERY_WAIT,
         FAILED,
         UNRECOVERABLE
     }
 
-    private record ReservationState(LocalDateTime leaseExpiresAt, int providerAttemptCount) {}
+    private record ReservationState(
+            LocalDateTime leaseExpiresAt,
+            int providerAttemptCount,
+            LocalDateTime recoveryAvailableAt
+    ) {}
 
-    private record ProcessingState(SessionStatus status, String message, boolean retryable) {}
+    private record ProcessingState(
+            SessionStatus status,
+            String message,
+            boolean retryable,
+            Long retryAfterSeconds
+    ) {}
 
     private record CompletedTurn(GameLog log, GameState gameState, List<GameChoice> choices) {}
 
@@ -254,12 +276,13 @@ public class GameSessionQueryService {
             SessionStatus status,
             String statusMessage,
             boolean retryable,
+            Long retryAfterSeconds,
             CompletedTurn completedTurn
     ) {
         SessionSummaryResponse summary() {
             return new SessionSummaryResponse(
                     session.getId(), title, session.getCurrentTurn(), session.getUpdatedAt(),
-                    status.name(), statusMessage, retryable, completedTurn != null, thumbnailUrl
+                    status.name(), statusMessage, retryable, completedTurn != null, retryAfterSeconds, thumbnailUrl
             );
         }
     }
