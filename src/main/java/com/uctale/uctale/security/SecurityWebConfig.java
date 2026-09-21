@@ -39,6 +39,18 @@ public class SecurityWebConfig implements WebMvcConfigurer {
     }
 
     @Bean
+    FilterRegistrationBean<JsonRequestBodySizeFilter> jsonRequestBodySizeFilterRegistration(
+            @Value("${game.request.max-json-body-bytes:16384}") long maxJsonBodyBytes
+    ) {
+        FilterRegistrationBean<JsonRequestBodySizeFilter> registration =
+                new FilterRegistrationBean<>(new JsonRequestBodySizeFilter(maxJsonBodyBytes));
+        registration.setUrlPatterns(List.of("/api/*"));
+        registration.setDispatcherTypes(DispatcherType.REQUEST);
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 1);
+        return registration;
+    }
+
+    @Bean
     FilterRegistrationBean<CorsFilter> corsFilterRegistration(
             @Value("${game.cors.allowed-origins}") String configuredOrigins
     ) {

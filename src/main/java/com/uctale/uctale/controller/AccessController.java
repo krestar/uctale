@@ -4,6 +4,7 @@ import com.uctale.uctale.application.cost.ClientIpResolver;
 import com.uctale.uctale.dto.AccessPasswordRequest;
 import com.uctale.uctale.security.AccessAuthenticationRateLimiter;
 import com.uctale.uctale.security.AccessSessionService;
+import com.uctale.uctale.security.OwnerIdentityIssuanceRateLimiter;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -24,13 +25,19 @@ public class AccessController {
 
     private final AccessSessionService accessSessionService;
     private final AccessAuthenticationRateLimiter authenticationRateLimiter;
+    private final OwnerIdentityIssuanceRateLimiter ownerIdentityIssuanceRateLimiter;
+    private final ClientIpResolver clientIpResolver;
 
     public AccessController(
             AccessSessionService accessSessionService,
-            AccessAuthenticationRateLimiter authenticationRateLimiter
+            AccessAuthenticationRateLimiter authenticationRateLimiter,
+            OwnerIdentityIssuanceRateLimiter ownerIdentityIssuanceRateLimiter,
+            ClientIpResolver clientIpResolver
     ) {
         this.accessSessionService = accessSessionService;
         this.authenticationRateLimiter = authenticationRateLimiter;
+        this.ownerIdentityIssuanceRateLimiter = ownerIdentityIssuanceRateLimiter;
+        this.clientIpResolver = clientIpResolver;
     }
 
     @PostMapping("/verify-password")
@@ -38,12 +45,15 @@ public class AccessController {
             @Valid @RequestBody AccessPasswordRequest request,
             HttpServletRequest servletRequest
     ) {
-        String clientIp = ClientIpResolver.resolve(servletRequest);
+        String clientIp = clientIpResolver.resolve(servletRequest);
         String existingOwnerToken = findCookie(servletRequest, AccessSessionService.OWNER_COOKIE_NAME);
         AccessSessionService.IssuedSession session = authenticationRateLimiter.authenticate(
                 clientIp,
                 () -> accessSessionService.authenticate(request.password(), existingOwnerToken)
         );
+        if (session.newOwnerIdentity()) {
+            ownerIdentityIssuanceRateLimiter.check(clientIp);
+        }
 
         ResponseCookie accessCookie = ResponseCookie.from(AccessSessionService.COOKIE_NAME, session.accessToken())
                 .httpOnly(true)
