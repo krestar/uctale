@@ -83,7 +83,7 @@ class PostgresGameTurnReservationTest extends PostgresIntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("실제 provider 시작은 최대 세 번까지만 허용한다")
+    @DisplayName("실제 provider 시작은 recovery window마다 최대 세 번이고 cooldown 뒤 새 window를 연다")
     void providerAttempts_AreBoundedToThree() {
         for (int index = 1; index <= 3; index++) {
             var reservation = service.begin(
@@ -109,6 +109,25 @@ class PostgresGameTurnReservationTest extends PostgresIntegrationTestSupport {
         )).isInstanceOf(MutationInProgressException.class);
 
         assertThat(providerAttemptCount()).isEqualTo(3);
+
+        jdbcTemplate.update("""
+                UPDATE game_turn_reservation
+                SET recovery_available_at = CURRENT_TIMESTAMP - INTERVAL '1 second'
+                WHERE session_id = ? AND expected_turn = ?
+                """, SESSION_ID, EXPECTED_TURN);
+
+        var recovered = service.begin(
+                OWNER_KEY,
+                GameMutationRequestService.PROGRESS,
+                "provider-key-005",
+                SESSION_ID,
+                EXPECTED_TURN,
+                "5".repeat(64)
+        );
+        assertThat(providerAttemptCount()).isZero();
+
+        service.markProviderAttemptStarted(recovered.requestId(), recovered.reservationOwner());
+        assertThat(providerAttemptCount()).isEqualTo(1);
     }
 
     @Test
