@@ -1,7 +1,9 @@
 package com.uctale.uctale.application.game;
 
+import com.uctale.uctale.application.narrative.NarrativeExecutionPolicy;
 import com.uctale.uctale.domain.GameMutationRequest;
 import com.uctale.uctale.repository.GameMutationRequestRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -19,27 +21,52 @@ public class GameMutationRequestService {
 
     public static final String INIT = "INIT";
     public static final String PROGRESS = "PROGRESS";
-    private static final int MAX_PROVIDER_ATTEMPTS = 3;
+    private static final int MAX_PROVIDER_ATTEMPTS = NarrativeExecutionPolicy.MAX_PROVIDER_ATTEMPTS;
     private static final Pattern IDEMPOTENCY_KEY_PATTERN = Pattern.compile("[A-Za-z0-9._:-]{8,128}");
 
     private final GameMutationRequestRepository repository;
     private final JdbcTemplate jdbcTemplate;
     private final Clock clock;
     private final long leaseSeconds;
+    private final long recoveryCooldownSeconds;
 
     @Value("${spring.datasource.driver-class-name:org.postgresql.Driver}")
     private String datasourceDriverClassName;
+
+    @Autowired
+    public GameMutationRequestService(
+            GameMutationRequestRepository repository,
+            JdbcTemplate jdbcTemplate,
+            Clock clock,
+            NarrativeExecutionPolicy policy
+    ) {
+        this(repository, jdbcTemplate, clock, policy.reservationLeaseSeconds(), policy.recoveryCooldownSeconds());
+    }
 
     public GameMutationRequestService(
             GameMutationRequestRepository repository,
             JdbcTemplate jdbcTemplate,
             Clock clock,
-            @Value("${app.game.turn-reservation.lease-seconds:90}") long leaseSeconds
+            long leaseSeconds
     ) {
+        this(repository, jdbcTemplate, clock, leaseSeconds, 30L);
+    }
+
+    GameMutationRequestService(
+            GameMutationRequestRepository repository,
+            JdbcTemplate jdbcTemplate,
+            Clock clock,
+            long leaseSeconds,
+            long recoveryCooldownSeconds
+    ) {
+        if (leaseSeconds <= 0 || recoveryCooldownSeconds <= 0) {
+            throw new IllegalArgumentException("turn reservation lease와 recovery cooldown은 0보다 커야 합니다.");
+        }
         this.repository = repository;
         this.jdbcTemplate = jdbcTemplate;
         this.clock = clock;
-        this.leaseSeconds = Math.max(10, leaseSeconds);
+        this.leaseSeconds = leaseSeconds;
+        this.recoveryCooldownSeconds = recoveryCooldownSeconds;
     }
 
     @Transactional(noRollbackFor = MutationInProgressException.class)
@@ -112,6 +139,7 @@ public class GameMutationRequestService {
                 WHERE request_id = ?
                   AND lease_owner = ?
                   AND lease_expires_at > ?
+                  AND recovery_available_at IS NULL
                   AND provider_attempt_count < ?
                 """, requestId, reservationOwner, now, MAX_PROVIDER_ATTEMPTS);
         if (updated == 1) {
@@ -142,11 +170,17 @@ public class GameMutationRequestService {
     public void markFailed(Long requestId, String reservationOwner) {
         LocalDateTime now = LocalDateTime.now(clock);
         if (reservationOwner != null) {
+            LocalDateTime recoveryAt = now.plusSeconds(recoveryCooldownSeconds);
             int expired = jdbcTemplate.update("""
                     UPDATE game_turn_reservation
-                    SET lease_expires_at = ?, updated_at = CURRENT_TIMESTAMP
+                    SET lease_expires_at = ?,
+                        recovery_available_at = CASE
+                            WHEN provider_attempt_count >= ? THEN ?
+                            ELSE recovery_available_at
+                        END,
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE request_id = ? AND lease_owner = ?
-                    """, now, requestId, reservationOwner);
+                    """, now, MAX_PROVIDER_ATTEMPTS, recoveryAt, requestId, reservationOwner);
             if (expired == 0) {
                 return;
             }
@@ -157,10 +191,39 @@ public class GameMutationRequestService {
             if (reservationOwner == null) {
                 jdbcTemplate.update("""
                         UPDATE game_turn_reservation
-                        SET lease_expires_at = ?, updated_at = CURRENT_TIMESTAMP
+                        SET lease_expires_at = ?,
+                            recovery_available_at = CASE
+                                WHEN provider_attempt_count >= ? THEN ?
+                                ELSE recovery_available_at
+                            END,
+                            updated_at = CURRENT_TIMESTAMP
                         WHERE request_id = ?
-                        """, now, requestId);
+                        """, now, MAX_PROVIDER_ATTEMPTS, now.plusSeconds(recoveryCooldownSeconds), requestId);
             }
+        });
+    }
+
+    @Transactional
+    public void markRecoveryDeferred(Long requestId, String reservationOwner, long retryAfterSeconds) {
+        if (reservationOwner == null) {
+            throw new IllegalArgumentException("provider recovery 대기에는 reservationOwner가 필요합니다.");
+        }
+        if (retryAfterSeconds < 1) {
+            throw new IllegalArgumentException("retryAfterSeconds는 1 이상이어야 합니다.");
+        }
+        LocalDateTime now = LocalDateTime.now(clock);
+        LocalDateTime recoveryAt = now.plusSeconds(retryAfterSeconds);
+        int updated = jdbcTemplate.update("""
+                UPDATE game_turn_reservation
+                SET lease_expires_at = ?, recovery_available_at = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE request_id = ? AND lease_owner = ?
+                """, now, recoveryAt, requestId, reservationOwner);
+        if (updated == 0) {
+            return;
+        }
+        repository.findById(requestId).ifPresent(request -> {
+            request.fail();
+            repository.save(request);
         });
     }
 
@@ -205,21 +268,30 @@ public class GameMutationRequestService {
                         lease_owner = EXCLUDED.lease_owner,
                         lease_expires_at = EXCLUDED.lease_expires_at,
                         attempt_count = LEAST(game_turn_reservation.attempt_count + 1, 3),
+                        provider_attempt_count = CASE
+                            WHEN game_turn_reservation.provider_attempt_count >= ? THEN 0
+                            ELSE game_turn_reservation.provider_attempt_count
+                        END,
+                        recovery_available_at = NULL,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE game_turn_reservation.lease_expires_at <= ?
-                      AND game_turn_reservation.provider_attempt_count < ?
-                    """, sessionId, expectedTurn, requestId, leaseOwner, expiresAt, now, MAX_PROVIDER_ATTEMPTS);
+                      AND (game_turn_reservation.recovery_available_at IS NULL
+                           OR game_turn_reservation.recovery_available_at <= ?)
+                    """, sessionId, expectedTurn, requestId, leaseOwner, expiresAt,
+                    MAX_PROVIDER_ATTEMPTS, now, now);
         }
 
         List<ReservationState> reservations = jdbcTemplate.query(
                 """
-                        SELECT lease_expires_at, provider_attempt_count
+                        SELECT lease_expires_at, provider_attempt_count, recovery_available_at
                         FROM game_turn_reservation
                         WHERE session_id = ? AND expected_turn = ?
                         """,
                 (rs, rowNum) -> new ReservationState(
                         rs.getTimestamp("lease_expires_at").toLocalDateTime(),
-                        rs.getInt("provider_attempt_count")
+                        rs.getInt("provider_attempt_count"),
+                        rs.getTimestamp("recovery_available_at") == null
+                                ? null : rs.getTimestamp("recovery_available_at").toLocalDateTime()
                 ),
                 sessionId, expectedTurn
         );
@@ -234,25 +306,42 @@ public class GameMutationRequestService {
 
         ReservationState reservation = reservations.getFirst();
         if (reservation.leaseExpiresAt().isAfter(now)
-                || reservation.providerAttemptCount() >= MAX_PROVIDER_ATTEMPTS) {
+                || (reservation.recoveryAvailableAt() != null && reservation.recoveryAvailableAt().isAfter(now))) {
             return 0;
         }
         return jdbcTemplate.update("""
                 UPDATE game_turn_reservation
                 SET request_id = ?, lease_owner = ?, lease_expires_at = ?,
                     attempt_count = CASE WHEN attempt_count < 3 THEN attempt_count + 1 ELSE 3 END,
+                    provider_attempt_count = CASE
+                        WHEN provider_attempt_count >= ? THEN 0
+                        ELSE provider_attempt_count
+                    END,
+                    recovery_available_at = NULL,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE session_id = ? AND expected_turn = ?
-                  AND lease_expires_at <= ? AND provider_attempt_count < ?
-                """, requestId, leaseOwner, expiresAt, sessionId, expectedTurn, now, MAX_PROVIDER_ATTEMPTS);
+                  AND lease_expires_at <= ?
+                  AND (recovery_available_at IS NULL OR recovery_available_at <= ?)
+                """, requestId, leaseOwner, expiresAt, MAX_PROVIDER_ATTEMPTS,
+                sessionId, expectedTurn, now, now);
     }
 
     private long currentRetryAfterSeconds(Long sessionId, int expectedTurn, LocalDateTime now) {
         return jdbcTemplate.query(
-                "SELECT lease_expires_at FROM game_turn_reservation WHERE session_id = ? AND expected_turn = ?",
-                rs -> rs.next()
-                        ? Math.max(1, ChronoUnit.SECONDS.between(now, rs.getTimestamp(1).toLocalDateTime()))
-                        : 1,
+                "SELECT lease_expires_at, recovery_available_at FROM game_turn_reservation WHERE session_id = ? AND expected_turn = ?",
+                rs -> {
+                    if (!rs.next()) {
+                        return 1L;
+                    }
+                    LocalDateTime target = rs.getTimestamp("lease_expires_at").toLocalDateTime();
+                    if (rs.getTimestamp("recovery_available_at") != null) {
+                        LocalDateTime recoveryAt = rs.getTimestamp("recovery_available_at").toLocalDateTime();
+                        if (recoveryAt.isAfter(target)) {
+                            target = recoveryAt;
+                        }
+                    }
+                    return Math.max(1, ChronoUnit.SECONDS.between(now, target));
+                },
                 sessionId, expectedTurn
         );
     }
@@ -269,7 +358,11 @@ public class GameMutationRequestService {
         }
     }
 
-    private record ReservationState(LocalDateTime leaseExpiresAt, int providerAttemptCount) {}
+    private record ReservationState(
+            LocalDateTime leaseExpiresAt,
+            int providerAttemptCount,
+            LocalDateTime recoveryAvailableAt
+    ) {}
 
     public record BeginResult(
             Long requestId,
