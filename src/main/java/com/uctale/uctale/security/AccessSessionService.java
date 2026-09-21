@@ -41,7 +41,7 @@ public class AccessSessionService {
             @Value("${game.access.password}") String accessPassword,
             @Value("${game.access.session-secret}") String sessionSecret,
             @Value("${game.access.session-ttl-seconds:3600}") long ttlSeconds,
-            @Value("${game.owner.token-ttl-seconds:15552000}") long ownerTtlSeconds,
+            @Value("${game.owner.cookie-ttl-seconds:15552000}") long ownerTtlSeconds,
             @Value("${game.owner.legacy-o1-accept-until-epoch-seconds:0}") long legacyOwnerTokenAcceptUntilEpochSeconds,
             @Value("${game.access.cookie-secure:true}") boolean secureCookie
     ) {
@@ -92,7 +92,7 @@ public class AccessSessionService {
             throw new IllegalArgumentException("game.access.session-secret은 32자 이상이어야 합니다.");
         }
         if (ownerTtl.isNegative() || ownerTtl.isZero()) {
-            throw new IllegalArgumentException("game.owner.token-ttl-seconds는 양수여야 합니다.");
+            throw new IllegalArgumentException("game.owner.cookie-ttl-seconds는 양수여야 합니다.");
         }
         if (legacyOwnerTokenAcceptUntilEpochSeconds < 0) {
             throw new IllegalArgumentException("game.owner.legacy-o1-accept-until-epoch-seconds는 0 이상이어야 합니다.");

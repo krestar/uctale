@@ -13,7 +13,7 @@
 - access token `v1.{expiresAt}.{ownerKey}.{signature}`은 보호 API 호출 자격을 약 1시간 유지하는 단기 credential입니다.
 - owner token `o2.{expiresAt}.{ownerKey}.{signature}`은 재인증 뒤에도 같은 저장 세션 소유권을 복원하기 위한 장기 credential입니다.
 - 두 token 모두 서버가 payload의 `expiresAt`을 직접 검증합니다. `expiresAt <= now`이면 만료입니다.
-- owner token의 기본 TTL은 180일이며 `GAME_OWNER_TOKEN_TTL_SECONDS`가 token 만료와 owner cookie `Max-Age`에 동일하게 사용됩니다. 기존 배포의 `GAME_OWNER_COOKIE_TTL_SECONDS`는 새 설정이 없을 때 fallback으로 계속 지원합니다.
+- owner token의 기본 TTL은 180일이며 기존 `GAME_OWNER_COOKIE_TTL_SECONDS` 하나가 owner token 만료와 owner cookie `Max-Age`에 동일하게 사용됩니다. 기존 환경변수 이름은 배포 호환성을 위해 유지하지만 의미는 cookie-only TTL이 아니라 owner credential 전체 TTL입니다.
 - 재인증 시 유효한 owner token이 있으면 같은 owner key를 재사용하고 새 `o2` token으로 TTL을 갱신합니다.
 - 유효한 access token이 남아 있는데 owner cookie가 없거나 유효하지 않으면 보호 API 첫 요청에서 access token의 owner key로 새 `o2` owner cookie를 발급합니다.
 
