@@ -1,9 +1,12 @@
 package com.uctale.uctale.controller;
 
 import com.uctale.uctale.security.AccessAuthenticationRateLimitPolicy;
+import com.uctale.uctale.application.cost.ClientIpResolver;
 import com.uctale.uctale.security.AccessAuthenticationRateLimiter;
 import com.uctale.uctale.security.AccessSessionInterceptor;
 import com.uctale.uctale.security.AccessSessionService;
+import com.uctale.uctale.security.OwnerIdentityIssuanceRateLimitPolicy;
+import com.uctale.uctale.security.OwnerIdentityIssuanceRateLimiter;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,7 +31,7 @@ class AccessControllerTest {
     @DisplayName("올바른 비밀번호는 운영용 HttpOnly Secure 접근 쿠키를 발급한다")
     void verifyPassword_IssuesSecureHttpOnlyCookie() throws Exception {
         AccessSessionService service = new AccessSessionService("TEST_PASSWORD", SECRET, 3600, true);
-        MockMvc mockMvc = standaloneMockMvc(service, limiter(5));
+        MockMvc mockMvc = standaloneMockMvc(service, limiter(5), issuanceLimiter(5));
 
         mockMvc.perform(post("/api/game/verify-password")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -57,7 +60,7 @@ class AccessControllerTest {
     @DisplayName("같은 IP가 실패 한도에 도달하면 다음 인증부터 429와 Retry-After를 반환한다")
     void verifyPassword_RateLimitsRepeatedFailures() throws Exception {
         AccessSessionService service = new AccessSessionService("TEST_PASSWORD", SECRET, 3600, false);
-        MockMvc mockMvc = standaloneMockMvc(service, limiter(2));
+        MockMvc mockMvc = standaloneMockMvc(service, limiter(2), issuanceLimiter(5));
 
         for (int i = 0; i < 2; i++) {
             mockMvc.perform(post("/api/game/verify-password")
@@ -80,7 +83,7 @@ class AccessControllerTest {
     @DisplayName("성공 인증은 같은 IP의 실패 기록을 초기화한다")
     void verifyPassword_SuccessResetsFailures() throws Exception {
         AccessSessionService service = new AccessSessionService("TEST_PASSWORD", SECRET, 3600, false);
-        MockMvc mockMvc = standaloneMockMvc(service, limiter(2));
+        MockMvc mockMvc = standaloneMockMvc(service, limiter(2), issuanceLimiter(5));
 
         mockMvc.perform(post("/api/game/verify-password")
                         .with(request -> { request.setRemoteAddr("1.2.3.4"); return request; })
@@ -97,6 +100,59 @@ class AccessControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"password\":\"wrong\"}"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("올바른 비밀번호라도 같은 IP에서 새 owner identity 발급 한도를 넘으면 429로 차단한다")
+    void verifyPassword_RateLimitsNewOwnerIdentityIssuance() throws Exception {
+        AccessSessionService service = new AccessSessionService("TEST_PASSWORD", SECRET, 3600, false);
+        MockMvc mockMvc = standaloneMockMvc(service, limiter(5), issuanceLimiter(2));
+
+        for (int i = 0; i < 2; i++) {
+            mockMvc.perform(post("/api/game/verify-password")
+                            .with(request -> { request.setRemoteAddr("1.2.3.4"); return request; })
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"password\":\"TEST_PASSWORD\"}"))
+                    .andExpect(status().isNoContent());
+        }
+
+        mockMvc.perform(post("/api/game/verify-password")
+                        .with(request -> { request.setRemoteAddr("1.2.3.4"); return request; })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"TEST_PASSWORD\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists("Retry-After"))
+                .andExpect(jsonPath("$.code").value("OWNER_ISSUANCE_RATE_LIMIT_EXCEEDED"));
+    }
+
+    @Test
+    @DisplayName("유효한 owner cookie 재인증은 새 owner 발급 quota를 소비하지 않는다")
+    void verifyPassword_ExistingOwnerDoesNotConsumeIssuanceQuota() throws Exception {
+        AccessSessionService service = new AccessSessionService("TEST_PASSWORD", SECRET, 3600, false);
+        AccessSessionService.IssuedSession existing = service.authenticate("TEST_PASSWORD", null);
+        MockMvc mockMvc = standaloneMockMvc(service, limiter(5), issuanceLimiter(1));
+
+        for (int i = 0; i < 3; i++) {
+            mockMvc.perform(post("/api/game/verify-password")
+                            .with(request -> { request.setRemoteAddr("1.2.3.4"); return request; })
+                            .cookie(new Cookie(AccessSessionService.OWNER_COOKIE_NAME, existing.ownerToken()))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"password\":\"TEST_PASSWORD\"}"))
+                    .andExpect(status().isNoContent());
+        }
+
+        mockMvc.perform(post("/api/game/verify-password")
+                        .with(request -> { request.setRemoteAddr("1.2.3.4"); return request; })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"TEST_PASSWORD\"}"))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/api/game/verify-password")
+                        .with(request -> { request.setRemoteAddr("1.2.3.4"); return request; })
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"TEST_PASSWORD\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("OWNER_ISSUANCE_RATE_LIMIT_EXCEEDED"));
     }
 
     @Test
@@ -150,14 +206,20 @@ class AccessControllerTest {
                 .andExpect(status().isNoContent());
     }
 
-    private MockMvc standaloneMockMvc(AccessSessionService service, AccessAuthenticationRateLimiter limiter) {
-        return MockMvcBuilders.standaloneSetup(new AccessController(service, limiter))
+    private MockMvc standaloneMockMvc(
+            AccessSessionService service,
+            AccessAuthenticationRateLimiter limiter,
+            OwnerIdentityIssuanceRateLimiter issuanceLimiter
+    ) {
+        return MockMvcBuilders.standaloneSetup(
+                        new AccessController(service, limiter, issuanceLimiter, new ClientIpResolver(false))
+                )
                 .setControllerAdvice(new ApiExceptionHandler())
                 .build();
     }
 
     private MockMvc protectedMockMvc(AccessSessionService service, AccessSessionInterceptor interceptor) {
-        return MockMvcBuilders.standaloneSetup(new AccessController(service, limiter(5)))
+        return MockMvcBuilders.standaloneSetup(new AccessController(service, limiter(5), issuanceLimiter(5), new ClientIpResolver(false)))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .addInterceptors(interceptor)
                 .build();
@@ -166,6 +228,13 @@ class AccessControllerTest {
     private AccessAuthenticationRateLimiter limiter(int failureLimit) {
         return new AccessAuthenticationRateLimiter(
                 new AccessAuthenticationRateLimitPolicy(failureLimit, 300),
+                Clock.systemUTC()
+        );
+    }
+
+    private OwnerIdentityIssuanceRateLimiter issuanceLimiter(int limit) {
+        return new OwnerIdentityIssuanceRateLimiter(
+                new OwnerIdentityIssuanceRateLimitPolicy(limit, 3600),
                 Clock.systemUTC()
         );
     }
