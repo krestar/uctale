@@ -23,7 +23,8 @@ public class AccessSessionService {
     public static final String OWNER_COOKIE_NAME = "uctale_owner";
     private static final String HMAC_ALGORITHM = "HmacSHA256";
     private static final String ACCESS_VERSION = "v1";
-    private static final String OWNER_VERSION = "o1";
+    private static final String OWNER_VERSION = "o2";
+    private static final String LEGACY_OWNER_VERSION = "o1";
     private static final Duration DEFAULT_OWNER_TTL = Duration.ofDays(180);
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
@@ -31,6 +32,7 @@ public class AccessSessionService {
     private final byte[] accessPassword;
     private final Duration ttl;
     private final Duration ownerTtl;
+    private final long legacyOwnerTokenAcceptUntilEpochSeconds;
     private final boolean secureCookie;
     private final Clock clock;
 
@@ -40,6 +42,7 @@ public class AccessSessionService {
             @Value("${game.access.session-secret}") String sessionSecret,
             @Value("${game.access.session-ttl-seconds:3600}") long ttlSeconds,
             @Value("${game.owner.cookie-ttl-seconds:15552000}") long ownerTtlSeconds,
+            @Value("${game.owner.legacy-o1-accept-until-epoch-seconds:0}") long legacyOwnerTokenAcceptUntilEpochSeconds,
             @Value("${game.access.cookie-secure:true}") boolean secureCookie
     ) {
         this(
@@ -47,6 +50,7 @@ public class AccessSessionService {
                 sessionSecret,
                 Duration.ofSeconds(ttlSeconds),
                 Duration.ofSeconds(ownerTtlSeconds),
+                legacyOwnerTokenAcceptUntilEpochSeconds,
                 secureCookie,
                 Clock.systemUTC()
         );
@@ -58,6 +62,7 @@ public class AccessSessionService {
                 sessionSecret,
                 Duration.ofSeconds(ttlSeconds),
                 DEFAULT_OWNER_TTL,
+                0,
                 secureCookie,
                 Clock.systemUTC()
         );
@@ -71,16 +76,32 @@ public class AccessSessionService {
             boolean secureCookie,
             Clock clock
     ) {
+        this(accessPassword, sessionSecret, ttl, ownerTtl, 0, secureCookie, clock);
+    }
+
+    AccessSessionService(
+            String accessPassword,
+            String sessionSecret,
+            Duration ttl,
+            Duration ownerTtl,
+            long legacyOwnerTokenAcceptUntilEpochSeconds,
+            boolean secureCookie,
+            Clock clock
+    ) {
         if (sessionSecret == null || sessionSecret.length() < 32) {
             throw new IllegalArgumentException("game.access.session-secret은 32자 이상이어야 합니다.");
         }
         if (ownerTtl.isNegative() || ownerTtl.isZero()) {
             throw new IllegalArgumentException("game.owner.cookie-ttl-seconds는 양수여야 합니다.");
         }
+        if (legacyOwnerTokenAcceptUntilEpochSeconds < 0) {
+            throw new IllegalArgumentException("game.owner.legacy-o1-accept-until-epoch-seconds는 0 이상이어야 합니다.");
+        }
         this.accessPassword = accessPassword.getBytes(StandardCharsets.UTF_8);
         this.signingSecret = sessionSecret.getBytes(StandardCharsets.UTF_8);
         this.ttl = ttl;
         this.ownerTtl = ownerTtl;
+        this.legacyOwnerTokenAcceptUntilEpochSeconds = legacyOwnerTokenAcceptUntilEpochSeconds;
         this.secureCookie = secureCookie;
         this.clock = clock;
     }
@@ -111,29 +132,22 @@ public class AccessSessionService {
         if (token == null || token.isBlank()) {
             return Optional.empty();
         }
-        String[] parts = token.split("\\.");
-        if (parts.length != 3 || !OWNER_VERSION.equals(parts[0]) || !isValidOwnerKey(parts[1])) {
-            return Optional.empty();
+        String[] parts = token.split("\\.", -1);
+        if (OWNER_VERSION.equals(parts[0])) {
+            return ownerKeyFromCurrentToken(parts);
         }
-
-        String payload = "owner." + parts[0] + "." + parts[1];
-        byte[] actual;
-        try {
-            actual = Base64.getUrlDecoder().decode(parts[2]);
-        } catch (IllegalArgumentException exception) {
-            return Optional.empty();
+        if (LEGACY_OWNER_VERSION.equals(parts[0])) {
+            return ownerKeyFromLegacyToken(parts);
         }
-        if (!MessageDigest.isEqual(sign(payload), actual)) {
-            return Optional.empty();
-        }
-        return Optional.of(parts[1]);
+        return Optional.empty();
     }
 
     public String issueOwnerToken(String ownerKey) {
         if (!isValidOwnerKey(ownerKey)) {
             throw new IllegalArgumentException("owner key가 올바르지 않습니다.");
         }
-        String value = OWNER_VERSION + "." + ownerKey;
+        long expiresAt = clock.instant().plus(ownerTtl).getEpochSecond();
+        String value = OWNER_VERSION + "." + expiresAt + "." + ownerKey;
         String payload = "owner." + value;
         return value + "." + Base64.getUrlEncoder().withoutPadding().encodeToString(sign(payload));
     }
@@ -152,6 +166,53 @@ public class AccessSessionService {
 
     public String sameSite() {
         return secureCookie ? "None" : "Lax";
+    }
+
+    private Optional<String> ownerKeyFromCurrentToken(String[] parts) {
+        if (parts.length != 4 || !isValidOwnerKey(parts[2])) {
+            return Optional.empty();
+        }
+
+        long expiresAt;
+        try {
+            expiresAt = Long.parseLong(parts[1]);
+        } catch (NumberFormatException exception) {
+            return Optional.empty();
+        }
+
+        String payload = "owner." + String.join(".", parts[0], parts[1], parts[2]);
+        if (!hasValidSignature(payload, parts[3])) {
+            return Optional.empty();
+        }
+        if (expiresAt <= clock.instant().getEpochSecond()) {
+            return Optional.empty();
+        }
+        return Optional.of(parts[2]);
+    }
+
+    private Optional<String> ownerKeyFromLegacyToken(String[] parts) {
+        if (legacyOwnerTokenAcceptUntilEpochSeconds == 0
+                || clock.instant().getEpochSecond() >= legacyOwnerTokenAcceptUntilEpochSeconds
+                || parts.length != 3
+                || !isValidOwnerKey(parts[1])) {
+            return Optional.empty();
+        }
+
+        String payload = "owner." + parts[0] + "." + parts[1];
+        if (!hasValidSignature(payload, parts[2])) {
+            return Optional.empty();
+        }
+        return Optional.of(parts[1]);
+    }
+
+    private boolean hasValidSignature(String payload, String encodedSignature) {
+        byte[] actual;
+        try {
+            actual = Base64.getUrlDecoder().decode(encodedSignature);
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
+        return MessageDigest.isEqual(sign(payload), actual);
     }
 
     private void verifyPassword(String candidatePassword) {
