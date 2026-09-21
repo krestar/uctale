@@ -124,7 +124,7 @@ class AccessSessionOwnerTest {
     @Test
     @DisplayName("기존 access 쿠키만 있는 보호 요청은 같은 owner key의 o2 owner 쿠키를 승격 발급한다")
     void interceptor_PromotesLegacyAccessTokenToCurrentOwnerCookie() throws Exception {
-        AccessSessionService service = new AccessSessionService("TEST_PASSWORD", SECRET, 3600, false);
+        AccessSessionService service = serviceAt(NOW, Duration.ofSeconds(60), 0);
         String accessToken = service.authenticate("TEST_PASSWORD");
         String ownerKey = service.validateAndGetPrincipal(accessToken).ownerKey();
         AccessSessionInterceptor interceptor = new AccessSessionInterceptor(service);
@@ -137,7 +137,7 @@ class AccessSessionOwnerTest {
                         .header(AccessSessionInterceptor.CLIENT_HEADER, AccessSessionInterceptor.CLIENT_HEADER_VALUE))
                 .andExpect(status().isNoContent())
                 .andExpect(header().string("Set-Cookie", containsString(AccessSessionService.OWNER_COOKIE_NAME + "=o2.")))
-                .andExpect(header().string("Set-Cookie", containsString(service.issueOwnerToken(ownerKey).split("\\.")[0])));
+                .andExpect(header().string("Set-Cookie", containsString("Max-Age=60")));
     }
 
     private AccessSessionService serviceAt(Instant instant, Duration ownerTtl, long legacyCutoff) {
