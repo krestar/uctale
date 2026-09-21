@@ -5,13 +5,16 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.uctale.uctale.application.narrative.NarrativeContext;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
+import com.uctale.uctale.application.narrative.NarrativeProviderException;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
 import com.uctale.uctale.application.narrative.RecoverableNarrativeResponseException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -120,23 +123,26 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
         return generate(
                 openingPrompt(worldSetting, characterSetting),
                 "opening",
-                settings.openingThinkingLevel()
+                settings.openingThinkingLevel(),
+                settings.modelId()
         );
     }
 
     @Override
     public NarrativeTurn repairOpening(String worldSetting, String characterSetting, String reasonCode) {
+        String modelId = settings.retryModelId(reasonCode);
         return generate(
-                openingPrompt(worldSetting, characterSetting) + recoveryInstruction(reasonCode),
+                openingPrompt(worldSetting, characterSetting) + retryInstruction(reasonCode),
                 "opening_repair",
-                settings.openingThinkingLevel()
+                settings.openingThinkingLevel(),
+                modelId
         );
     }
 
     @Override
     public NarrativeTurn createNextTurn(NarrativeContext context) {
         try {
-            return generate(buildProgressPrompt(context), "progress", settings.progressThinkingLevel());
+            return generate(buildProgressPrompt(context), "progress", settings.progressThinkingLevel(), settings.modelId());
         } catch (JacksonException exception) {
             throw new IllegalStateException("Narrative progress prompt 직렬화에 실패했습니다.", exception);
         }
@@ -145,10 +151,12 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
     @Override
     public NarrativeTurn repairNextTurn(NarrativeContext context, String reasonCode) {
         try {
+            String modelId = settings.retryModelId(reasonCode);
             return generate(
-                    buildProgressPrompt(context) + recoveryInstruction(reasonCode),
+                    buildProgressPrompt(context) + retryInstruction(reasonCode),
                     "progress_repair",
-                    settings.progressThinkingLevel()
+                    settings.progressThinkingLevel(),
+                    modelId
             );
         } catch (JacksonException exception) {
             throw new IllegalStateException("Narrative recovery prompt 직렬화에 실패했습니다.", exception);
@@ -168,6 +176,13 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
                 위 설정을 바탕으로 게임의 오프닝을 생성하세요.
                 첫 장면이므로 visual_assets(배경, 분위기 등)를 반드시 상세하게 채워주세요.
                 """, worldSetting, characterSetting);
+    }
+
+    private String retryInstruction(String reasonCode) {
+        if (isProviderTransientReason(reasonCode)) {
+            return "";
+        }
+        return recoveryInstruction(reasonCode);
     }
 
     private String recoveryInstruction(String reasonCode) {
@@ -245,14 +260,15 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
     private NarrativeTurn generate(
             String prompt,
             String errorContext,
-            GeminiProviderSettings.ThinkingLevel thinkingLevel
+            GeminiProviderSettings.ThinkingLevel thinkingLevel,
+            String modelId
     ) {
         long startedAt = System.nanoTime();
         TokenUsage tokenUsage = TokenUsage.empty();
         try {
-            String requestBody = createRequestBody(prompt, thinkingLevel);
+            String requestBody = createRequestBody(prompt, thinkingLevel, modelId);
             String response = restClient.post()
-                    .uri(settings.generateContentUrl())
+                    .uri(settings.generateContentUrl(modelId))
                     .header("x-goog-api-key", settings.apiKey())
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(requestBody)
@@ -263,18 +279,33 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
             }
             tokenUsage = readTokenUsage(response);
             NarrativeTurn turn = parseResponse(response);
-            logProviderResult(errorContext, thinkingLevel, tokenUsage, startedAt, "SUCCESS");
+            logProviderResult(modelId, errorContext, thinkingLevel, tokenUsage, startedAt, "SUCCESS");
             return turn;
         } catch (RecoverableNarrativeResponseException exception) {
-            logProviderResult(errorContext, thinkingLevel, tokenUsage, startedAt, "INVALID_RESPONSE");
-            log.warn("gemini_response_invalid context={} reason={}", errorContext, exception.reasonCode());
+            logProviderResult(modelId, errorContext, thinkingLevel, tokenUsage, startedAt, "INVALID_RESPONSE");
+            log.warn("gemini_response_invalid model={} context={} reason={}", modelId, errorContext, exception.reasonCode());
             throw exception;
+        } catch (RestClientResponseException exception) {
+            int status = exception.getStatusCode().value();
+            if (isRetryableProviderStatus(status)) {
+                String reasonCode = status == 429 ? "PROVIDER_RATE_LIMIT" : "PROVIDER_HTTP_" + status;
+                logProviderResult(modelId, errorContext, thinkingLevel, tokenUsage, startedAt, "PROVIDER_RETRYABLE_FAILURE");
+                log.warn("gemini_provider_retryable_failure model={} context={} status={}", modelId, errorContext, status);
+                throw recoverable(reasonCode, "Gemini provider가 일시적으로 요청을 처리하지 못했습니다.", exception);
+            }
+            logProviderResult(modelId, errorContext, thinkingLevel, tokenUsage, startedAt, "PROVIDER_FAILURE");
+            log.error("Gemini provider 요청 거부 model={} context={} status={}", modelId, errorContext, status);
+            throw new NarrativeProviderException("Gemini provider 요청이 실패했습니다.", exception);
+        } catch (ResourceAccessException exception) {
+            logProviderResult(modelId, errorContext, thinkingLevel, tokenUsage, startedAt, "PROVIDER_RETRYABLE_FAILURE");
+            log.warn("gemini_provider_network_failure model={} context={} error={}", modelId, errorContext, exception.getClass().getSimpleName());
+            throw recoverable("PROVIDER_NETWORK", "Gemini provider 네트워크 호출이 일시적으로 실패했습니다.", exception);
         } catch (JacksonException exception) {
-            logProviderResult(errorContext, thinkingLevel, tokenUsage, startedAt, "REQUEST_SERIALIZATION_FAILURE");
+            logProviderResult(modelId, errorContext, thinkingLevel, tokenUsage, startedAt, "REQUEST_SERIALIZATION_FAILURE");
             throw new IllegalStateException("Gemini 요청 직렬화에 실패했습니다.", exception);
         } catch (RuntimeException exception) {
-            logProviderResult(errorContext, thinkingLevel, tokenUsage, startedAt, "PROVIDER_FAILURE");
-            log.error("Gemini provider 호출 실패 context={} error={}", errorContext, exception.getClass().getSimpleName());
+            logProviderResult(modelId, errorContext, thinkingLevel, tokenUsage, startedAt, "PROVIDER_FAILURE");
+            log.error("Gemini provider 호출 실패 model={} context={} error={}", modelId, errorContext, exception.getClass().getSimpleName());
             throw exception;
         }
     }
@@ -283,12 +314,20 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
             String userPrompt,
             GeminiProviderSettings.ThinkingLevel thinkingLevel
     ) throws JacksonException {
+        return createRequestBody(userPrompt, thinkingLevel, settings.modelId());
+    }
+
+    String createRequestBody(
+            String userPrompt,
+            GeminiProviderSettings.ThinkingLevel thinkingLevel,
+            String modelId
+    ) throws JacksonException {
         Map<String, Object> requestMap = Map.of(
                 "contents", List.of(Map.of("parts", List.of(Map.of("text", SYSTEM_INSTRUCTION + "\n\n" + userPrompt)))),
                 "generationConfig", Map.of(
                         "responseMimeType", "application/json",
                         "responseSchema", RESPONSE_SCHEMA,
-                        "thinkingConfig", settings.thinkingConfig(thinkingLevel)
+                        "thinkingConfig", settings.thinkingConfig(thinkingLevel, modelId)
                 )
         );
         return objectMapper.writeValueAsString(requestMap);
@@ -345,6 +384,7 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
     }
 
     private void logProviderResult(
+            String modelId,
             String context,
             GeminiProviderSettings.ThinkingLevel thinkingLevel,
             TokenUsage usage,
@@ -354,7 +394,7 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
         long latencyMs = Math.max(0L, (System.nanoTime() - startedAt) / 1_000_000L);
         log.info(
                 "gemini_provider_result model={} thinkingLevel={} context={} latencyMs={} outcome={} promptTokens={} candidatesTokens={} thoughtsTokens={} totalTokens={}",
-                settings.modelId(),
+                modelId,
                 thinkingLevel.apiValue(),
                 context,
                 latencyMs,
@@ -468,6 +508,14 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
             return true;
         }
         return false;
+    }
+
+    private boolean isRetryableProviderStatus(int status) {
+        return status == 408 || status == 429 || status >= 500;
+    }
+
+    private boolean isProviderTransientReason(String reasonCode) {
+        return reasonCode != null && reasonCode.startsWith("PROVIDER_");
     }
 
     private RecoverableNarrativeResponseException recoverable(String reasonCode, String message, Throwable cause) {

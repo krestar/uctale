@@ -1,11 +1,13 @@
 package com.uctale.uctale.provider.gemini;
 
 import tools.jackson.databind.ObjectMapper;
+import com.uctale.uctale.application.narrative.NarrativeProviderException;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
 import com.uctale.uctale.application.narrative.RecoverableNarrativeResponseException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -14,9 +16,11 @@ import org.springframework.web.client.RestClient;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class GeminiNarrativeAdapterTest {
@@ -49,6 +53,44 @@ class GeminiNarrativeAdapterTest {
 
         assertThat(response.title()).isEqualTo("첫날 밤");
         assertThat(response.choices()).extracting(NarrativeTurn.Choice::text).containsExactly("도망간다");
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("Gemini 503은 provider transient failure로 분류해 recovery 대상으로 넘긴다")
+    void createOpening_ServiceUnavailable_IsRecoverableProviderFailure() {
+        mockServer.expect(requestTo(settings.generateContentUrl()))
+                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+
+        assertThatThrownBy(() -> adapter.createOpening("세계", "캐릭터"))
+                .isInstanceOfSatisfying(RecoverableNarrativeResponseException.class, exception ->
+                        assertThat(exception.reasonCode()).isEqualTo("PROVIDER_HTTP_503"));
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("provider transient retry는 3.6 fallback 모델에 원 요청을 그대로 보낸다")
+    void repairOpening_ProviderTransient_UsesFallbackWithoutRepairInstruction() {
+        mockServer.expect(requestTo(settings.generateContentUrl(settings.fallbackModelId())))
+                .andExpect(header("x-goog-api-key", "TEST_API_KEY"))
+                .andExpect(content().string(containsString("[세계관 설정]: 세계")))
+                .andExpect(content().string(not(containsString("[응답 수정 요청]"))))
+                .andRespond(withSuccess(apiResponse(validNarrativeJson()), MediaType.APPLICATION_JSON));
+
+        NarrativeTurn response = adapter.repairOpening("세계", "캐릭터", "PROVIDER_HTTP_503");
+
+        assertThat(response.title()).isEqualTo("첫날 밤");
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("retry 대상이 아닌 provider 4xx는 즉시 provider failure로 분류한다")
+    void createOpening_BadRequest_IsNonRetryableProviderFailure() {
+        mockServer.expect(requestTo(settings.generateContentUrl()))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST));
+
+        assertThatThrownBy(() -> adapter.createOpening("세계", "캐릭터"))
+                .isInstanceOf(NarrativeProviderException.class);
         mockServer.verify();
     }
 
