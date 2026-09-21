@@ -47,7 +47,7 @@ class AccessControllerTest {
     @DisplayName("잘못된 비밀번호는 안정적인 401 오류를 반환한다")
     void verifyPassword_RejectsWrongPassword() throws Exception {
         AccessSessionService service = new AccessSessionService("TEST_PASSWORD", SECRET, 3600, false);
-        MockMvc mockMvc = standaloneMockMvc(service, limiter(5));
+        MockMvc mockMvc = standaloneMockMvc(service, limiter(5), issuanceLimiter(5));
 
         mockMvc.perform(post("/api/game/verify-password")
                         .contentType(MediaType.APPLICATION_JSON)
