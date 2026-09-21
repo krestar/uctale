@@ -17,7 +17,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 import java.util.Set;
 
 public class JsonRequestBodySizeFilter extends OncePerRequestFilter {
@@ -37,8 +36,7 @@ public class JsonRequestBodySizeFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !BODY_METHODS.contains(request.getMethod())
-                || !isJsonContentType(request.getContentType());
+        return !BODY_METHODS.contains(request.getMethod());
     }
 
     @Override
@@ -75,15 +73,6 @@ public class JsonRequestBodySizeFilter extends OncePerRequestFilter {
             total += read;
         }
         return new ReadResult(output.toByteArray(), false);
-    }
-
-    private boolean isJsonContentType(String contentType) {
-        if (contentType == null || contentType.isBlank()) {
-            return false;
-        }
-        String mediaType = contentType.split(";", 2)[0].trim().toLowerCase(Locale.ROOT);
-        return MediaType.APPLICATION_JSON_VALUE.equals(mediaType)
-                || (mediaType.startsWith("application/") && mediaType.endsWith("+json"));
     }
 
     private void reject(HttpServletResponse response) throws IOException {
