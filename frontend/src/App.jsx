@@ -231,11 +231,13 @@ function App() {
       if (!requireReauthentication(error)) {
         console.error(error)
         const errorCode = getApiErrorCode(error)
-        if (errorCode === 'NARRATIVE_PROVIDER_RECOVERY_WAIT') {
+        let resumedMeta = null
+        if (isRetryableProgressError(error) || errorCode === 'NARRATIVE_PROVIDER_RECOVERY_WAIT') {
           try {
             const resumed = await resumeGameSession(sessionId)
             if (resumed?.game) {
-              setResumeMeta(createResumeMeta(resumed))
+              resumedMeta = createResumeMeta(resumed)
+              setResumeMeta(resumedMeta)
             }
           } catch (resumeError) {
             if (!requireReauthentication(resumeError)) {
@@ -251,7 +253,7 @@ function App() {
             error,
             '선택을 진행하지 못했습니다. 연결 상태를 확인하고 다시 시도해주세요.',
           ),
-          canRetry: isRetryableProgressError(error),
+          canRetry: isRetryableProgressError(error) && resumedMeta?.canProgress !== false,
         })
       }
     } finally {
