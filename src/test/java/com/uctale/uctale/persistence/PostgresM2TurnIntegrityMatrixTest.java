@@ -1,5 +1,6 @@
 package com.uctale.uctale.persistence;
 
+import com.uctale.uctale.application.cost.CostRateLimitPolicy;
 import com.uctale.uctale.application.cost.CostRateLimiter;
 import com.uctale.uctale.application.cost.CostRequestContext;
 import com.uctale.uctale.application.cost.ProviderCallTelemetry;
@@ -66,7 +67,7 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
     @Autowired private ImageAssetService imageAssetService;
     @Autowired private ChoiceCodec choiceCodec;
     @Autowired private ImagePromptComposer imagePromptComposer;
-    @Autowired private CostRateLimiter costRateLimiter;
+    private CostRateLimiter costRateLimiter;
     @Autowired private ProviderCallTelemetry providerCallTelemetry;
     @Autowired private GameMutationFingerprint mutationFingerprint;
 
@@ -82,6 +83,7 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
                     game_state_snapshot, game_log, game_session restart identity
                 """);
         clock = new MutableClock(Instant.parse("2026-08-31T04:00:00Z"));
+        costRateLimiter = new CostRateLimiter(new CostRateLimitPolicy(1_000, 1_000, 60), clock);
         mutationService = new TransactionalMutationService(
                 mutationRequestRepository,
                 jdbcTemplate,
