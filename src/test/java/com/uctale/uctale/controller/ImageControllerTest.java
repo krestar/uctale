@@ -1,5 +1,6 @@
 package com.uctale.uctale.controller;
 
+import com.uctale.uctale.application.cost.ClientIpResolver;
 import com.uctale.uctale.application.cost.CostRequestContext;
 import com.uctale.uctale.application.image.ImageAssetService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -29,7 +30,7 @@ class ImageControllerTest {
     @Test
     @DisplayName("image asset 조회는 owner와 client IP를 비용 요청 context에 포함한다")
     void image_UsesOwnedAssetLookup() {
-        ImageController controller = new ImageController(imageAssetService);
+        ImageController controller = new ImageController(imageAssetService, new ClientIpResolver(false));
         byte[] bytes = new byte[]{1, 2, 3};
         given(servletRequest.getRemoteAddr()).willReturn("1.2.3.4");
         given(imageAssetService.getOrGenerate(any(CostRequestContext.class), eq("asset-id")))
