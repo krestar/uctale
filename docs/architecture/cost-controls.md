@@ -56,7 +56,7 @@
 
 provider 호출 이전에 비정상적으로 큰 JSON 요청을 제한합니다.
 
-- `/api/**`의 JSON `POST/PUT/PATCH` body는 기본 16 KiB 상한을 갖습니다. 초과 시 MVC controller 진입 전에 `413 REQUEST_BODY_TOO_LARGE`로 거부합니다.
+- `/api/**`의 `POST/PUT/PATCH` body는 caller가 지정하는 `Content-Type`과 무관하게 기본 16 KiB 상한을 갖습니다. JSON API의 media type을 바꾸는 방식으로 이 경계를 우회할 수 없습니다. 초과 시 MVC controller 진입 전에 `413 REQUEST_BODY_TOO_LARGE`로 거부합니다.
 - `GameProgressRequest.arguments`는 최대 8개 entry, key 최대 64자, value 최대 256자로 제한합니다.
 - arguments validation 실패는 `400 VALIDATION_ERROR`이며 `GameService`, rate limit, budget guard, provider attempt 경계에 도달하지 않습니다.
 
