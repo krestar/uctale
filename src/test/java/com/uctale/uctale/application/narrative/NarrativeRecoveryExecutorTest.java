@@ -95,6 +95,36 @@ class NarrativeRecoveryExecutorTest {
     }
 
     @Test
+    @DisplayName("provider 429는 짧은 backoff 재시도 없이 명시적 cooldown으로 전환한다")
+    void rateLimit_DefersWithoutImmediateRetry() {
+        List<Long> backoffs = new ArrayList<>();
+        AtomicInteger providerCalls = new AtomicInteger();
+        AtomicInteger retryGuards = new AtomicInteger();
+        NarrativeExecutionPolicy policy = new NarrativeExecutionPolicy(10_000, 40_000, 180, 30);
+        NarrativeRecoveryExecutor executor = new NarrativeRecoveryExecutor(3, backoffs::add, policy);
+
+        assertThatThrownBy(() -> executor.execute(
+                () -> {
+                    providerCalls.incrementAndGet();
+                    throw new RecoverableNarrativeResponseException("PROVIDER_RATE_LIMIT", "rate limited");
+                },
+                reason -> {
+                    providerCalls.incrementAndGet();
+                    return validTurn("unexpected");
+                },
+                retryGuards::incrementAndGet
+        )).isInstanceOfSatisfying(NarrativeRecoveryDeferredException.class, exception -> {
+            assertThat(exception.retryCount()).isZero();
+            assertThat(exception.reasonCode()).isEqualTo("PROVIDER_RATE_LIMIT");
+            assertThat(exception.retryAfterSeconds()).isEqualTo(30);
+        });
+
+        assertThat(providerCalls).hasValue(1);
+        assertThat(retryGuards).hasValue(0);
+        assertThat(backoffs).isEmpty();
+    }
+
+    @Test
     @DisplayName("repair attempt에서 transport failure가 나면 실제 호출 횟수를 보존한다")
     void hardFailureDuringRepair_PreservesAttemptCount() {
         NarrativeRecoveryExecutor executor = new NarrativeRecoveryExecutor(3, ignored -> {});
