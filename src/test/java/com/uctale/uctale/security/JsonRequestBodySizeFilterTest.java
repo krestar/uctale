@@ -50,8 +50,8 @@ class JsonRequestBodySizeFilterTest {
     }
 
     @Test
-    @DisplayName("JSON이 아닌 요청은 body size filter 대상이 아니다")
-    void nonJsonRequest_IsNotFiltered() throws ServletException, IOException {
+    @DisplayName("caller가 Content-Type을 바꿔도 body byte 상한을 우회할 수 없다")
+    void nonJsonContentType_CannotBypassBodyLimit() throws ServletException, IOException {
         JsonRequestBodySizeFilter filter = new JsonRequestBodySizeFilter(4);
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/game/progress");
         request.setContentType(MediaType.TEXT_PLAIN_VALUE);
@@ -61,7 +61,8 @@ class JsonRequestBodySizeFilterTest {
 
         filter.doFilter(request, response, chain);
 
-        assertThat(chain.getRequest()).isSameAs(request);
+        assertThat(response.getStatus()).isEqualTo(413);
+        assertThat(chain.getRequest()).isNull();
     }
 
     private MockHttpServletRequest jsonRequest(String body) {
