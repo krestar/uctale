@@ -11,6 +11,7 @@ public record SessionResumeResponse(
         String statusMessage,
         boolean retryable,
         boolean canProgress,
+        Long retryAfterSeconds,
         Integer canonicalStateTurn,
         GameResponse game
 ) {}
