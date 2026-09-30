@@ -2,14 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import { fetchGameImage } from '../api/gameApi'
 import { isAccessAuthError } from '../api/apiError'
 import {
-  createGameImageState,
+  gameImageInstanceKey,
   isUsableImageBlob,
   shouldRequestGameImage,
 } from './gameImageBehavior.js'
 
-const GameImage = ({ src, alt, onAuthError, fallbackContent = null }) => {
-  const [loadState, setLoadState] = useState(() => createGameImageState(src))
-  const [isVisible, setIsVisible] = useState(false)
+function GameImageContent({ src, alt, onAuthError, fallbackContent }) {
+  const [imageSrc, setImageSrc] = useState(null)
+  const [hasError, setHasError] = useState(false)
+  const [hasEnteredViewport, setHasEnteredViewport] = useState(
+    () => typeof IntersectionObserver === 'undefined',
+  )
   const containerRef = useRef(null)
   const onAuthErrorRef = useRef(onAuthError)
 
@@ -18,22 +21,15 @@ const GameImage = ({ src, alt, onAuthError, fallbackContent = null }) => {
   }, [onAuthError])
 
   useEffect(() => {
-    setLoadState(createGameImageState(src))
-  }, [src])
+    if (hasEnteredViewport) return undefined
 
-  useEffect(() => {
     const element = containerRef.current
     if (!element) return undefined
-
-    if (typeof IntersectionObserver === 'undefined') {
-      setIsVisible(true)
-      return undefined
-    }
 
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
-          setIsVisible(true)
+          setHasEnteredViewport(true)
           observer.disconnect()
         }
       },
@@ -41,21 +37,13 @@ const GameImage = ({ src, alt, onAuthError, fallbackContent = null }) => {
     )
     observer.observe(element)
     return () => observer.disconnect()
-  }, [])
+  }, [hasEnteredViewport])
 
   useEffect(() => {
     let cancelled = false
     let objectUrl = null
 
-    if (!shouldRequestGameImage(src, isVisible)) return undefined
-
-    setLoadState((current) => ({
-      ...current,
-      source: src,
-      imageSrc: null,
-      isLoading: true,
-      hasError: false,
-    }))
+    if (!shouldRequestGameImage(src, hasEnteredViewport)) return undefined
 
     fetchGameImage(src)
       .then((blob) => {
@@ -64,44 +52,34 @@ const GameImage = ({ src, alt, onAuthError, fallbackContent = null }) => {
           throw new Error('empty image response')
         }
         objectUrl = URL.createObjectURL(blob)
-        setLoadState({
-          source: src,
-          imageSrc: objectUrl,
-          isLoading: false,
-          hasError: false,
-        })
+        setImageSrc(objectUrl)
       })
       .catch((error) => {
         if (cancelled) return
         if (isAccessAuthError(error) && onAuthErrorRef.current) {
           onAuthErrorRef.current(error)
-          setLoadState((current) => ({ ...current, isLoading: false }))
-          return
         }
-        setLoadState({
-          source: src,
-          imageSrc: null,
-          isLoading: false,
-          hasError: true,
-        })
+        setHasError(true)
       })
 
     return () => {
       cancelled = true
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [src, isVisible])
+  }, [src, hasEnteredViewport])
+
+  const isLoading = shouldRequestGameImage(src, hasEnteredViewport) && !imageSrc && !hasError
 
   return (
-    <div ref={containerRef} className="game-image" aria-busy={loadState.isLoading}>
-      {loadState.isLoading && (
+    <div ref={containerRef} className="game-image" aria-busy={isLoading}>
+      {isLoading && (
         <div className="game-image__status" role="status">
           <span className="spinner" aria-hidden="true" />
           <p>장면 이미지를 불러오고 있습니다.</p>
         </div>
       )}
 
-      {loadState.hasError && !loadState.isLoading && (
+      {hasError && (
         fallbackContent || (
           <p className="game-image__status game-image__status--error" role="status">
             장면 이미지를 불러오지 못했습니다. 이야기는 계속 진행할 수 있습니다.
@@ -109,9 +87,19 @@ const GameImage = ({ src, alt, onAuthError, fallbackContent = null }) => {
         )
       )}
 
-      {loadState.imageSrc && <img className="game-image__media" src={loadState.imageSrc} alt={alt} />}
+      {imageSrc && <img className="game-image__media" src={imageSrc} alt={alt} />}
     </div>
   )
 }
+
+const GameImage = ({ src, alt, onAuthError, fallbackContent = null }) => (
+  <GameImageContent
+    key={gameImageInstanceKey(src)}
+    src={src}
+    alt={alt}
+    onAuthError={onAuthError}
+    fallbackContent={fallbackContent}
+  />
+)
 
 export default GameImage

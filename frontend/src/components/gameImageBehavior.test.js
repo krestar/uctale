@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  createGameImageState,
+  gameImageInstanceKey,
   isUsableImageBlob,
   shouldRequestGameImage,
 } from './gameImageBehavior.js'
@@ -12,23 +12,9 @@ test('offscreen image is not requested until it becomes visible', () => {
   assert.equal(shouldRequestGameImage(null, true), false)
 })
 
-test('new src starts from a clean loading/error/object-url state', () => {
-  const previous = {
-    source: '/asset/old',
-    imageSrc: 'blob:old',
-    isLoading: false,
-    hasError: true,
-  }
-
-  const next = createGameImageState('/asset/new')
-
-  assert.equal(previous.hasError, true)
-  assert.deepEqual(next, {
-    source: '/asset/new',
-    imageSrc: null,
-    isLoading: false,
-    hasError: false,
-  })
+test('src change creates a distinct image instance so stale error and object URL state cannot survive', () => {
+  assert.notEqual(gameImageInstanceKey('/asset/old'), gameImageInstanceKey('/asset/new'))
+  assert.equal(gameImageInstanceKey(null), '__empty-image__')
 })
 
 test('empty thumbnail response is not treated as a usable image', () => {
