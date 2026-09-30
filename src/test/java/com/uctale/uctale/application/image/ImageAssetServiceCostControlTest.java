@@ -61,13 +61,28 @@ class ImageAssetServiceCostControlTest {
         assertThat(result.bytes()).containsExactly(1, 2, 3);
         verify(rateLimiter, never()).check(any(), any());
         verify(imageGenerator, never()).fetchImage(any(ImageGenerator.GenerationRequest.class));
+        verify(repository, never()).claimGeneration(any(), any(), any(), any());
     }
 
     @Test
-    @DisplayName("미생성 asset의 rate limit 초과는 provider 호출 전에 거부한다")
+    @DisplayName("thumbnail 조회는 미생성 asset에서 provider를 호출하지 않는다")
+    void getGenerated_UngeneratedAssetDoesNotCallProvider() {
+        ImageAsset asset = asset("asset-thumb");
+        given(repository.findByIdAndGameSessionOwnerKey("asset-thumb", OWNER_KEY)).willReturn(Optional.of(asset));
+
+        assertThat(service.getGenerated(OWNER_KEY, "asset-thumb")).isEmpty();
+
+        verify(rateLimiter, never()).check(any(), any());
+        verify(imageGenerator, never()).fetchImage(any(ImageGenerator.GenerationRequest.class));
+        verify(repository, never()).claimGeneration(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("미생성 asset의 rate limit 초과는 provider 호출 전에 거부하고 claim을 해제한다")
     void rateLimit_RejectsBeforeProvider() {
         ImageAsset asset = asset("asset-2");
         given(repository.findByIdAndGameSessionOwnerKey("asset-2", OWNER_KEY)).willReturn(Optional.of(asset));
+        given(repository.claimGeneration(eq("asset-2"), any(), any(), any())).willReturn(1);
         doThrow(new RateLimitExceededException("limit", 10))
                 .when(rateLimiter).check(eq(CostOperation.IMAGE), any(CostRequestContext.class));
 
@@ -76,6 +91,23 @@ class ImageAssetServiceCostControlTest {
         )).isInstanceOf(RateLimitExceededException.class);
 
         verify(imageGenerator, never()).fetchImage(any(ImageGenerator.GenerationRequest.class));
+        verify(repository).releaseGenerationClaim(eq("asset-2"), any());
+    }
+
+    @Test
+    @DisplayName("다른 인스턴스가 generation claim을 가진 asset은 provider를 중복 호출하지 않는다")
+    void contendedGenerationClaim_DoesNotCallProvider() {
+        ImageAsset asset = asset("asset-contended");
+        given(repository.findByIdAndGameSessionOwnerKey("asset-contended", OWNER_KEY)).willReturn(Optional.of(asset));
+        given(repository.claimGeneration(eq("asset-contended"), any(), any(), any())).willReturn(0);
+
+        ImageAssetService.GeneratedAsset result = service.getOrGenerate(
+                new CostRequestContext("r4", OWNER_KEY, "1.2.3.4", null, null, null), "asset-contended"
+        );
+
+        assertThat(result.contentType().toString()).isEqualTo("image/svg+xml");
+        verify(rateLimiter, never()).check(any(), any());
+        verify(imageGenerator, never()).fetchImage(any(ImageGenerator.GenerationRequest.class));
     }
 
     @Test
@@ -83,6 +115,7 @@ class ImageAssetServiceCostControlTest {
     void providerFailure_ReturnsPlaceholder() {
         ImageAsset asset = asset("asset-3");
         given(repository.findByIdAndGameSessionOwnerKey("asset-3", OWNER_KEY)).willReturn(Optional.of(asset));
+        given(repository.claimGeneration(eq("asset-3"), any(), any(), any())).willReturn(1);
         given(imageGenerator.fetchImage(any(ImageGenerator.GenerationRequest.class)))
                 .willThrow(new ImageGenerationException("provider failed"));
 
@@ -92,7 +125,8 @@ class ImageAssetServiceCostControlTest {
 
         assertThat(result.contentType().toString()).isEqualTo("image/svg+xml");
         assertThat(new String(result.bytes())).contains("UCTale scene unavailable");
-        verify(repository, never()).saveAndFlush(any());
+        verify(repository, never()).storeGeneratedImageIfOwner(any(), any(), any(), any(), any());
+        verify(repository).releaseGenerationClaim(eq("asset-3"), any());
     }
 
     private ImageAsset asset(String id) {

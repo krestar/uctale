@@ -13,6 +13,9 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.ObjectMapper;
 
+import java.io.ByteArrayInputStream;
+import java.util.concurrent.atomic.AtomicLong;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
@@ -63,6 +66,28 @@ class PollinationsImageAdapterTest {
         ImageGenerator.GeneratedImage image = adapter.fetchImage(request(456));
 
         assertThat(image.contentType()).isEqualTo(MediaType.IMAGE_PNG);
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("동기 대기 상한을 넘는 Retry-After는 sleep하거나 재호출하지 않는다")
+    void excessiveRetryAfter_DoesNotSleepOrRetry() {
+        AtomicLong sleptMillis = new AtomicLong(-1);
+        PollinationsImageAdapter adapter = new PollinationsImageAdapter(
+                new ObjectMapper(), builder.build(), "TEST_TOKEN", 1, 0, 1_000,
+                8_388_608, 65_536, sleptMillis::set
+        );
+        int seed = 457;
+        mockServer.expect(requestTo(url(seed)))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS)
+                        .header(HttpHeaders.RETRY_AFTER, "120")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(error(429, "RATE_LIMITED", "req-too-long")));
+
+        assertThatThrownBy(() -> adapter.fetchImage(request(seed)))
+                .isInstanceOf(PollinationsProviderException.class)
+                .satisfies(error -> assertThat(((PollinationsProviderException) error).retryable()).isFalse());
+        assertThat(sleptMillis.get()).isEqualTo(-1);
         mockServer.verify();
     }
 
@@ -124,6 +149,19 @@ class PollinationsImageAdapterTest {
     }
 
     @Test
+    @DisplayName("성공 body는 상한 초과 시 중단하고 provider error body는 상한까지만 읽는다")
+    void boundedBodyRead_StopsAtConfiguredLimit() throws Exception {
+        assertThatThrownBy(() -> PollinationsImageAdapter.readBoundedBody(
+                new ByteArrayInputStream("12345".getBytes()), 4, true
+        )).isInstanceOf(ImageGenerationException.class);
+
+        byte[] truncatedError = PollinationsImageAdapter.readBoundedBody(
+                new ByteArrayInputStream("12345".getBytes()), 4, false
+        );
+        assertThat(new String(truncatedError)).isEqualTo("1234");
+    }
+
+    @Test
     @DisplayName("예상 밖 RestClient 오류도 이미지 생성 실패 경계로 변환한다")
     void unexpectedRestClientError_IsConvertedToImageGenerationFailure() {
         int seed = 1100;
@@ -141,7 +179,8 @@ class PollinationsImageAdapterTest {
 
     private PollinationsImageAdapter adapter(int maxRetries, int maxBytes) {
         return new PollinationsImageAdapter(
-                new ObjectMapper(), builder.build(), "TEST_TOKEN", maxRetries, 0, maxBytes, millis -> {}
+                new ObjectMapper(), builder.build(), "TEST_TOKEN", maxRetries, 0, 2_000,
+                maxBytes, 65_536, millis -> {}
         );
     }
 

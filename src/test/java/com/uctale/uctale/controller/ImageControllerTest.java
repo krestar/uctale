@@ -13,10 +13,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
+import java.util.Optional;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -46,5 +49,19 @@ class ImageControllerTest {
         assertThat(response.getHeaders().getContentType()).isEqualTo(MediaType.IMAGE_PNG);
         assertThat(response.getHeaders().getCacheControl()).contains("private");
         assertThat(response.getBody()).containsExactly(bytes);
+    }
+
+    @Test
+    @DisplayName("thumbnail 조회는 미생성 asset에서 provider 생성 경로를 열지 않는다")
+    void thumbnail_UngeneratedAssetReturnsNoContentWithoutGeneration() {
+        ImageController controller = new ImageController(imageAssetService, new ClientIpResolver(false));
+        given(imageAssetService.getGenerated(OWNER_KEY, "asset-id")).willReturn(Optional.empty());
+
+        ResponseEntity<byte[]> response = controller.thumbnail(OWNER_KEY, "asset-id");
+
+        assertThat(response.getStatusCode().value()).isEqualTo(204);
+        assertThat(response.getHeaders().getCacheControl()).contains("no-store");
+        verify(imageAssetService).getGenerated(OWNER_KEY, "asset-id");
+        verify(imageAssetService, never()).getOrGenerate(any(CostRequestContext.class), any());
     }
 }

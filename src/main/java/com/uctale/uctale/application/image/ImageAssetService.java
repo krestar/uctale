@@ -7,6 +7,8 @@ import com.uctale.uctale.application.cost.ProviderCallTelemetry;
 import com.uctale.uctale.domain.ImageAsset;
 import com.uctale.uctale.repository.ImageAssetRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 
@@ -14,7 +16,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.HexFormat;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -35,7 +39,28 @@ public class ImageAssetService {
     private final CostRateLimiter costRateLimiter;
     private final ProviderCallTelemetry providerCallTelemetry;
     private final ImageGenerationPolicy generationPolicy;
+    private final long generationLeaseSeconds;
     private final ConcurrentHashMap<String, Object> generationLocks = new ConcurrentHashMap<>();
+
+    @Autowired
+    public ImageAssetService(
+            ImageAssetRepository imageAssetRepository,
+            ImageGenerator imageGenerator,
+            CostRateLimiter costRateLimiter,
+            ProviderCallTelemetry providerCallTelemetry,
+            ImageGenerationPolicy generationPolicy,
+            @Value("${game.image.generation-lease-seconds:420}") long generationLeaseSeconds
+    ) {
+        if (generationLeaseSeconds <= 0) {
+            throw new IllegalArgumentException("Image generation lease는 양수여야 합니다.");
+        }
+        this.imageAssetRepository = imageAssetRepository;
+        this.imageGenerator = imageGenerator;
+        this.costRateLimiter = costRateLimiter;
+        this.providerCallTelemetry = providerCallTelemetry;
+        this.generationPolicy = generationPolicy;
+        this.generationLeaseSeconds = generationLeaseSeconds;
+    }
 
     public ImageAssetService(
             ImageAssetRepository imageAssetRepository,
@@ -44,11 +69,7 @@ public class ImageAssetService {
             ProviderCallTelemetry providerCallTelemetry,
             ImageGenerationPolicy generationPolicy
     ) {
-        this.imageAssetRepository = imageAssetRepository;
-        this.imageGenerator = imageGenerator;
-        this.costRateLimiter = costRateLimiter;
-        this.providerCallTelemetry = providerCallTelemetry;
-        this.generationPolicy = generationPolicy;
+        this(imageAssetRepository, imageGenerator, costRateLimiter, providerCallTelemetry, generationPolicy, 420);
     }
 
     public AssetReference issue(String prompt, String aspectRatio) {
@@ -72,6 +93,11 @@ public class ImageAssetService {
         );
     }
 
+    public Optional<GeneratedAsset> getGenerated(String ownerKey, String assetId) {
+        ImageAsset asset = findOwnedAsset(ownerKey, assetId);
+        return asset.generated() ? Optional.of(toGeneratedAsset(asset)) : Optional.empty();
+    }
+
     public GeneratedAsset getOrGenerate(String ownerKey, String assetId) {
         return getOrGenerate(CostRequestContext.internal(ownerKey, null, null), assetId);
     }
@@ -90,33 +116,62 @@ public class ImageAssetService {
                     return toGeneratedAsset(current);
                 }
 
-                CostRequestContext providerContext = new CostRequestContext(
-                        requestContext.requestId(),
-                        requestContext.ownerKey(),
-                        requestContext.clientIp(),
-                        current.getGameSession().getId(),
-                        current.getTurnNumber(),
-                        requestContext.idempotencyKey()
+                String generationOwner = UUID.randomUUID().toString();
+                LocalDateTime now = LocalDateTime.now();
+                int claimed = imageAssetRepository.claimGeneration(
+                        assetId, generationOwner, now, now.plusSeconds(generationLeaseSeconds)
                 );
-                costRateLimiter.check(CostOperation.IMAGE, providerContext);
+                if (claimed != 1) {
+                    ImageAsset contended = findOwnedAsset(requestContext.ownerKey(), assetId);
+                    return contended.generated() ? toGeneratedAsset(contended) : fallbackAsset();
+                }
 
-                long startedAt = System.nanoTime();
+                boolean stored = false;
                 try {
-                    ImageGenerator.GeneratedImage generated = providerCallTelemetry.observe(
-                            "pollinations",
-                            "image_generation",
-                            providerContext,
-                            () -> fetchValidImage(current),
-                            result -> result.providerMetadata().retryCount(),
-                            this::retryCountFromFailure
+                    CostRequestContext providerContext = new CostRequestContext(
+                            requestContext.requestId(),
+                            requestContext.ownerKey(),
+                            requestContext.clientIp(),
+                            current.getGameSession().getId(),
+                            current.getTurnNumber(),
+                            requestContext.idempotencyKey()
                     );
-                    current.storeGeneratedImage(generated.bytes(), generated.contentType().toString());
-                    imageAssetRepository.saveAndFlush(current);
-                    logProviderResult(current, generated, startedAt);
-                    return toGeneratedAsset(current);
-                } catch (ImageGenerationException exception) {
-                    logProviderFailure(current, exception, startedAt);
-                    return fallbackAsset();
+                    costRateLimiter.check(CostOperation.IMAGE, providerContext);
+
+                    long startedAt = System.nanoTime();
+                    try {
+                        ImageGenerator.GeneratedImage generated = providerCallTelemetry.observe(
+                                "pollinations",
+                                "image_generation",
+                                providerContext,
+                                () -> fetchValidImage(current),
+                                result -> result.providerMetadata().retryCount(),
+                                this::retryCountFromFailure
+                        );
+                        int updated = imageAssetRepository.storeGeneratedImageIfOwner(
+                                assetId,
+                                generationOwner,
+                                generated.contentType().toString(),
+                                generated.bytes(),
+                                LocalDateTime.now()
+                        );
+                        if (updated != 1) {
+                            log.warn("image_generation_claim_lost assetId={} sessionId={} turn={}",
+                                    assetId, current.getGameSession().getId(), current.getTurnNumber());
+                            ImageAsset latest = findOwnedAsset(requestContext.ownerKey(), assetId);
+                            return latest.generated() ? toGeneratedAsset(latest) : fallbackAsset();
+                        }
+                        stored = true;
+                        logProviderResult(current, generated, startedAt);
+                        return new GeneratedAsset(generated.bytes().clone(), generated.contentType());
+                    } catch (ImageGenerationException exception) {
+                        logProviderFailure(current, exception, startedAt);
+                        return fallbackAsset();
+                    }
+                } finally {
+                    if (!stored) {
+                        imageAssetRepository.releaseGenerationClaim(assetId, generationOwner);
+                    }
                 }
             }
         } finally {
