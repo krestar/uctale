@@ -26,20 +26,43 @@
 - `GAME_COST_NARRATIVE_LIMIT`
 - `GAME_COST_IMAGE_LIMIT`
 
-### 접근 비밀번호 인증 rate limit
+### 접근 비밀번호 인증과 owner identity 발급 rate limit
 
-`POST /api/game/verify-password`는 비용 API quota와 별도의 IP 기반 실패 limiter를 사용합니다.
+`POST /api/game/verify-password`에는 서로 다른 두 책임의 limiter가 있습니다.
 
-- 기본값은 300초 window에서 연속 실패 5회입니다.
-- 한도를 넘으면 `429 ACCESS_RATE_LIMIT_EXCEEDED`와 `Retry-After`를 반환합니다.
-- 정상 인증 성공 시 해당 IP의 실패 counter를 초기화합니다.
-- 비밀번호 판정과 실패 counter 갱신은 하나의 limiter 경계에서 처리합니다.
+- `AccessAuthenticationRateLimiter`: 잘못된 비밀번호 반복 시도를 IP 기준으로 제한합니다. 기본값은 300초 window에서 연속 실패 5회이며, 한도를 넘으면 `429 ACCESS_RATE_LIMIT_EXCEEDED`와 `Retry-After`를 반환합니다.
+- `OwnerIdentityIssuanceRateLimiter`: 비밀번호가 맞더라도 유효한 owner token 없이 새 owner identity를 발급하는 횟수를 client IP 기준으로 제한합니다. 기본값은 3600초 window에서 5회이며, 한도를 넘으면 `429 OWNER_ISSUANCE_RATE_LIMIT_EXCEEDED`와 `Retry-After`를 반환합니다.
+- 유효한 owner token을 가진 재인증은 기존 owner key를 재사용하므로 owner identity 발급 quota를 소비하지 않습니다.
+- 비밀번호 성공은 authentication failure counter를 초기화합니다. 이후 새 owner 발급 여부는 별도 issuance limiter가 결정하므로 두 책임과 counter는 섞이지 않습니다.
 - 비밀번호, request body, access/owner token은 limiter 로그에 남기지 않습니다.
 
 환경변수:
 
 - `GAME_ACCESS_RATE_LIMIT_FAILURE_LIMIT`
 - `GAME_ACCESS_RATE_LIMIT_WINDOW_SECONDS`
+- `GAME_OWNER_ISSUANCE_RATE_LIMIT`
+- `GAME_OWNER_ISSUANCE_RATE_LIMIT_WINDOW_SECONDS`
+
+### Client IP 신뢰 경계
+
+비용/인증 bucket의 client IP는 caller가 임의로 공급할 수 있는 forwarded chain을 직접 신뢰하지 않습니다.
+
+- Render public web service에서는 Render가 자동으로 제공하는 `RENDER=true`를 기본 신호로 사용해 `CF-Connecting-IP`를 신뢰합니다. Render의 public ingress는 Cloudflare를 통과하며 이 header는 edge에서 caller 값보다 우선해 설정되는 계약을 사용합니다.
+- Render가 아닌 환경에서는 기본적으로 socket `remoteAddr`를 사용합니다.
+- `X-Forwarded-For`는 bucket identity 입력으로 사용하지 않습니다. caller가 보낸 chain 값으로 left-most identity를 회전시키는 우회를 허용하지 않기 위함입니다.
+- `GAME_CLIENT_IP_TRUST_RENDER_PROXY_HEADER`로 자동 동작을 명시적으로 override할 수 있습니다. production topology가 Render public web service가 아닌 형태로 바뀌면 proxy contract를 다시 검토해야 합니다.
+
+### Request resource limit
+
+provider 호출 이전에 비정상적으로 큰 JSON 요청을 제한합니다.
+
+- `/api/**`의 `POST/PUT/PATCH` body는 caller가 지정하는 `Content-Type`과 무관하게 기본 16 KiB 상한을 갖습니다. JSON API의 media type을 바꾸는 방식으로 이 경계를 우회할 수 없습니다. 초과 시 MVC controller 진입 전에 `413 REQUEST_BODY_TOO_LARGE`로 거부합니다.
+- `GameProgressRequest.arguments`는 최대 8개 entry, key 최대 64자, value 최대 256자로 제한합니다.
+- arguments validation 실패는 `400 VALIDATION_ERROR`이며 `GameService`, rate limit, budget guard, provider attempt 경계에 도달하지 않습니다.
+
+환경변수:
+
+- `GAME_REQUEST_MAX_JSON_BODY_BYTES`
 
 ### Rate limit 운영 한계
 
@@ -79,7 +102,24 @@ usage 기록 후 warning 또는 critical threshold를 처음 넘어가는 호출
 - critical: `level=CRITICAL`
 - ledger 저장 실패: `level=ACCOUNTING_FAILURE`
 
-기본 `critical-mode`는 `ALERT_ONLY`입니다. `FAIL_CLOSED`에서는 신규 provider 호출 직전에 현재 usage와 다음 1회 unit을 조회하고 critical을 넘는 신규 호출을 `503 AI_BUDGET_EXCEEDED`로 차단합니다.
+기본 `critical-mode`는 `ALERT_ONLY`입니다. repository 기본 threshold는 daily warning/critical 500/750 units, monthly warning/critical 10000/15000 units입니다. `FAIL_CLOSED`에서는 신규 provider 호출 직전에 현재 usage와 다음 1회 unit을 조회하고 critical을 넘는 신규 호출을 `503 AI_BUDGET_EXCEEDED`로 차단합니다.
+
+### Production budget 운영 정책
+
+공유 베타 production의 기준 정책은 `shared-beta-v1`입니다.
+
+- daily warning / critical: 500 / 750 units
+- monthly warning / critical: 10000 / 15000 units
+- Narrative / Image physical provider attempt: 각각 1 unit
+- critical mode: `ALERT_ONLY`
+
+`ProviderBudgetPolicy.effectivePolicyId()`는 application에 실제 적용된 값이 위 기준과 모두 일치할 때만 `shared-beta-v1`을 반환하고, 하나라도 override되면 `custom`을 반환합니다. 인증된 `GET /api/game/budget-policy`는 숫자 임계값 대신 이 정책 ID만 노출합니다.
+
+`scripts/production-smoke.sh`는 production access credential로 해당 endpoint를 호출해 `shared-beta-v1`을 확인합니다. 따라서 Render Dashboard의 `GAME_COST_BUDGET_*` override 유무를 저장소 값과 같다고 추측하지 않고, 배포된 application이 실제로 어떤 effective 정책을 사용 중인지 smoke 결과로 검증합니다.
+
+Story Memory summary bounded retry는 각 loop iteration을 독립적인 physical provider invocation으로 telemetry에 기록합니다. 각 호출의 `retryCount`는 0이고 `attemptCount`는 1이므로 provider 호출 2회가 budget ledger 3회분으로 과대 집계되지 않습니다.
+
+`FAIL_CLOSED` 활성화 여부를 재검토한 결과, 공유 베타의 production 정책은 `ALERT_ONLY`로 유지합니다. 임계값 직전의 multi-instance 동시 호출을 엄격한 hard cap으로 보장하지 않는 현재 구조에서 운영 가용성을 우선하기 위한 결정입니다. #126의 snapshotless Story Memory recovery와 summary 실패 관측성은 별도 정합성 문제로 계속 처리하며, 이 결정이 해당 후속 작업을 완료한 것으로 간주하지 않습니다.
 
 Narrative `/progress`에서는 budget guard가 provider attempt accounting보다 먼저 실행됩니다. 따라서 budget pre-call rejection은 turn reservation의 `provider_attempt_count`를 소비하지 않습니다.
 
@@ -116,6 +156,9 @@ Image는 Pollinations bounded retry의 실제 횟수를 성공 결과 또는 최
 ## 책임 경계
 
 - Access authentication: `AccessAuthenticationRateLimiter`가 비밀번호 실패 burst를 제한합니다.
+- Owner identity issuance: `OwnerIdentityIssuanceRateLimiter`가 올바른 공유 비밀번호를 반복 사용해 새 owner identity를 회전시키는 빈도를 제한합니다.
+- Client IP: Render public ingress에서는 `CF-Connecting-IP`, 그 외 기본 환경에서는 `remoteAddr`를 사용하며 `X-Forwarded-For`를 cost bucket identity로 사용하지 않습니다.
+- Request resource boundary: `JsonRequestBodySizeFilter`와 DTO validation이 큰 JSON body/arguments를 service/provider 이전에 차단합니다.
 - Per-request cost rate limit: owner/IP/session별 짧은 fixed window에서 반복 요청을 제한합니다.
 - Global budget guard: PostgreSQL usage ledger를 기준으로 UTC 일/월 provider 사용량과 warning/critical 정책을 관리합니다.
 - Turn provider attempt: `game_turn_reservation.provider_attempt_count`가 같은 canonical turn의 실제 Narrative provider 시작을 최대 3회로 제한합니다. 이는 전역 budget ledger와 별개의 무결성 경계입니다.

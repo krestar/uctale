@@ -1,6 +1,7 @@
 package com.uctale.uctale.controller;
 
 import tools.jackson.databind.ObjectMapper;
+import com.uctale.uctale.application.cost.ClientIpResolver;
 import com.uctale.uctale.application.cost.CostRequestContext;
 import com.uctale.uctale.application.game.GameSessionNotFoundException;
 import com.uctale.uctale.application.game.IdempotencyConflictException;
@@ -23,7 +24,9 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -46,7 +49,7 @@ class GameControllerTest {
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new GameController(gameService))
+        mockMvc = MockMvcBuilders.standaloneSetup(new GameController(gameService, new ClientIpResolver(false)))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .build();
         objectMapper = new ObjectMapper();
@@ -160,6 +163,55 @@ class GameControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
         verify(gameService, never()).initGame(any(CostRequestContext.class), any(GameInitRequest.class));
+    }
+
+    @Test
+    @DisplayName("progress arguments 엔트리 수 상한 초과는 service 진입 전에 거부한다")
+    void progressGame_RejectsTooManyArgumentsBeforeService() throws Exception {
+        Map<String, String> arguments = new LinkedHashMap<>();
+        for (int i = 0; i < 9; i++) {
+            arguments.put("k" + i, "v" + i);
+        }
+        GameProgressRequest request = new GameProgressRequest(
+                42L, 1, 1, "token", "NARRATIVE_CHOICE", 1, arguments
+        );
+
+        mockMvc.perform(post("/api/game/progress")
+                        .requestAttr(AccessSessionInterceptor.OWNER_KEY_ATTRIBUTE, OWNER_KEY)
+                        .header(GameController.IDEMPOTENCY_KEY_HEADER, IDEMPOTENCY_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        verify(gameService, never()).progressGame(any(CostRequestContext.class), any(GameProgressRequest.class));
+    }
+
+    @Test
+    @DisplayName("progress argument key/value 길이 상한 초과는 service 진입 전에 거부한다")
+    void progressGame_RejectsOversizedArgumentKeyAndValueBeforeService() throws Exception {
+        GameProgressRequest oversizedKey = new GameProgressRequest(
+                42L, 1, 1, "token", "NARRATIVE_CHOICE", 1, Map.of("k".repeat(65), "v")
+        );
+        mockMvc.perform(post("/api/game/progress")
+                        .requestAttr(AccessSessionInterceptor.OWNER_KEY_ATTRIBUTE, OWNER_KEY)
+                        .header(GameController.IDEMPOTENCY_KEY_HEADER, IDEMPOTENCY_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(oversizedKey)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        GameProgressRequest oversizedValue = new GameProgressRequest(
+                42L, 1, 1, "token", "NARRATIVE_CHOICE", 1, Map.of("key", "v".repeat(257))
+        );
+        mockMvc.perform(post("/api/game/progress")
+                        .requestAttr(AccessSessionInterceptor.OWNER_KEY_ATTRIBUTE, OWNER_KEY)
+                        .header(GameController.IDEMPOTENCY_KEY_HEADER, IDEMPOTENCY_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(oversizedValue)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verify(gameService, never()).progressGame(any(CostRequestContext.class), any(GameProgressRequest.class));
     }
 
     @Test

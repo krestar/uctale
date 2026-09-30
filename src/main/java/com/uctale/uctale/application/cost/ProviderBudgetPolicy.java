@@ -6,6 +6,15 @@ import org.springframework.stereotype.Component;
 @Component
 public class ProviderBudgetPolicy {
 
+    public static final String SHARED_BETA_V1_POLICY_ID = "shared-beta-v1";
+    private static final String CUSTOM_POLICY_ID = "custom";
+    private static final long SHARED_BETA_DAILY_WARNING_UNITS = 500L;
+    private static final long SHARED_BETA_DAILY_CRITICAL_UNITS = 750L;
+    private static final long SHARED_BETA_MONTHLY_WARNING_UNITS = 10_000L;
+    private static final long SHARED_BETA_MONTHLY_CRITICAL_UNITS = 15_000L;
+    private static final long SHARED_BETA_NARRATIVE_ATTEMPT_UNITS = 1L;
+    private static final long SHARED_BETA_IMAGE_ATTEMPT_UNITS = 1L;
+
     public enum CriticalMode {
         ALERT_ONLY,
         FAIL_CLOSED
@@ -55,4 +64,15 @@ public class ProviderBudgetPolicy {
     public long monthlyWarningUnits() { return monthlyWarningUnits; }
     public long monthlyCriticalUnits() { return monthlyCriticalUnits; }
     public CriticalMode criticalMode() { return criticalMode; }
+
+    public String effectivePolicyId() {
+        boolean sharedBetaV1 = dailyWarningUnits == SHARED_BETA_DAILY_WARNING_UNITS
+                && dailyCriticalUnits == SHARED_BETA_DAILY_CRITICAL_UNITS
+                && monthlyWarningUnits == SHARED_BETA_MONTHLY_WARNING_UNITS
+                && monthlyCriticalUnits == SHARED_BETA_MONTHLY_CRITICAL_UNITS
+                && narrativeAttemptUnits == SHARED_BETA_NARRATIVE_ATTEMPT_UNITS
+                && imageAttemptUnits == SHARED_BETA_IMAGE_ATTEMPT_UNITS
+                && criticalMode == CriticalMode.ALERT_ONLY;
+        return sharedBetaV1 ? SHARED_BETA_V1_POLICY_ID : CUSTOM_POLICY_ID;
+    }
 }

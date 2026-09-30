@@ -1,26 +1,34 @@
 package com.uctale.uctale.application.cost;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
 
-public final class ClientIpResolver {
+@Component
+public class ClientIpResolver {
 
-    private static final String X_FORWARDED_FOR = "X-Forwarded-For";
+    private static final String CF_CONNECTING_IP = "CF-Connecting-IP";
     private static final int MAX_IP_TEXT_LENGTH = 128;
 
-    private ClientIpResolver() {}
+    private final boolean trustRenderProxyHeader;
 
-    public static String resolve(HttpServletRequest request) {
-        String forwardedFor = request.getHeader(X_FORWARDED_FOR);
-        if (forwardedFor != null && !forwardedFor.isBlank()) {
-            String firstHop = forwardedFor.split(",", 2)[0].trim();
-            if (!firstHop.isBlank()) {
-                return truncate(firstHop);
+    public ClientIpResolver(
+            @Value("${game.client-ip.trust-render-proxy-header:false}") boolean trustRenderProxyHeader
+    ) {
+        this.trustRenderProxyHeader = trustRenderProxyHeader;
+    }
+
+    public String resolve(HttpServletRequest request) {
+        if (trustRenderProxyHeader) {
+            String renderClientIp = request.getHeader(CF_CONNECTING_IP);
+            if (renderClientIp != null && !renderClientIp.isBlank()) {
+                return truncate(renderClientIp);
             }
         }
         return truncate(request.getRemoteAddr());
     }
 
-    private static String truncate(String value) {
+    private String truncate(String value) {
         if (value == null || value.isBlank()) {
             return "unknown";
         }

@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 public class ImageController {
 
     private final ImageAssetService imageAssetService;
+    private final ClientIpResolver clientIpResolver;
 
     @GetMapping("/image-assets/{assetId}")
     public ResponseEntity<byte[]> image(
@@ -29,7 +30,7 @@ public class ImageController {
             @PathVariable String assetId,
             HttpServletRequest servletRequest
     ) {
-        CostRequestContext context = CostRequestContext.create(ownerKey, ClientIpResolver.resolve(servletRequest), null, null);
+        CostRequestContext context = CostRequestContext.create(ownerKey, clientIpResolver.resolve(servletRequest), null, null);
         ImageAssetService.GeneratedAsset asset = imageAssetService.getOrGenerate(context, assetId);
 
         return ResponseEntity.ok()

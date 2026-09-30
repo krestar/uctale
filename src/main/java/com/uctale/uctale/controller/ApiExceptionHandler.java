@@ -17,6 +17,7 @@ import com.uctale.uctale.application.narrative.NarrativeRecoveryExhaustedExcepti
 import com.uctale.uctale.security.AccessAuthenticationRateLimitExceededException;
 import com.uctale.uctale.security.AccessRequestForbiddenException;
 import com.uctale.uctale.security.AccessSessionException;
+import com.uctale.uctale.security.OwnerIdentityIssuanceRateLimitExceededException;
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -34,6 +35,10 @@ public class ApiExceptionHandler {
     @ExceptionHandler(AccessAuthenticationRateLimitExceededException.class)
     public ResponseEntity<ApiError> handleAccessAuthenticationRateLimit(AccessAuthenticationRateLimitExceededException exception) {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).header(HttpHeaders.RETRY_AFTER, Long.toString(exception.retryAfterSeconds())).body(new ApiError("ACCESS_RATE_LIMIT_EXCEEDED", exception.getMessage()));
+    }
+    @ExceptionHandler(OwnerIdentityIssuanceRateLimitExceededException.class)
+    public ResponseEntity<ApiError> handleOwnerIdentityIssuanceRateLimit(OwnerIdentityIssuanceRateLimitExceededException exception) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).header(HttpHeaders.RETRY_AFTER, Long.toString(exception.retryAfterSeconds())).body(new ApiError("OWNER_ISSUANCE_RATE_LIMIT_EXCEEDED", exception.getMessage()));
     }
     @ExceptionHandler(RateLimitExceededException.class)
     public ResponseEntity<ApiError> handleRateLimit(RateLimitExceededException exception) {

@@ -28,6 +28,7 @@ public class GameController {
     public static final String IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
 
     private final GameService gameService;
+    private final ClientIpResolver clientIpResolver;
 
     @PostMapping("/init")
     public ResponseEntity<GameResponse> initGame(
@@ -38,7 +39,7 @@ public class GameController {
     ) {
         log.info("게임 초기화 요청 수신");
         CostRequestContext context = CostRequestContext.create(
-                ownerKey, ClientIpResolver.resolve(servletRequest), null, 1, idempotencyKey
+                ownerKey, clientIpResolver.resolve(servletRequest), null, 1, idempotencyKey
         );
         return ResponseEntity.ok(gameService.initGame(context, request));
     }
@@ -53,7 +54,7 @@ public class GameController {
         log.info("게임 진행 요청: 세션ID={}, 기대턴={}", request.sessionId(), request.expectedTurn());
         CostRequestContext context = CostRequestContext.create(
                 ownerKey,
-                ClientIpResolver.resolve(servletRequest),
+                clientIpResolver.resolve(servletRequest),
                 request.sessionId(),
                 request.expectedTurn() + 1,
                 idempotencyKey
