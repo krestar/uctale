@@ -36,13 +36,15 @@ public class GamePersistenceService {
     private final CombatAuditCodec combatAuditCodec;
     private final QuestAuditCodec questAuditCodec;
     private final RelationshipAuditCodec relationshipAuditCodec;
+    private final StoryMemoryAuditCodec storyMemoryAuditCodec;
 
     @Autowired
     public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
             GameStateSnapshotRepository gameStateSnapshotRepository, ImageAssetRepository imageAssetRepository,
             GameMutationRequestRepository gameMutationRequestRepository, GameStateCodec gameStateCodec,
             GameStateRecovery gameStateRecovery, InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec,
-            CombatAuditCodec combatAuditCodec, QuestAuditCodec questAuditCodec, RelationshipAuditCodec relationshipAuditCodec) {
+            CombatAuditCodec combatAuditCodec, QuestAuditCodec questAuditCodec, RelationshipAuditCodec relationshipAuditCodec,
+            StoryMemoryAuditCodec storyMemoryAuditCodec) {
         this.gameSessionRepository = gameSessionRepository;
         this.gameLogRepository = gameLogRepository;
         this.gameStateSnapshotRepository = gameStateSnapshotRepository;
@@ -55,6 +57,7 @@ public class GamePersistenceService {
         this.combatAuditCodec = combatAuditCodec;
         this.questAuditCodec = questAuditCodec;
         this.relationshipAuditCodec = relationshipAuditCodec;
+        this.storyMemoryAuditCodec = storyMemoryAuditCodec;
     }
 
     public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
@@ -64,7 +67,7 @@ public class GamePersistenceService {
             CombatAuditCodec combatAuditCodec, QuestAuditCodec questAuditCodec) {
         this(gameSessionRepository, gameLogRepository, gameStateSnapshotRepository, imageAssetRepository,
                 gameMutationRequestRepository, gameStateCodec, gameStateRecovery, inventoryAuditCodec, vitalsAuditCodec,
-                combatAuditCodec, questAuditCodec, new RelationshipAuditCodec(new ObjectMapper()));
+                combatAuditCodec, questAuditCodec, new RelationshipAuditCodec(new ObjectMapper()), new StoryMemoryAuditCodec(new ObjectMapper()));
     }
 
     public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
@@ -74,7 +77,7 @@ public class GamePersistenceService {
             CombatAuditCodec combatAuditCodec) {
         this(gameSessionRepository, gameLogRepository, gameStateSnapshotRepository, imageAssetRepository,
                 gameMutationRequestRepository, gameStateCodec, gameStateRecovery, inventoryAuditCodec, vitalsAuditCodec,
-                combatAuditCodec, new QuestAuditCodec(new ObjectMapper()), new RelationshipAuditCodec(new ObjectMapper()));
+                combatAuditCodec, new QuestAuditCodec(new ObjectMapper()), new RelationshipAuditCodec(new ObjectMapper()), new StoryMemoryAuditCodec(new ObjectMapper()));
     }
 
     public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
@@ -84,7 +87,7 @@ public class GamePersistenceService {
         this(gameSessionRepository, gameLogRepository, gameStateSnapshotRepository, imageAssetRepository,
                 gameMutationRequestRepository, gameStateCodec, gameStateRecovery, inventoryAuditCodec, vitalsAuditCodec,
                 new CombatAuditCodec(new ObjectMapper()), new QuestAuditCodec(new ObjectMapper()),
-                new RelationshipAuditCodec(new ObjectMapper()));
+                new RelationshipAuditCodec(new ObjectMapper()), new StoryMemoryAuditCodec(new ObjectMapper()));
     }
 
     public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
@@ -94,7 +97,7 @@ public class GamePersistenceService {
         this(gameSessionRepository, gameLogRepository, gameStateSnapshotRepository, imageAssetRepository,
                 gameMutationRequestRepository, gameStateCodec, gameStateRecovery, inventoryAuditCodec,
                 new VitalsAuditCodec(new ObjectMapper()), new CombatAuditCodec(new ObjectMapper()),
-                new QuestAuditCodec(new ObjectMapper()), new RelationshipAuditCodec(new ObjectMapper()));
+                new QuestAuditCodec(new ObjectMapper()), new RelationshipAuditCodec(new ObjectMapper()), new StoryMemoryAuditCodec(new ObjectMapper()));
     }
 
     public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
@@ -105,7 +108,7 @@ public class GamePersistenceService {
                 gameMutationRequestRepository, gameStateCodec, gameStateRecovery,
                 new InventoryAuditCodec(new ObjectMapper()), new VitalsAuditCodec(new ObjectMapper()),
                 new CombatAuditCodec(new ObjectMapper()), new QuestAuditCodec(new ObjectMapper()),
-                new RelationshipAuditCodec(new ObjectMapper()));
+                new RelationshipAuditCodec(new ObjectMapper()), new StoryMemoryAuditCodec(new ObjectMapper()));
     }
 
     @Transactional
@@ -182,11 +185,12 @@ public class GamePersistenceService {
             String combatChangesJson = combatAuditCodec.serialize(commit.stateChanges());
             String questChangesJson = questAuditCodec.serialize(commit.stateChanges());
             String relationshipChangesJson = relationshipAuditCodec.serialize(commit.stateChanges());
+            String storyMemoryJson = storyMemoryAuditCodec.serialize(commit.nextState().storyMemory());
             gameSessionRepository.save(session);
             gameLogRepository.save(GameLog.committedTurn(session, commit.nextStateVersion(), commit.inputChoiceId(),
                     commit.inputChoiceText(), commit.previousStateVersion(), commit.nextStateVersion(),
                     commit.canonicalResultId(), commit.generatedStoryId(), commit.skillCheckResult(), inventoryChangesJson,
-                    vitalsChangesJson, combatChangesJson, questChangesJson, relationshipChangesJson,
+                    vitalsChangesJson, combatChangesJson, questChangesJson, relationshipChangesJson, storyMemoryJson,
                     commit.storyText(), commit.choicesJson(), imageUrl));
             GameStateSnapshot snapshot = gameStateSnapshotRepository.findById(sessionId)
                     .orElseGet(() -> new GameStateSnapshot(session, gameStateCodec.serialize(commit.previousState())));
