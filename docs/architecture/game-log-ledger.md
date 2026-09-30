@@ -23,7 +23,7 @@ Opening을 제외한 새 `GameLog` 한 행은 해당 turn을 만든 입력과 �
 - `image_url`
 - `created_at` (`committedAt`)
 - rule state typed audit JSON
-- V21 이후 non-opening turn의 `story_memory_json` (commit 후 StoryMemory projection)
+- V21 이후 non-opening turn의 `story_memory_json` (schemaVersion=1 envelope의 commit 후 StoryMemory projection)
 
 Opening은 외부 입력이 없으므로 `input_choice_id`, `input_choice_text`가 `null`이고 state transition은 `0 -> 1`입니다.
 
