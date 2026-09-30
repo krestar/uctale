@@ -106,7 +106,7 @@ public class GameSessionQueryService {
     private SessionView inspect(String ownerKey, GameSession session) {
         GameLog latestLog = gameLogRepository.findTopByGameSessionOrderByTurnNumberDesc(session).orElse(null);
         String title = resolveTitle(ownerKey, session);
-        String thumbnailUrl = latestLog == null ? null : latestLog.getImageUrl();
+        String thumbnailUrl = latestLog == null ? null : thumbnailUrl(latestLog.getImageUrl());
 
         CompletedTurn completedTurn;
         try {
@@ -214,6 +214,13 @@ public class GameSessionQueryService {
                         : null,
                 sessionId, expectedTurn
         );
+    }
+
+    private String thumbnailUrl(String imageUrl) {
+        if (imageUrl == null || imageUrl.isBlank()) {
+            return null;
+        }
+        return imageUrl.endsWith("/thumbnail") ? imageUrl : imageUrl + "/thumbnail";
     }
 
     private String resolveTitle(String ownerKey, GameSession session) {

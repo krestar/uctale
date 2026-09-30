@@ -67,6 +67,11 @@ public class ImageAsset {
 
     private LocalDateTime generatedAt;
 
+    @Column(length = 36)
+    private String generationOwner;
+
+    private LocalDateTime generationLeaseExpiresAt;
+
     public ImageAsset(
             String id,
             GameSession gameSession,

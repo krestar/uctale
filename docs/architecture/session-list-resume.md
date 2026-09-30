@@ -9,12 +9,13 @@ UCTale은 별도 save slot을 만들지 않는다. 각 게임의 저장 단위�
 - `GET /api/game/sessions`
   - 현재 owner의 session만 `updatedAt` 내림차순으로 반환한다.
   - 최소 metadata: `sessionId`, `title`, `currentTurn`, `updatedAt`, `status`, `statusMessage`, `retryable`, `canResume`, `retryAfterSeconds`, `thumbnailUrl`.
+  - `thumbnailUrl`은 생성 endpoint가 아니라 이미 생성된 bytes만 읽는 `/thumbnail` endpoint를 가리킨다. 미생성 asset은 204이며 provider 호출을 만들지 않는다.
 - `GET /api/game/sessions/{sessionId}`
   - 다른 owner의 session은 기존 ownership 정책과 동일하게 찾을 수 없는 session으로 처리한다.
   - 마지막 완료 turn의 story, choices, image와 canonical state projection을 함께 반환한다.
   - `turnNumber`, `canonicalStateTurn`, `game.turnNumber`는 같은 완료 turn을 가리켜야 한다.
 
-조회 endpoint는 Narrative/Image provider를 호출하지 않는다.
+Session list/resume 조회 endpoint와 thumbnail 조회 endpoint는 Narrative/Image provider를 호출하지 않는다. Frontend는 thumbnail을 viewport 진입 이후에만 요청하고, 미생성 thumbnail은 placeholder로 표시한다.
 
 ## Consistency boundary
 

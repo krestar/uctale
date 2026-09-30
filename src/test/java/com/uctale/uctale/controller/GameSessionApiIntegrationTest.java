@@ -3,6 +3,7 @@ package com.uctale.uctale.controller;
 import com.uctale.uctale.application.game.ChoiceCodec;
 import com.uctale.uctale.application.game.GameMutationRequestService;
 import com.uctale.uctale.application.game.GamePersistenceService;
+import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.dto.GameChoice;
 import com.uctale.uctale.security.AccessSessionInterceptor;
 import com.uctale.uctale.security.AccessSessionService;
@@ -83,6 +84,40 @@ class GameSessionApiIntegrationTest {
                         .header(AccessSessionInterceptor.CLIENT_HEADER, AccessSessionInterceptor.CLIENT_HEADER_VALUE))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("SESSION_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("세션 목록 thumbnail은 provider 생성 endpoint와 분리된 조회 전용 URL을 반환한다")
+    void list_UsesReadOnlyThumbnailEndpoint() throws Exception {
+        AccessSessionService.IssuedSession owner = accessSessionService.authenticate("TEST_PASSWORD", null);
+        String assetId = "22222222-2222-2222-2222-222222222222";
+        persistenceService.saveOpening(
+                owner.ownerKey(),
+                "썸네일 세계",
+                "썸네일 인물",
+                "첫 이야기",
+                choiceCodec.serialize(List.of(new GameChoice(1, "계속한다"))),
+                new ImageAssetService.AssetReference(
+                        assetId,
+                        "/api/game/image-assets/" + assetId,
+                        "prompt",
+                        "16:9",
+                        "flux",
+                        768,
+                        432,
+                        123,
+                        true,
+                        "uctale-charcoal-v3"
+                )
+        );
+
+        mockMvc.perform(get("/api/game/sessions")
+                        .cookie(accessCookie(owner), ownerCookie(owner))
+                        .header(AccessSessionInterceptor.CLIENT_HEADER, AccessSessionInterceptor.CLIENT_HEADER_VALUE)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].thumbnailUrl")
+                        .value("/api/game/image-assets/" + assetId + "/thumbnail"));
     }
 
     @Test

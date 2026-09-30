@@ -56,7 +56,12 @@ function SessionLibrary({ sessions, isLoading, error, resumingSessionId, onResum
               <article className="session-card" key={session.sessionId}>
                 <div className="session-card__thumbnail">
                   {session.thumbnailUrl ? (
-                    <GameImage src={session.thumbnailUrl} alt="" onAuthError={onAuthError} />
+                    <GameImage
+                      src={session.thumbnailUrl}
+                      alt=""
+                      onAuthError={onAuthError}
+                      fallbackContent={<div className="session-card__thumbnail-empty" aria-hidden="true">UCTale</div>}
+                    />
                   ) : (
                     <div className="session-card__thumbnail-empty" aria-hidden="true">UCTale</div>
                   )}

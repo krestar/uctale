@@ -25,7 +25,10 @@
 - connect timeout: 10초
 - read timeout: 120초
 - provider retry: 최대 2회
+- synchronous retry wait 상한: 기본 2초
 - max response: 8 MiB
+- provider error body read 상한: 기본 64 KiB
+- generation claim lease: 기본 420초 (startup에서 retry/timeout 최악 실행시간보다 긴지 검증)
 - 허용 MIME: JPEG, PNG
 
 설정은 `GAME_IMAGE_*` 환경변수로 조정할 수 있다. model/size/style 변경은 새로 발급되는 asset에만 적용된다.
@@ -84,9 +87,9 @@ v1 preset과 prompt 조합 로직도 삭제하지 않는다. 이미 발급된 as
 - 403 권한 실패
 - 422 content policy 또는 처리 불가 요청
 
-`Retry-After`가 delta-seconds 또는 HTTP-date로 제공되면 그 값을 우선하고, 없으면 짧은 bounded backoff를 사용한다. 모든 retry는 asset에 저장된 동일 model/prompt/size/seed/safe를 사용한다.
+`Retry-After`가 delta-seconds 또는 HTTP-date로 제공되면 그 값을 우선하되 synchronous wait 상한을 넘는 값은 장시간 sleep하지 않고 해당 request의 retry를 중단한다. 값이 없으면 짧은 bounded backoff를 사용한다. 모든 retry는 asset에 저장된 동일 model/prompt/size/seed/safe를 사용한다.
 
-응답은 non-empty JPEG/PNG이며 설정된 최대 byte 이하인 경우에만 저장한다. 최종 생성 실패는 canonical GameState나 GameLog turn을 롤백하지 않는다. 이미지 조회에는 정적 SVG placeholder를 반환하고 이후 조회에서 다시 생성할 수 있게 asset은 미생성 상태로 유지한다.
+정상 이미지 body는 Content-Length 유무와 관계없이 streaming read 단계에서 최대 byte까지만 읽고 초과를 즉시 거부한다. provider error body도 별도 작은 상한까지만 읽으며, 잘린/비정상 JSON은 HTTP status 기반 오류로 유지한다. 응답은 non-empty JPEG/PNG이며 설정된 최대 byte 이하인 경우에만 저장한다. 최종 생성 실패는 canonical GameState나 GameLog turn을 롤백하지 않는다. 이미지 조회에는 정적 SVG placeholder를 반환하고 이후 조회에서 다시 생성할 수 있게 asset은 미생성 상태로 유지한다.
 
 ## 관측성과 비용
 
@@ -104,9 +107,16 @@ API key와 raw prompt는 기록하지 않는다.
 
 실제 비용은 Pollinations account usage에서 기간과 key를 기준으로 확인하고, `docs/benchmarks/pollinations-image-benchmark.md`의 request 결과와 대조한다. 기존 #50 benchmark 수치는 v1에서 model/resolution을 비교한 역사적 기록이므로 v2/v3 전환으로 덮어쓰지 않는다. 재검증이 필요하면 benchmark script의 현재 style contract와 chromatic stress fixture를 별도 output으로 실행한다.
 
+## 조회 및 동시 생성 경계
+
+- 플레이 화면의 `GET /api/game/image-assets/{assetId}`만 미생성 asset의 provider 생성을 시작할 수 있다.
+- Session Library는 `GET /api/game/image-assets/{assetId}/thumbnail` 조회 전용 endpoint를 사용한다. 미생성 asset은 204를 반환하며 provider를 호출하지 않는다.
+- Frontend `GameImage`는 viewport에 들어온 뒤에만 image request를 시작한다. 따라서 최초 Session Library 렌더에서 화면 밖 카드가 image request를 만들지 않는다.
+- 동일 JVM에서는 기존 in-memory lock을 유지하고, multi-instance에서는 DB generation claim lease를 추가로 사용한다.
+- claim을 획득한 owner만 provider 호출 결과를 조건부 저장할 수 있다. lease 만료 후 다른 인스턴스가 takeover하면 stale owner의 저장은 거부된다.
+
 ## 한계
 
-- 동일 asset의 JVM 내 최초 생성은 generation lock으로 단일화하지만 multi-instance 전역 단일화는 보장하지 않는다.
 - benchmark 실행은 실제 provider 비용을 발생시키므로 CI에서 자동 실행하지 않는다.
 - prompt 강화만으로 provider의 시각 결과를 완전 결정할 수는 없다.
 - 자동 색상 분석/재생성, 캐릭터 외형 고정, reference image, object storage/CDN은 이 단계 범위가 아니다.
