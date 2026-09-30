@@ -28,7 +28,7 @@
 - synchronous retry wait 상한: 기본 2초
 - max response: 8 MiB
 - provider error body read 상한: 기본 64 KiB
-- generation claim lease: 기본 420초
+- generation claim lease: 기본 420초 (startup에서 retry/timeout 최악 실행시간보다 긴지 검증)
 - 허용 MIME: JPEG, PNG
 
 설정은 `GAME_IMAGE_*` 환경변수로 조정할 수 있다. model/size/style 변경은 새로 발급되는 asset에만 적용된다.

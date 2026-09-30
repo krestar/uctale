@@ -49,11 +49,15 @@ public class ImageAssetService {
             CostRateLimiter costRateLimiter,
             ProviderCallTelemetry providerCallTelemetry,
             ImageGenerationPolicy generationPolicy,
-            @Value("${game.image.generation-lease-seconds:420}") long generationLeaseSeconds
+            @Value("${game.image.generation-lease-seconds:420}") long generationLeaseSeconds,
+            @Value("${game.image.max-retries:2}") int maxRetries,
+            @Value("${game.image.connect-timeout-ms:10000}") long connectTimeoutMs,
+            @Value("${game.image.read-timeout-ms:120000}") long readTimeoutMs,
+            @Value("${game.image.max-retry-delay-ms:2000}") long maxRetryDelayMs
     ) {
-        if (generationLeaseSeconds <= 0) {
-            throw new IllegalArgumentException("Image generation lease는 양수여야 합니다.");
-        }
+        validateGenerationLease(
+                generationLeaseSeconds, maxRetries, connectTimeoutMs, readTimeoutMs, maxRetryDelayMs
+        );
         this.imageAssetRepository = imageAssetRepository;
         this.imageGenerator = imageGenerator;
         this.costRateLimiter = costRateLimiter;
@@ -69,7 +73,37 @@ public class ImageAssetService {
             ProviderCallTelemetry providerCallTelemetry,
             ImageGenerationPolicy generationPolicy
     ) {
-        this(imageAssetRepository, imageGenerator, costRateLimiter, providerCallTelemetry, generationPolicy, 420);
+        this(
+                imageAssetRepository, imageGenerator, costRateLimiter, providerCallTelemetry, generationPolicy,
+                420, 2, 10_000, 120_000, 2_000
+        );
+    }
+
+    private void validateGenerationLease(
+            long generationLeaseSeconds,
+            int maxRetries,
+            long connectTimeoutMs,
+            long readTimeoutMs,
+            long maxRetryDelayMs
+    ) {
+        if (generationLeaseSeconds <= 0 || maxRetries < 0 || maxRetries > 5
+                || connectTimeoutMs <= 0 || readTimeoutMs <= 0 || maxRetryDelayMs < 0) {
+            throw new IllegalArgumentException("Image generation lease/provider timeout 설정이 올바르지 않습니다.");
+        }
+        try {
+            long perAttemptMs = Math.addExact(connectTimeoutMs, readTimeoutMs);
+            long attemptsMs = Math.multiplyExact((long) maxRetries + 1L, perAttemptMs);
+            long retryWaitMs = Math.multiplyExact((long) maxRetries, maxRetryDelayMs);
+            long worstCaseMs = Math.addExact(attemptsMs, retryWaitMs);
+            long leaseMs = Math.multiplyExact(generationLeaseSeconds, 1_000L);
+            if (leaseMs <= worstCaseMs) {
+                throw new IllegalArgumentException(
+                        "Image generation lease는 provider 최대 동기 실행시간보다 길어야 합니다."
+                );
+            }
+        } catch (ArithmeticException exception) {
+            throw new IllegalArgumentException("Image generation lease/provider timeout 설정이 너무 큽니다.", exception);
+        }
     }
 
     public AssetReference issue(String prompt, String aspectRatio) {
