@@ -92,7 +92,7 @@ v9 `StoryMemory.canonicalFacts`는 `sourceTurn/status`가 없는 과거 형식�
 
 서로 비교하거나 대체하지 않습니다.
 
-현재 typed audit은 inventory/equipment를 `inventory_changes_json`, HP/MP/status를 `vitals_changes_json`, combat/attack/ability/cooldown을 `combat_changes_json`, quest/objective/World/Event Flag를 `quest_changes_json`, NPC relationship/affinity를 `relationship_changes_json`에 기록합니다. V21 이후 non-opening committed turn은 snapshot 손실 시 compacted narrative memory 의미까지 보존할 수 있도록 commit 후 `StoryMemory`를 `story_memory_json`에도 기록합니다. legacy typed audit `NULL`은 해당 변화 없음으로 해석하고, legacy `story_memory_json = NULL`은 summary를 추정하지 않은 기존 transcript replay 경계로 해석합니다.
+현재 typed audit은 inventory/equipment를 `inventory_changes_json`, HP/MP/status를 `vitals_changes_json`, combat/attack/ability/cooldown을 `combat_changes_json`, quest/objective/World/Event Flag를 `quest_changes_json`, NPC relationship/affinity를 `relationship_changes_json`에 기록합니다. V21 이후 non-opening committed turn은 snapshot 손실 시 compacted narrative memory 의미까지 보존할 수 있도록 commit 후 `StoryMemory`를 `story_memory_json`에도 기록합니다. 이 audit은 `schemaVersion=1` envelope을 사용하며 지원하지 않는 미래 version은 묵시적으로 읽지 않습니다. legacy typed audit `NULL`은 해당 변화 없음으로 해석하고, legacy `story_memory_json = NULL`은 summary를 추정하지 않은 기존 transcript replay 경계로 해석합니다.
 
 ## snapshot 없는 session
 
