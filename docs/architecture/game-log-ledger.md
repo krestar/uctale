@@ -22,6 +22,8 @@ Opening을 제외한 새 `GameLog` 한 행은 해당 turn을 만든 입력과 �
 - `choices_json`
 - `image_url`
 - `created_at` (`committedAt`)
+- rule state typed audit JSON
+- V21 이후 non-opening turn의 `story_memory_json` (commit 후 StoryMemory projection)
 
 Opening은 외부 입력이 없으므로 `input_choice_id`, `input_choice_text`가 `null`이고 state transition은 `0 -> 1`입니다.
 
@@ -70,6 +72,6 @@ V1~V5에서는 선택 입력이 선택이 발생한 행이 아니라 그 이전 
 
 Snapshot이 존재하면 최신 상태 복구는 snapshot을 우선 사용합니다.
 
-Snapshot이 없다면 `GameLog`를 turn 순서로 읽고 각 행의 `input_choice_text`, story, state version을 사용해 `GameStateRecovery`가 현재 `GameState`를 복구합니다. 이전 행의 legacy `user_choice`에 의존하지 않습니다.
+Snapshot이 없다면 `GameLog`를 turn 순서로 읽고 각 행의 `input_choice_text`, story, state version과 typed audit을 사용해 `GameStateRecovery`가 현재 `GameState`를 복구합니다. V21 이후 `story_memory_json`이 있는 turn은 저장된 StoryMemory를 검증해 그대로 적용하므로 compacted `rollingSummary`와 recent-turn 경계가 snapshot 손실 전 의미를 유지합니다. legacy `story_memory_json = NULL`은 과거 summary를 추정하지 않고 action/story transcript만 replay합니다. 값이 존재하지만 손상된 audit은 기본값으로 숨기지 않고 복구 실패로 처리합니다. 이전 행의 legacy `user_choice`에 의존하지 않습니다.
 
 전체 event replay engine이나 Event Sourcing은 이 설계의 목표가 아닙니다.
