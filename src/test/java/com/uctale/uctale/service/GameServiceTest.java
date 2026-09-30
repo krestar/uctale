@@ -222,7 +222,10 @@ class GameServiceTest {
     @Test
     @DisplayName("Story Memory summary bounded retry 실패에도 canonical turn은 한 번만 commit한다")
     void progressGame_SummaryFailure_CommitsCanonicalTurnOnce() {
-        String choicesJson = choiceCodec.serialize(List.of(new GameChoice(7, "문을 잠근다")));
+        GameChoice issued = choiceCodec.issue(
+                List.of(new NarrativeTurn.Choice(7, "문을 잠근다")), 8
+        ).getFirst();
+        String choicesJson = choiceCodec.serialize(List.of(issued));
         GameState longState = GameState.initial("좀비 아포칼립스", "김대리", "오프닝");
         String action = "행동".repeat(500);
         String story = "장면".repeat(2_000);
@@ -253,7 +256,12 @@ class GameServiceTest {
                 eq(OWNER_KEY), eq(42L), any(GameTurnCommit.class), eq(100L), eq("다음 장면"), eq("lease-owner")
         )).willReturn(9);
 
-        GameResponse response = gameService.progressGame(OWNER_KEY, new GameProgressRequest(42L, 7, 8));
+        GameResponse response = gameService.progressGame(
+                OWNER_KEY,
+                new GameProgressRequest(
+                        42L, issued.id(), 8, issued.actionToken(), issued.actionType(), issued.sourceTurn(), issued.arguments()
+                )
+        );
 
         assertThat(response.turnNumber()).isEqualTo(9);
         verify(gamePersistenceService, times(1)).saveNextTurn(
