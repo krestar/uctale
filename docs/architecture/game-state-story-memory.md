@@ -75,7 +75,7 @@ Narrative provider에는 raw state/action 문자열 대신 확정된 `GameResult
 9. story prose를 현재 turn의 `StoryMemory.recentTurns`에 부착합니다.
 10. recent transcript가 summary trigger budget을 넘으면 best-effort summary 갱신을 시도합니다. 실패해도 canonical turn은 유지됩니다.
 11. 서버가 다음 server-issued available actions를 구성합니다.
-12. `GameTurnCommit`이 state transition, typed audit, narrative linkage를 canonical transaction에서 저장합니다.
+12. `GameTurnCommit`이 state transition, typed audit, committed StoryMemory audit, narrative linkage를 canonical transaction에서 저장합니다.
 
 세부 책임은 [action-resolution.md](./action-resolution.md), provider 계약은 [narrative-context.md](./narrative-context.md)를 기준으로 합니다.
 
@@ -87,6 +87,6 @@ v9 -> v10에서는 과거 StoryMemory의 canonical facts가 현재 GameState가 
 
 각 schema에서 의미가 없던 신규 aggregate는 안전한 baseline만 추가합니다. 과거 story prose나 legacy `WorldState.flags`에서 전투/ability/quest/relationship 의미를 추정하지 않습니다. 현재 v10의 필수 필드 누락이나 손상 값은 legacy로 간주해 기본값 처리하지 않고 명시적으로 실패합니다.
 
-read 자체는 DB를 다시 쓰지 않고 다음 정상 canonical commit에서 최신 snapshot 형식으로 저장합니다. snapshotless recovery는 `GameLog`의 inventory/vitals/combat/ability/quest/relationship typed audit을 turn 순서대로 replay합니다.
+read 자체는 DB를 다시 쓰지 않고 다음 정상 canonical commit에서 최신 snapshot 형식으로 저장합니다. snapshotless recovery는 `GameLog`의 inventory/vitals/combat/ability/quest/relationship typed audit을 turn 순서대로 replay하고, V21 이후 committed turn의 `story_memory_json`이 있으면 그 turn에서 실제 commit된 StoryMemory projection을 그대로 복원합니다. compact된 `rollingSummary`를 현재 규칙으로 다시 생성하거나 과거 prose를 재해석하지 않습니다. legacy `story_memory_json = NULL` 행은 기존 transcript replay 의미를 유지하며, 값이 존재하지만 shape/range/version이 손상된 audit은 조용히 기본값으로 복구하지 않고 명시적으로 실패합니다.
 
 세부 snapshot 내용은 [game-state-snapshot-evolution.md](./game-state-snapshot-evolution.md)를 기준으로 합니다.
