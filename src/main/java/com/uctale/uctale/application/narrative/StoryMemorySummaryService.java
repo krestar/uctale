@@ -3,17 +3,22 @@ package com.uctale.uctale.application.narrative;
 import com.uctale.uctale.application.cost.CostOperation;
 import com.uctale.uctale.application.cost.CostRateLimiter;
 import com.uctale.uctale.application.cost.CostRequestContext;
+import com.uctale.uctale.application.cost.ProviderBudgetExceededException;
 import com.uctale.uctale.application.cost.ProviderCallTelemetry;
+import com.uctale.uctale.application.cost.RateLimitExceededException;
 import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.domain.game.GameTurn;
 import com.uctale.uctale.domain.game.StateTransition;
 import com.uctale.uctale.domain.game.StoryMemory;
 import com.uctale.uctale.domain.game.StoryMemoryFactPolicy;
 import com.uctale.uctale.domain.game.StorySummary;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
+@Slf4j
 @Component
 public final class StoryMemorySummaryService {
 
@@ -22,6 +27,7 @@ public final class StoryMemorySummaryService {
     private final StoryMemorySummarizer summarizer;
     private final CostRateLimiter costRateLimiter;
     private final ProviderCallTelemetry telemetry;
+    private final AtomicInteger consecutiveTerminalFailures = new AtomicInteger();
 
     public StoryMemorySummaryService(StoryMemorySummarizer summarizer, CostRateLimiter costRateLimiter,
                                      ProviderCallTelemetry telemetry) {
@@ -45,22 +51,57 @@ public final class StoryMemorySummaryService {
         int sourceFrom = previous.emptySummary() ? source.getFirst().turnNumber() : previous.sourceFromTurn();
         int sourceTo = source.getLast().turnNumber();
 
-        for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            StoryMemorySummaryDraft draft;
             try {
                 costRateLimiter.check(CostOperation.NARRATIVE, context);
                 // Bounded retry의 각 loop iteration은 별도 physical provider invocation이다.
-                StoryMemorySummaryDraft draft = telemetry.observe(
+                draft = telemetry.observe(
                         "gemini", "memory_summary", context, 0,
                         () -> summarizer.summarize(previous, source, state.turnNumber())
                 );
+            } catch (RuntimeException exception) {
+                logAttemptFailure(classifyProviderFailure(exception), attempt, context, exception);
+                continue;
+            }
+
+            try {
                 StorySummary summary = validate(draft, sourceFrom, sourceTo, state.turnNumber());
                 GameState compacted = state.withStoryMemory(memory.compact(summary));
+                consecutiveTerminalFailures.set(0);
                 return new StateTransition(transition.previousState(), compacted);
-            } catch (RuntimeException ignored) {
-                // Summary는 canonical turn 성공 조건이 아니다. bounded retry 후 이전 memory를 그대로 보존한다.
+            } catch (RuntimeException exception) {
+                logAttemptFailure("VALIDATION", attempt, context, exception);
             }
         }
+
+        int consecutiveFailures = consecutiveTerminalFailures.incrementAndGet();
+        log.warn(
+                "story_memory_summary_exhausted sessionId={} turn={} requestId={} maxAttempts={} consecutiveFailures={}",
+                context.sessionId(), context.turn(), context.requestId(), MAX_ATTEMPTS, consecutiveFailures
+        );
+        // Summary는 canonical turn 성공 조건이 아니다. bounded retry 후 이전 memory를 그대로 보존한다.
         return transition;
+    }
+
+    private String classifyProviderFailure(RuntimeException exception) {
+        if (exception instanceof RateLimitExceededException || exception instanceof ProviderBudgetExceededException) {
+            return "GUARD";
+        }
+        return "PROVIDER";
+    }
+
+    private void logAttemptFailure(
+            String failureType,
+            int attempt,
+            CostRequestContext context,
+            RuntimeException exception
+    ) {
+        log.warn(
+                "story_memory_summary_failure failureType={} attempt={} maxAttempts={} sessionId={} turn={} requestId={} exception={}",
+                failureType, attempt, MAX_ATTEMPTS, context.sessionId(), context.turn(), context.requestId(),
+                exception.getClass().getSimpleName()
+        );
     }
 
     private StorySummary validate(StoryMemorySummaryDraft draft, int sourceFrom, int sourceTo, int stateVersion) {

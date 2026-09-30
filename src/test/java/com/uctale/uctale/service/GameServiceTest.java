@@ -17,6 +17,7 @@ import com.uctale.uctale.application.image.ImageAssetService;
 import com.uctale.uctale.application.narrative.NarrativeContext;
 import com.uctale.uctale.application.narrative.NarrativeGenerator;
 import com.uctale.uctale.application.narrative.NarrativeTurn;
+import com.uctale.uctale.application.narrative.StoryMemorySummaryService;
 import com.uctale.uctale.domain.GameSession;
 import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.domain.game.SkillCheckOutcome;
@@ -47,6 +48,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -214,6 +216,57 @@ class GameServiceTest {
         );
         assertThat(commitCaptor.getValue().skillCheckResult().rawRoll()).isEqualTo(10);
         assertThat(commitCaptor.getValue().skillCheckResult().outcome()).isEqualTo(SkillCheckOutcome.SUCCESS);
+    }
+
+
+    @Test
+    @DisplayName("Story Memory summary bounded retry 실패에도 canonical turn은 한 번만 commit한다")
+    void progressGame_SummaryFailure_CommitsCanonicalTurnOnce() {
+        GameChoice issued = choiceCodec.issue(
+                List.of(new NarrativeTurn.Choice(7, "문을 잠근다")), 8
+        ).getFirst();
+        String choicesJson = choiceCodec.serialize(List.of(issued));
+        GameState longState = GameState.initial("좀비 아포칼립스", "김대리", "오프닝");
+        String action = "행동".repeat(500);
+        String story = "장면".repeat(2_000);
+        for (int turn = 2; turn <= 8; turn++) {
+            longState = longState.advance(action + turn, story + turn);
+        }
+        GamePersistenceService.LoadedTurn loadedTurn = new GamePersistenceService.LoadedTurn(
+                42L, 8, "좀비 아포칼립스", "김대리", story + 8, choicesJson,
+                "/api/game/image-assets/old-asset", longState
+        );
+        NarrativeTurn nextTurn = new NarrativeTurn(
+                "다음 장면", "다음 스토리",
+                List.of(new NarrativeTurn.Choice(1, "기다린다")),
+                new NarrativeTurn.VisualAssets("", List.of(), List.of())
+        );
+        StoryMemorySummaryService summaryService = new StoryMemorySummaryService(
+                (previousSummary, sourceTurns, stateVersion) -> {
+                    throw new IllegalStateException("summary provider failure");
+                },
+                new CostRateLimiter(new CostRateLimitPolicy(1_000, 1_000, 60), Clock.systemUTC()),
+                new ProviderCallTelemetry(Clock.systemUTC(), event -> {})
+        );
+        gameService.setStoryMemorySummaryService(summaryService);
+
+        given(gamePersistenceService.loadLatestTurn(OWNER_KEY, 42L, 8)).willReturn(loadedTurn);
+        given(narrativeGenerator.createNextTurn(any(NarrativeContext.class))).willReturn(nextTurn);
+        given(gamePersistenceService.saveNextTurn(
+                eq(OWNER_KEY), eq(42L), any(GameTurnCommit.class), eq(100L), eq("다음 장면"), eq("lease-owner")
+        )).willReturn(9);
+
+        GameResponse response = gameService.progressGame(
+                OWNER_KEY,
+                new GameProgressRequest(
+                        42L, issued.id(), 8, issued.actionToken(), issued.actionType(), issued.sourceTurn(), issued.arguments()
+                )
+        );
+
+        assertThat(response.turnNumber()).isEqualTo(9);
+        verify(gamePersistenceService, times(1)).saveNextTurn(
+                eq(OWNER_KEY), eq(42L), any(GameTurnCommit.class), eq(100L), eq("다음 장면"), eq("lease-owner")
+        );
     }
 
     @Test

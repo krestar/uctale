@@ -49,6 +49,7 @@ public class GameLog {
     @Column(name = "combat_changes_json", columnDefinition = "TEXT") private String combatChangesJson;
     @Column(name = "quest_changes_json", columnDefinition = "TEXT") private String questChangesJson;
     @Column(name = "relationship_changes_json", columnDefinition = "TEXT") private String relationshipChangesJson;
+    @Column(name = "story_memory_json", columnDefinition = "TEXT") private String storyMemoryJson;
     @Column(columnDefinition = "TEXT") private String storyText;
     @Column(columnDefinition = "TEXT") private String choicesJson;
     @Column(columnDefinition = "TEXT") private String imageUrl;
@@ -56,7 +57,7 @@ public class GameLog {
 
     public static GameLog opening(GameSession gameSession, String storyText, String choicesJson, String imageUrl) {
         return new GameLog(gameSession, 1, null, null, 0, 1, null, null, null, null, null, null, null, null,
-                storyText, choicesJson, imageUrl);
+                null, storyText, choicesJson, imageUrl);
     }
 
     public static GameLog committedTurn(GameSession gameSession, int turnNumber, int inputChoiceId,
@@ -124,16 +125,28 @@ public class GameLog {
             String generatedStoryId, SkillCheckResult skillCheckResult, String inventoryChangesJson,
             String vitalsChangesJson, String combatChangesJson, String questChangesJson, String relationshipChangesJson,
             String storyText, String choicesJson, String imageUrl) {
+        return committedTurn(gameSession, turnNumber, inputChoiceId, inputChoiceText, previousStateVersion,
+                stateVersion, canonicalResultId, generatedStoryId, skillCheckResult, inventoryChangesJson,
+                vitalsChangesJson, combatChangesJson, questChangesJson, relationshipChangesJson, null,
+                storyText, choicesJson, imageUrl);
+    }
+
+    public static GameLog committedTurn(GameSession gameSession, int turnNumber, int inputChoiceId,
+            String inputChoiceText, int previousStateVersion, int stateVersion, String canonicalResultId,
+            String generatedStoryId, SkillCheckResult skillCheckResult, String inventoryChangesJson,
+            String vitalsChangesJson, String combatChangesJson, String questChangesJson, String relationshipChangesJson,
+            String storyMemoryJson, String storyText, String choicesJson, String imageUrl) {
         return new GameLog(gameSession, turnNumber, inputChoiceId, inputChoiceText, previousStateVersion,
                 stateVersion, canonicalResultId, generatedStoryId, skillCheckResult, inventoryChangesJson,
-                vitalsChangesJson, combatChangesJson, questChangesJson, relationshipChangesJson, storyText, choicesJson, imageUrl);
+                vitalsChangesJson, combatChangesJson, questChangesJson, relationshipChangesJson, storyMemoryJson,
+                storyText, choicesJson, imageUrl);
     }
 
     private GameLog(GameSession gameSession, int turnNumber, Integer inputChoiceId, String inputChoiceText,
             int previousStateVersion, int stateVersion, String canonicalResultId, String generatedStoryId,
             SkillCheckResult skillCheckResult, String inventoryChangesJson, String vitalsChangesJson,
             String combatChangesJson, String questChangesJson, String relationshipChangesJson,
-            String storyText, String choicesJson, String imageUrl) {
+            String storyMemoryJson, String storyText, String choicesJson, String imageUrl) {
         this.gameSession = gameSession;
         this.turnNumber = turnNumber;
         this.inputChoiceId = inputChoiceId;
@@ -157,6 +170,7 @@ public class GameLog {
         this.combatChangesJson = combatChangesJson;
         this.questChangesJson = questChangesJson;
         this.relationshipChangesJson = relationshipChangesJson;
+        this.storyMemoryJson = storyMemoryJson;
         this.storyText = storyText;
         this.choicesJson = choicesJson;
         this.imageUrl = imageUrl;

@@ -23,27 +23,30 @@ public class GameStateRecovery {
     private final CombatAuditCodec combatAuditCodec;
     private final QuestAuditCodec questAuditCodec;
     private final RelationshipAuditCodec relationshipAuditCodec;
+    private final StoryMemoryAuditCodec storyMemoryAuditCodec;
 
     @Autowired
     public GameStateRecovery(InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec,
-            CombatAuditCodec combatAuditCodec, QuestAuditCodec questAuditCodec, RelationshipAuditCodec relationshipAuditCodec) {
+            CombatAuditCodec combatAuditCodec, QuestAuditCodec questAuditCodec, RelationshipAuditCodec relationshipAuditCodec,
+            StoryMemoryAuditCodec storyMemoryAuditCodec) {
         this.inventoryAuditCodec = inventoryAuditCodec;
         this.vitalsAuditCodec = vitalsAuditCodec;
         this.combatAuditCodec = combatAuditCodec;
         this.questAuditCodec = questAuditCodec;
         this.relationshipAuditCodec = relationshipAuditCodec;
+        this.storyMemoryAuditCodec = storyMemoryAuditCodec;
     }
 
     public GameStateRecovery(InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec,
             CombatAuditCodec combatAuditCodec, QuestAuditCodec questAuditCodec) {
         this(inventoryAuditCodec, vitalsAuditCodec, combatAuditCodec, questAuditCodec,
-                new RelationshipAuditCodec(new ObjectMapper()));
+                new RelationshipAuditCodec(new ObjectMapper()), new StoryMemoryAuditCodec(new ObjectMapper()));
     }
 
     public GameStateRecovery(InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec,
             CombatAuditCodec combatAuditCodec) {
         this(inventoryAuditCodec, vitalsAuditCodec, combatAuditCodec, new QuestAuditCodec(new ObjectMapper()),
-                new RelationshipAuditCodec(new ObjectMapper()));
+                new RelationshipAuditCodec(new ObjectMapper()), new StoryMemoryAuditCodec(new ObjectMapper()));
     }
 
     public GameState recover(GameSession session, List<GameLog> logs) {
@@ -59,6 +62,10 @@ public class GameStateRecovery {
         if (!relationshipAuditCodec.deserialize(opening.getRelationshipChangesJson()).isEmpty()) throw new IllegalStateException("Opening GameLog에는 relationship state change가 있을 수 없습니다.");
 
         GameState state = GameState.initial(session.getWorldSetting(), session.getCharacterSetting(), opening.getStoryText());
+        var openingMemory = storyMemoryAuditCodec.deserialize(opening.getStoryMemoryJson(), opening.getStateVersion());
+        if (openingMemory != null && !openingMemory.equals(state.storyMemory())) {
+            throw new IllegalStateException("Opening StoryMemory audit가 초기 상태와 일치하지 않습니다.");
+        }
         for (int i = 1; i < logs.size(); i++) {
             GameLog log = logs.get(i);
             if (log.getTurnNumber() != state.turnNumber() + 1 || log.getPreviousStateVersion() != state.turnNumber()
@@ -78,6 +85,10 @@ public class GameStateRecovery {
             state = state.withRuleState(nextInventory, nextVitals, nextCombat, nextAbilityState, nextQuestState,
                             nextRelationshipState)
                     .advance(log.getInputChoiceText(), log.getStoryText());
+            var auditedMemory = storyMemoryAuditCodec.deserialize(log.getStoryMemoryJson(), log.getStateVersion());
+            if (auditedMemory != null) {
+                state = state.withStoryMemory(auditedMemory);
+            }
         }
         return state;
     }
