@@ -119,7 +119,7 @@ usage 기록 후 warning 또는 critical threshold를 처음 넘어가는 호출
 
 Story Memory summary bounded retry는 각 loop iteration을 독립적인 physical provider invocation으로 telemetry에 기록합니다. 각 호출의 `retryCount`는 0이고 `attemptCount`는 1이므로 provider 호출 2회가 budget ledger 3회분으로 과대 집계되지 않습니다.
 
-`FAIL_CLOSED` 활성화 여부를 재검토한 결과, 공유 베타의 production 정책은 `ALERT_ONLY`로 유지합니다. 임계값 직전의 multi-instance 동시 호출을 엄격한 hard cap으로 보장하지 않는 현재 구조에서 운영 가용성을 우선하기 위한 결정입니다. #126의 snapshotless Story Memory recovery와 summary 실패 관측성은 별도 정합성 문제로 계속 처리하며, 이 결정이 해당 후속 작업을 완료한 것으로 간주하지 않습니다.
+`FAIL_CLOSED` 활성화 여부를 재검토한 결과, 공유 베타의 production 정책은 `ALERT_ONLY`로 유지합니다. 임계값 직전의 multi-instance 동시 호출을 엄격한 hard cap으로 보장하지 않는 현재 구조에서 운영 가용성을 우선하기 위한 결정입니다.
 
 Narrative `/progress`에서는 budget guard가 provider attempt accounting보다 먼저 실행됩니다. 따라서 budget pre-call rejection은 turn reservation의 `provider_attempt_count`를 소비하지 않습니다.
 
@@ -150,6 +150,10 @@ provider 호출마다 다음 항목을 구조화 로그로 기록합니다.
 사용자 world/character/action, provider prompt/응답 전문, access/owner token, API key는 로그에 기록하지 않습니다.
 
 Narrative bounded recovery는 같은 logical call 안의 실제 Gemini provider attempt 수를 `retryCount`/`attemptCount`에 반영합니다. `provider_call.model`은 `GOOGLE_AI_MODEL` 설정과 동일한 model ID를 기록합니다. Gemini adapter는 각 provider attempt의 별도 `gemini_provider_result` 로그에 model, thinking level, latency, outcome과 provider가 반환한 prompt/candidate/thought/total token usage를 기록합니다. 토큰 메타데이터가 없거나 provider 호출 자체가 실패한 경우 해당 token 값은 비어 있을 수 있습니다. prompt/story 전문은 기록하지 않습니다.
+
+Story Memory summary는 최대 2회 bounded retry를 수행하되 각 loop iteration을 독립적인 physical provider invocation으로 기록합니다. 따라서 실제 호출 2회는 `memory_summary` event 2개, 각 `retryCount=0`, `attemptCount=1`이며 PostgreSQL budget ledger도 총 2 attempt unit으로 집계합니다. provider 호출 전 rate limit/budget guard 실패는 physical provider attempt event로 기록하지 않습니다.
+
+summary best-effort 실패는 canonical turn을 실패시키지 않지만 구조화 warning으로 남깁니다. 각 실패는 `story_memory_summary_failure`에 `failureType`(`GUARD`/`PROVIDER`/`VALIDATION`), `attempt`, `maxAttempts`, session/turn/request 식별자, exception class만 기록합니다. 두 시도를 모두 소진하면 `story_memory_summary_exhausted`에 process-level 연속 terminal failure 수를 남기고, 다음 summary 성공에서 이 수를 0으로 초기화합니다. prompt/story 전문이나 exception message는 이 로그에 남기지 않습니다.
 
 Image는 Pollinations bounded retry의 실제 횟수를 성공 결과 또는 최종 실패에서 추출해 같은 `provider_call` event에 기록합니다. 이미지별 model/size/seed/status 등 상세 진단은 `image_provider_result` event를 사용합니다.
 
