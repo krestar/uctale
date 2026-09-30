@@ -9,6 +9,9 @@ import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.domain.game.StateTransition;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 import java.time.Clock;
 import java.util.ArrayList;
@@ -17,6 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@ExtendWith(OutputCaptureExtension.class)
 class StoryMemorySummaryServiceTest {
 
     @Test
@@ -76,6 +80,59 @@ class StoryMemorySummaryServiceTest {
             assertThat(event.retryCount()).isZero();
             assertThat(event.attemptCount()).isEqualTo(1);
         });
+    }
+
+
+    @Test
+    @DisplayName("summary provider 실패는 원인 분류와 attempt, 연속 terminal failure를 구조화 로그로 남긴다")
+    void providerFailure_IsObservableWithoutBreakingTransition(CapturedOutput output) {
+        GameState previous = longState();
+        GameState next = previous.advance("마지막 행동", "마지막 장면");
+        StateTransition transition = new StateTransition(previous, next);
+        StoryMemorySummaryService service = service((previousSummary, sourceTurns, stateVersion) -> {
+            throw new IllegalStateException("provider unavailable");
+        });
+
+        StateTransition result = service.compactBestEffort(
+                transition,
+                CostRequestContext.internal("owner", 1L, next.turnNumber())
+        );
+
+        assertThat(result).isEqualTo(transition);
+        assertThat(output).contains(
+                "story_memory_summary_failure failureType=PROVIDER attempt=1",
+                "story_memory_summary_failure failureType=PROVIDER attempt=2",
+                "story_memory_summary_exhausted",
+                "consecutiveFailures=1"
+        );
+    }
+
+    @Test
+    @DisplayName("summary validation 실패는 provider 실패와 구분해 attempt를 구조화 로그로 남긴다")
+    void validationFailure_IsObservableSeparately(CapturedOutput output) {
+        GameState previous = longState();
+        GameState next = previous.advance("마지막 행동", "마지막 장면");
+        StateTransition transition = new StateTransition(previous, next);
+        StoryMemorySummaryService service = service((previousSummary, sourceTurns, stateVersion) ->
+                new StoryMemorySummaryDraft(
+                        sourceTurns.getFirst().turnNumber(),
+                        sourceTurns.getLast().turnNumber(),
+                        stateVersion,
+                        "HP가 999로 회복되었다.",
+                        List.of("player.vitals.hp")
+                )
+        );
+
+        StateTransition result = service.compactBestEffort(
+                transition,
+                CostRequestContext.internal("owner", 1L, next.turnNumber())
+        );
+
+        assertThat(result).isEqualTo(transition);
+        assertThat(output).contains(
+                "story_memory_summary_failure failureType=VALIDATION attempt=1",
+                "story_memory_summary_failure failureType=VALIDATION attempt=2"
+        );
     }
 
     @Test
