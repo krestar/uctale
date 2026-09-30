@@ -104,13 +104,13 @@ request_with_retry() {
     "$@"
 }
 
-echo "[smoke] 1/4 production frontend 응답 확인"
+echo "[smoke] 1/5 production frontend 응답 확인"
 frontend_status="$(request_with_retry "$FRONTEND_URL/")"
 [[ "$frontend_status" == "200" ]] || fail "frontend가 HTTP 200을 반환하지 않았습니다. (status=$frontend_status)"
 grep -Fq '<div id="root"></div>' "$RESPONSE_BODY" || fail "frontend root markup을 찾지 못했습니다."
 grep -Fq '<title>UCTale</title>' "$RESPONSE_BODY" || fail "frontend title을 찾지 못했습니다."
 
-echo "[smoke] 2/4 backend CORS preflight 확인"
+echo "[smoke] 2/5 backend CORS preflight 확인"
 preflight_status="$(request_with_retry \
   --request OPTIONS \
   --header "Origin: $ORIGIN" \
@@ -123,7 +123,7 @@ assert_cors_headers
 printf '{"password":%s}\n' "$(printf '%s' "$ACCESS_PASSWORD" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')" > "$REQUEST_BODY"
 chmod 600 "$REQUEST_BODY"
 
-echo "[smoke] 3/4 공유 접근 세션 발급 확인"
+echo "[smoke] 3/5 공유 접근 세션 발급 확인"
 verify_status="$(request \
   --request POST \
   --header "Origin: $ORIGIN" \
@@ -140,7 +140,7 @@ chmod 600 "$COOKIE_JAR"
 grep -q $'\tuctale_access\t' "$COOKIE_JAR" || fail "uctale_access 쿠키가 cookie jar에 저장되지 않았습니다."
 grep -q $'\tuctale_owner\t' "$COOKIE_JAR" || fail "uctale_owner 쿠키가 cookie jar에 저장되지 않았습니다."
 
-echo "[smoke] 4/4 발급된 credential 재사용 확인"
+echo "[smoke] 4/5 발급된 credential 재사용 확인"
 session_status="$(request_with_retry \
   --request GET \
   --header "Origin: $ORIGIN" \
@@ -150,4 +150,16 @@ session_status="$(request_with_retry \
 [[ "$session_status" == "204" ]] || fail "access-session이 발급된 credential을 거부했습니다. (status=$session_status)"
 assert_cors_headers
 
-echo "[smoke] production frontend/CORS/access-session smoke 통과"
+echo "[smoke] 5/5 production budget 정책 확인"
+budget_policy_status="$(request_with_retry \
+  --request GET \
+  --header "Origin: $ORIGIN" \
+  --header 'X-UCTale-Client: web' \
+  --cookie "$COOKIE_JAR" \
+  "$BACKEND_URL/budget-policy")"
+[[ "$budget_policy_status" == "200" ]] || fail "budget-policy가 HTTP 200을 반환하지 않았습니다. (status=$budget_policy_status)"
+assert_cors_headers
+grep -Fq '"policyId":"shared-beta-v1"' "$RESPONSE_BODY" \
+  || fail "production budget 정책이 shared-beta-v1과 일치하지 않습니다."
+
+echo "[smoke] production frontend/CORS/access-session/budget-policy smoke 통과"

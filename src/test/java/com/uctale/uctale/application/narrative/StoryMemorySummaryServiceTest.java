@@ -3,6 +3,7 @@ package com.uctale.uctale.application.narrative;
 import com.uctale.uctale.application.cost.CostRateLimitPolicy;
 import com.uctale.uctale.application.cost.CostRateLimiter;
 import com.uctale.uctale.application.cost.CostRequestContext;
+import com.uctale.uctale.application.cost.ProviderCallEvent;
 import com.uctale.uctale.application.cost.ProviderCallTelemetry;
 import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.domain.game.StateTransition;
@@ -10,6 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -48,6 +50,35 @@ class StoryMemorySummaryServiceTest {
     }
 
     @Test
+    @DisplayName("summary bounded retry는 physical provider invocation마다 독립적인 1 attempt event를 기록한다")
+    void summaryRetry_RecordsPhysicalProviderAttemptsOneToOne() {
+        GameState previous = longState();
+        GameState next = previous.advance("마지막 행동", "마지막 장면");
+        StateTransition transition = new StateTransition(previous, next);
+        List<ProviderCallEvent> events = new ArrayList<>();
+        StoryMemorySummarizer summarizer = (previousSummary, sourceTurns, stateVersion) -> new StoryMemorySummaryDraft(
+                sourceTurns.getFirst().turnNumber(),
+                sourceTurns.getLast().turnNumber(),
+                stateVersion,
+                "HP가 999로 회복되었다.",
+                List.of("player.vitals.hp")
+        );
+        StoryMemorySummaryService service = service(summarizer, events);
+
+        StateTransition result = service.compactBestEffort(
+                transition,
+                CostRequestContext.internal("owner", 1L, next.turnNumber())
+        );
+
+        assertThat(result).isEqualTo(transition);
+        assertThat(events).hasSize(2).allSatisfy(event -> {
+            assertThat(event.operation()).isEqualTo("memory_summary");
+            assertThat(event.retryCount()).isZero();
+            assertThat(event.attemptCount()).isEqualTo(1);
+        });
+    }
+
+    @Test
     @DisplayName("유효한 summary는 source turn만 compact하고 canonical state는 변경하지 않는다")
     void validSummary_CompactsOnlyNarrativeMemory() {
         GameState previous = longState();
@@ -77,8 +108,15 @@ class StoryMemorySummaryServiceTest {
     }
 
     private StoryMemorySummaryService service(StoryMemorySummarizer summarizer) {
+        return service(summarizer, new ArrayList<>());
+    }
+
+    private StoryMemorySummaryService service(
+            StoryMemorySummarizer summarizer,
+            List<ProviderCallEvent> events
+    ) {
         CostRateLimiter limiter = new CostRateLimiter(new CostRateLimitPolicy(100, 100, 60), Clock.systemUTC());
-        ProviderCallTelemetry telemetry = new ProviderCallTelemetry(Clock.systemUTC(), event -> { });
+        ProviderCallTelemetry telemetry = new ProviderCallTelemetry(Clock.systemUTC(), events::add);
         return new StoryMemorySummaryService(summarizer, limiter, telemetry);
     }
 

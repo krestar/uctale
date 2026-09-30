@@ -104,11 +104,22 @@ usage 기록 후 warning 또는 critical threshold를 처음 넘어가는 호출
 
 기본 `critical-mode`는 `ALERT_ONLY`입니다. repository 기본 threshold는 daily warning/critical 500/750 units, monthly warning/critical 10000/15000 units입니다. `FAIL_CLOSED`에서는 신규 provider 호출 직전에 현재 usage와 다음 1회 unit을 조회하고 critical을 넘는 신규 호출을 `503 AI_BUDGET_EXCEEDED`로 차단합니다.
 
-### Production budget 운영 상태
+### Production budget 운영 정책
 
-2026-09-22 기준 코드와 GitHub 저장소에서 확인할 수 있는 값은 위 repository default까지입니다. Render Dashboard의 production environment 변수 값은 저장소에서 읽을 수 없으므로 실제 배포의 `GAME_COST_BUDGET_*` override 유무를 repository default와 동일하다고 추측하지 않습니다. 배포 설정 확인 전에는 production mode/threshold 검증 완료로 취급하지 않습니다.
+공유 베타 production의 기준 정책은 `shared-beta-v1`입니다.
 
-또한 #126의 Story Memory summary retry provider usage 회계가 실제 physical invocation 수와 1:1로 정합화되기 전에는 `FAIL_CLOSED` 전환을 하지 않습니다. #126 완료 후 실제 production ledger와 threshold를 다시 확인하고 `FAIL_CLOSED` 활성화 여부를 결정합니다.
+- daily warning / critical: 500 / 750 units
+- monthly warning / critical: 10000 / 15000 units
+- Narrative / Image physical provider attempt: 각각 1 unit
+- critical mode: `ALERT_ONLY`
+
+`ProviderBudgetPolicy.effectivePolicyId()`는 application에 실제 적용된 값이 위 기준과 모두 일치할 때만 `shared-beta-v1`을 반환하고, 하나라도 override되면 `custom`을 반환합니다. 인증된 `GET /api/game/budget-policy`는 숫자 임계값 대신 이 정책 ID만 노출합니다.
+
+`scripts/production-smoke.sh`는 production access credential로 해당 endpoint를 호출해 `shared-beta-v1`을 확인합니다. 따라서 Render Dashboard의 `GAME_COST_BUDGET_*` override 유무를 저장소 값과 같다고 추측하지 않고, 배포된 application이 실제로 어떤 effective 정책을 사용 중인지 smoke 결과로 검증합니다.
+
+Story Memory summary bounded retry는 각 loop iteration을 독립적인 physical provider invocation으로 telemetry에 기록합니다. 각 호출의 `retryCount`는 0이고 `attemptCount`는 1이므로 provider 호출 2회가 budget ledger 3회분으로 과대 집계되지 않습니다.
+
+`FAIL_CLOSED` 활성화 여부를 재검토한 결과, 공유 베타의 production 정책은 `ALERT_ONLY`로 유지합니다. 임계값 직전의 multi-instance 동시 호출을 엄격한 hard cap으로 보장하지 않는 현재 구조에서 운영 가용성을 우선하기 위한 결정입니다. #126의 snapshotless Story Memory recovery와 summary 실패 관측성은 별도 정합성 문제로 계속 처리하며, 이 결정이 해당 후속 작업을 완료한 것으로 간주하지 않습니다.
 
 Narrative `/progress`에서는 budget guard가 provider attempt accounting보다 먼저 실행됩니다. 따라서 budget pre-call rejection은 turn reservation의 `provider_attempt_count`를 소비하지 않습니다.
 

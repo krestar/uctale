@@ -48,8 +48,9 @@ public final class StoryMemorySummaryService {
         for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
             try {
                 costRateLimiter.check(CostOperation.NARRATIVE, context);
+                // Bounded retry의 각 loop iteration은 별도 physical provider invocation이다.
                 StoryMemorySummaryDraft draft = telemetry.observe(
-                        "gemini", "memory_summary", context, attempt,
+                        "gemini", "memory_summary", context, 0,
                         () -> summarizer.summarize(previous, source, state.turnNumber())
                 );
                 StorySummary summary = validate(draft, sourceFrom, sourceTo, state.turnNumber());

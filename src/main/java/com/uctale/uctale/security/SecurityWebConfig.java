@@ -34,7 +34,8 @@ public class SecurityWebConfig implements WebMvcConfigurer {
                         "/api/game/sessions",
                         "/api/game/sessions/**",
                         "/api/game/image-assets/**",
-                        "/api/game/access-session"
+                        "/api/game/access-session",
+                        "/api/game/budget-policy"
                 );
     }
 
