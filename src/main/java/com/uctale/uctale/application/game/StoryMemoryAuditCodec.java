@@ -12,6 +12,8 @@ import tools.jackson.databind.ObjectMapper;
 @Component
 public final class StoryMemoryAuditCodec {
 
+    private static final int CURRENT_SCHEMA_VERSION = 1;
+
     private final ObjectMapper objectMapper;
 
     public StoryMemoryAuditCodec(ObjectMapper objectMapper) {
@@ -21,7 +23,7 @@ public final class StoryMemoryAuditCodec {
     public String serialize(StoryMemory memory) {
         if (memory == null) throw new IllegalArgumentException("StoryMemory audit 대상은 필수입니다.");
         try {
-            return objectMapper.writeValueAsString(memory);
+            return objectMapper.writeValueAsString(new AuditEnvelope(CURRENT_SCHEMA_VERSION, memory));
         } catch (JacksonException exception) {
             throw new IllegalStateException("StoryMemory GameLog audit 직렬화에 실패했습니다.", exception);
         }
@@ -32,12 +34,30 @@ public final class StoryMemoryAuditCodec {
         if (json.isBlank()) throw new IllegalStateException("StoryMemory GameLog audit가 비어 있습니다.");
         try {
             JsonNode root = objectMapper.readTree(json);
-            validateShape(root);
-            StoryMemory memory = objectMapper.readValue(json, StoryMemory.class);
+            validateEnvelope(root);
+            int schemaVersion = root.get("schemaVersion").asInt();
+            if (schemaVersion != CURRENT_SCHEMA_VERSION) {
+                throw new IllegalArgumentException("지원하지 않는 StoryMemory audit schemaVersion입니다: " + schemaVersion);
+            }
+            JsonNode memoryNode = root.get("storyMemory");
+            validateShape(memoryNode);
+            StoryMemory memory = objectMapper.treeToValue(memoryNode, StoryMemory.class);
             validateSemantics(memory, stateVersion);
             return memory;
         } catch (JacksonException | IllegalArgumentException exception) {
             throw new IllegalStateException("StoryMemory GameLog audit 역직렬화에 실패했습니다.", exception);
+        }
+    }
+
+    private void validateEnvelope(JsonNode root) {
+        if (root == null || !root.isObject()) {
+            throw new IllegalArgumentException("StoryMemory audit envelope은 JSON object여야 합니다.");
+        }
+        JsonNode schemaVersion = root.get("schemaVersion");
+        JsonNode storyMemory = root.get("storyMemory");
+        if (schemaVersion == null || !schemaVersion.isIntegralNumber()
+                || storyMemory == null || !storyMemory.isObject()) {
+            throw new IllegalArgumentException("StoryMemory audit envelope 필수 필드가 누락되었습니다.");
         }
     }
 
@@ -99,6 +119,8 @@ public final class StoryMemoryAuditCodec {
             throw new IllegalArgumentException("StoryMemory recent turn은 현재 GameLog state version까지 포함해야 합니다.");
         }
     }
+
+    private record AuditEnvelope(int schemaVersion, StoryMemory storyMemory) {}
 
     private boolean textual(JsonNode node, String field) {
         JsonNode value = node.get(field);
