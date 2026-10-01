@@ -75,8 +75,10 @@ class AccessSessionOwnerTest {
 
         String expiresTampered = String.join(".", parts[0], Long.toString(Long.parseLong(parts[1]) + 1), parts[2], parts[3]);
         String ownerKeyTampered = String.join(".", parts[0], parts[1], "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", parts[3]);
-        String signatureTampered = String.join(".", parts[0], parts[1], parts[2], "A" + parts[3].substring(1));
+        char replacement = parts[3].charAt(0) == 'A' ? 'B' : 'A';
+        String signatureTampered = String.join(".", parts[0], parts[1], parts[2], replacement + parts[3].substring(1));
 
+        assertThat(signatureTampered).isNotEqualTo(session.ownerToken());
         assertThat(service.ownerKeyFromToken(expiresTampered)).isEmpty();
         assertThat(service.ownerKeyFromToken(ownerKeyTampered)).isEmpty();
         assertThat(service.ownerKeyFromToken(signatureTampered)).isEmpty();
