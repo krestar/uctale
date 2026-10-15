@@ -127,7 +127,7 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
     void completedProgressRetry_ReusesCanonicalResultExactlyOnce() {
         GameResponse opening = createOpening("matrix-opening-progress");
         String key = "matrix-progress-key-001";
-        GameProgressRequest request = new GameProgressRequest(opening.sessionId(), 1, 1);
+        GameProgressRequest request = issuedProgress(opening);
 
         GameResponse first = gameService.progressGame(progressContext(key, opening.sessionId()), request);
         GameResponse retry = gameService.progressGame(progressContext(key, opening.sessionId()), request);
@@ -151,7 +151,7 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
     @DisplayName("같은 session/turn 최초 동시 요청은 active lease 동안 실제 provider 진입을 하나로 제한한다")
     void concurrentFirstRequests_AllowSingleActiveProviderExecution() throws Exception {
         GameResponse opening = createOpening("matrix-opening-concurrency");
-        GameProgressRequest request = new GameProgressRequest(opening.sessionId(), 1, 1);
+        GameProgressRequest request = issuedProgress(opening);
         narrativeGenerator.blockNextProgress();
 
         CountDownLatch ready = new CountDownLatch(2);
@@ -201,7 +201,7 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
     @DisplayName("provider 3회 소진 뒤 cooldown이 지나면 새 recovery window에서 성공 commit할 수 있다")
     void exhaustedProviderWindow_RecoversAfterCooldownAndCommitsOnce() {
         GameResponse opening = createOpening("matrix-opening-recovery");
-        GameProgressRequest request = new GameProgressRequest(opening.sessionId(), 1, 1);
+        GameProgressRequest request = issuedProgress(opening);
         narrativeGenerator.failNextProgressAttempts(3);
 
         assertThatThrownBy(() -> gameService.progressGame(
@@ -242,7 +242,7 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
     @DisplayName("provider 성공 직후 crash와 lease expiry는 재호출을 허용해도 stale owner를 막고 canonical commit 하나로 수렴한다")
     void expiredLeaseTakeover_AllowsProviderRetryButSingleCanonicalCommit() throws Exception {
         GameResponse opening = createOpening("matrix-opening-crash");
-        GameProgressRequest request = new GameProgressRequest(opening.sessionId(), 1, 1);
+        GameProgressRequest request = issuedProgress(opening);
         String crashedKey = "matrix-crash-key-a";
 
         GameService crashingService = newGameService(new CrashBeforeCommitPersistence(persistenceService));
@@ -338,10 +338,17 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
     }
 
     private GameResponse createOpening(String key) {
-        return gameService.initGame(
+        GameResponse opening = gameService.initGame(
                 initContext(key),
                 new GameInitRequest("matrix-world", "matrix-character")
         );
+        // M2 reservation tests intentionally exercise the pre-token legacy stored-choice path.
+        // A tokenized choice must never be downgraded by omitting request metadata.
+        var choice = opening.choices().getFirst();
+        jdbcTemplate.update("update game_log set choices_json = ? where session_id = ? and turn_number = 1",
+                choiceCodec.serialize(List.of(new com.uctale.uctale.dto.GameChoice(choice.id(), choice.text()))),
+                opening.sessionId());
+        return opening;
     }
 
     private GameService newGameService(GamePersistenceService persistence) {
@@ -360,6 +367,10 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
 
     private CostRequestContext initContext(String key) {
         return CostRequestContext.create(OWNER_KEY, "127.0.0.1", null, 1, key);
+    }
+
+    private GameProgressRequest issuedProgress(GameResponse opening) {
+        return new GameProgressRequest(opening.sessionId(), opening.choices().getFirst().id(), opening.turnNumber());
     }
 
     private CostRequestContext progressContext(String key, Long sessionId) {

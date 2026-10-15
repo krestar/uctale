@@ -118,7 +118,22 @@ public final class ActionResolver {
     private TurnResolution resolved(GameState state, PlayerAction action, SkillCheckResult skillCheckResult,
             List<InventoryCommand> inventoryCommands, List<VitalsCommand> vitalsCommands) {
         InventoryRules.Result inventoryResult = inventoryRules.apply(state.inventory(), inventoryCommands);
-        VitalsRules.Result vitalsResult = vitalsRules.apply(state.playerCharacter().vitals(), withTurnEndTiming(vitalsCommands));
+        List<VitalsCommand> effectiveVitalsCommands = new ArrayList<>();
+        // Ruleset 1 decisions can survive a reservation retry across deployment.
+        // They remain outcome-only: never retroactively attach v2 consequences.
+        if (skillCheckResult != null && skillCheckResult.rulesetVersion() >= 2) {
+            CharacterVitals vitals = state.playerCharacter().vitals();
+            if (skillCheckResult.outcome() == SkillCheckOutcome.SUCCESS
+                    && vitals.hp().current() < vitals.hp().max()) {
+                effectiveVitalsCommands.add(new VitalsCommand.Heal(1));
+            } else if (skillCheckResult.outcome() == SkillCheckOutcome.FAILURE
+                    && vitals.hp().current() > 0) {
+                effectiveVitalsCommands.add(new VitalsCommand.Damage(1));
+            }
+        }
+        if (vitalsCommands != null) effectiveVitalsCommands.addAll(vitalsCommands);
+        VitalsRules.Result vitalsResult = vitalsRules.apply(state.playerCharacter().vitals(),
+                withTurnEndTiming(effectiveVitalsCommands));
         AbilityRules.CooldownAdvance cooldownAdvance = abilityRules.advanceCooldowns(state.abilityState());
 
         CombatEncounter nextCombat = state.combatEncounter();
@@ -152,8 +167,13 @@ public final class ActionResolver {
         stateChanges.addAll(combatChanges);
         stateChanges.addAll(cooldownAdvance.stateChanges());
         stateChanges.add(new GameResult.TurnAdvanced(state.turnNumber(), nextState.turnNumber()));
+        List<String> narrativeCues = new ArrayList<>();
+        narrativeCues.add(action.displayText());
+        if (skillCheckResult != null) {
+            narrativeCues.add("Skill Check의 성공/실패와 HP 변화는 서버 확정 stateChanges를 따른다.");
+        }
         GameResult result = new GameResult(action, GameResult.Outcome.RESOLVED, skillCheckResult, List.of(), events,
-                stateChanges, List.of(action.displayText()));
+                stateChanges, narrativeCues);
         return new TurnResolution(result, new StateTransition(state, nextState));
     }
 

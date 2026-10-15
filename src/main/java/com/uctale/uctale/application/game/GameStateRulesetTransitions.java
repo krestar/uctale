@@ -10,15 +10,18 @@ import java.util.Objects;
 
 /**
  * Explicit, read-only compatibility boundary for canonical ruleset changes.
- * Production registers no transitions: ruleset 1 is the only supported ruleset.
- * New transitions must be justified as state-preserving and reviewed individually.
+ * Ruleset 1 -> 2 only changes consequences of future Skill Checks, not the
+ * interpretation of stored GameState. No historical result is re-evaluated.
  */
 final class GameStateRulesetTransitions {
     private final int currentVersion;
     private final Map<Integer, StatePreservingTransition> transitions;
 
     GameStateRulesetTransitions() {
-        this(GameRuleset.CURRENT_VERSION, List.of());
+        this(GameRuleset.CURRENT_VERSION, List.of(new StatePreservingTransition() {
+            public int fromVersion() { return 1; }
+            public JsonNode upgrade(JsonNode state) { return state.deepCopy(); }
+        }));
     }
 
     // Test-only configurable target permits exercising migration mechanics without

@@ -73,7 +73,16 @@ class GameOwnershipApiIntegrationTest {
         var responseJson = objectMapper.readTree(initResult.getResponse().getContentAsString());
         long sessionId = responseJson.get("sessionId").asLong();
         String imageUrl = responseJson.get("mainImageUrl").asText();
-        String progressBody = "{\"sessionId\":" + sessionId + ",\"choiceId\":1,\"expectedTurn\":1}";
+        var issuedChoice = responseJson.get("choices").get(0);
+        String progressBody = objectMapper.writeValueAsString(java.util.Map.of(
+                "sessionId", sessionId,
+                "choiceId", 1,
+                "expectedTurn", 1,
+                "actionToken", issuedChoice.get("actionToken").asText(),
+                "actionType", issuedChoice.get("actionType").asText(),
+                "sourceTurn", issuedChoice.get("sourceTurn").asInt(),
+                "arguments", objectMapper.convertValue(issuedChoice.get("arguments"), java.util.Map.class)
+        ));
 
         mockMvc.perform(get(imageUrl)
                         .cookie(accessCookie(ownerB), ownerCookie(ownerB))

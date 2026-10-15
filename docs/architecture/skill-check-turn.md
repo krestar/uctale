@@ -23,7 +23,13 @@
 
 이 정책은 첫 end-to-end 판정 경계를 검증하기 위한 최소 규칙이며 최종 balancing이나 행동별 stat/DC 선택 시스템을 의미하지 않는다.
 
-metadata가 없는 legacy wire 요청은 기존 `NARRATIVE_CHOICE` compatibility 의미를 유지한다.
+metadata가 없는 legacy wire 요청은 **저장 선택지 자체가 모든 action metadata를 갖지 않는 실제 legacy choice일 때만** `NARRATIVE_CHOICE`로 허용된다. 새 tokenized choice에서 클라이언트가 metadata를 제거하거나 저장 값이 부분 손상되면 거부한다.
+
+## Ruleset 2 canonical consequence
+
+신규 Skill Check는 서버에서 성공 시 HP 1 회복(현재 HP가 최대치 미만일 때), 실패 시 HP 1 감소(현재 HP가 0보다 클 때)를 결정한다. 자원 경계에서는 no-op이며 추가 난수는 사용하지 않는다. 기존 typed `VitalsCommand.Heal/Damage`와 `VitalsRules`를 통해서만 상태를 갱신한다.
+
+ruleset 1의 이미 저장된 판정은 결과만 보존하며 consequence를 사후 적용하지 않는다. snapshot ruleset 1→2는 상태의 의미를 변경하지 않는 identity transition이다. 새 판정은 ruleset 2로 기록하고, audit의 `vitals_changes_json`을 사용하여 replay/recovery한다. API는 기존 `latestSkillCheck` 판정 계약을 유지하고, canonical consequence는 `GameState` HP와 typed audit에 존재한다. frontend는 판정값과 consequence를 추측하거나 재계산하지 않는다.
 
 ## 판정 수명주기
 

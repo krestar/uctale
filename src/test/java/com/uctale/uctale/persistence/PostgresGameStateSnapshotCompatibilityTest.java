@@ -41,7 +41,7 @@ class PostgresGameStateSnapshotCompatibilityTest extends PostgresIntegrationTest
         GameSession session = gamePersistenceService.saveOpening(OWNER_KEY, "세계관", "캐릭터", "첫 이야기", "[]", null);
         JsonNode openingSnapshot = snapshot(session.getId());
         assertThat(openingSnapshot.get("schemaVersion").asInt()).isEqualTo(10);
-        assertThat(openingSnapshot.get("rulesetVersion").asInt()).isEqualTo(1);
+        assertThat(openingSnapshot.get("rulesetVersion").asInt()).isEqualTo(2);
         assertThat(openingSnapshot.get("state").get("playerCharacter").get("stats").get("might").asInt()).isEqualTo(CharacterStats.DEFAULT_SCORE);
         assertThat(openingSnapshot.get("state").get("inventory").get("items").isEmpty()).isTrue();
         assertThat(openingSnapshot.get("state").get("playerCharacter").get("vitals").get("hp").get("current").asInt()).isEqualTo(CharacterVitals.DEFAULT_MAX_HP);

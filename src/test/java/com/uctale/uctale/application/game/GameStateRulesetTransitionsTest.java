@@ -18,7 +18,7 @@ class GameStateRulesetTransitionsTest {
 
     @Test
     void productionContractKeepsSkillCheckAndSnapshotOnSameRuleset() {
-        assertThat(GameRuleset.CURRENT_VERSION).isEqualTo(1);
+        assertThat(GameRuleset.CURRENT_VERSION).isEqualTo(2);
         assertThat(SkillCheck.RULESET_VERSION).isEqualTo(GameStateSnapshotFormat.CURRENT_RULESET_VERSION);
         assertThat(new GameStateRulesetTransitions().currentVersion()).isEqualTo(GameRuleset.CURRENT_VERSION);
     }
@@ -41,7 +41,7 @@ class GameStateRulesetTransitionsTest {
     @Test
     void productionRejectsAllUnregisteredAndMalformedRulesetVersions() throws Exception {
         GameStateUpgrader upgrader = new GameStateUpgrader();
-        for (int version : new int[]{-1, 0, 2, Integer.MAX_VALUE}) {
+        for (int version : new int[]{-1, 0, 3, Integer.MAX_VALUE}) {
             JsonNode snapshot = envelope(version);
             assertThatThrownBy(() -> upgrader.upgrade(snapshot))
                     .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("rulesetVersion");
@@ -58,14 +58,22 @@ class GameStateRulesetTransitionsTest {
     }
 
     @Test
-    void unregisteredRulesetFailsBeforeLegacySchemaConversion() throws Exception {
+    void futureRulesetFailsBeforeLegacySchemaConversion() throws Exception {
         ObjectNode snapshot = mapper.createObjectNode();
         snapshot.put("schemaVersion", 1);
-        snapshot.put("rulesetVersion", 2);
+        snapshot.put("rulesetVersion", 3);
         snapshot.set("state", mapper.createObjectNode());
         assertThatThrownBy(() -> new GameStateUpgrader().upgrade(snapshot))
                 .isInstanceOf(GameStateSnapshotException.class)
                 .hasMessageContaining("rulesetVersion");
+    }
+
+    @Test
+    void productionUpgradesV1WithoutRecomputingHistoricalState() throws Exception {
+        JsonNode source = envelope(1);
+        var updated = new GameStateUpgrader().upgrade(source);
+        assertThat(updated.rulesetVersion()).isEqualTo(2);
+        assertThat(updated.state()).isEqualTo(source.get("state"));
     }
 
     @Test

@@ -8,14 +8,14 @@ snapshot 구조는 `state_json` 내부에서 진화하고, 별도의 audit이 �
 
 ## 현재 snapshot 형식
 
-새 write는 schema `10`, ruleset `1`을 사용합니다. 현재 `GameState`에는 typed stats/vitals, inventory/equipment, combat encounter, ability cooldown, quest/objective와 typed World/Event Flag, NPC relationship/affinity 상태, 구조화 StoryMemory summary metadata가 포함됩니다.
+새 write는 schema `10`, ruleset `2`를 사용합니다. 현재 `GameState`에는 typed stats/vitals, inventory/equipment, combat encounter, ability cooldown, quest/objective와 typed World/Event Flag, NPC relationship/affinity 상태, 구조화 StoryMemory summary metadata가 포함됩니다.
 
 - `schemaVersion`: snapshot JSON 구조/필드 의미의 evolution version
 - `rulesetVersion`: 저장 상태를 해석하는 결정적 게임 규칙 계약 version (`GameRuleset.CURRENT_VERSION`)
 - `SkillCheck.RULESET_VERSION`: 현재 canonical 규칙 버전을 참조하며 Skill Check audit/result의 판정 당시 규칙을 식별
 - `state`: canonical `GameState`
 
-schema와 ruleset version은 서로 다른 축입니다. 저장 구조는 v10까지 확장되었지만 과거 결과를 현재 규칙으로 재판정하지 않으므로 ruleset은 1을 유지합니다.
+schema와 ruleset version은 서로 다른 축입니다. 저장 구조는 v10까지 확장되었지만 과거 결과를 현재 규칙으로 재판정하지 않으므로 이번 Skill Check 신규 consequence 규칙부터 ruleset 2를 사용합니다. 기존 결과는 재판정하지 않습니다.
 
 ## schemaVersion과 rulesetVersion 변경 기준
 
@@ -28,7 +28,7 @@ schema와 ruleset version은 서로 다른 축입니다. 저장 구조는 v10까
 
 `GameStateRulesetTransitions`는 schema upgrader와 분리된 명시적 규칙 호환성 경계입니다. 읽을 때 먼저 원본 ruleset에서 현재 버전까지 등록된 **연속된 한 단계 전환**이 있는지 확인하고, 없다면 schema 변환 이전에 거부합니다. 등록된 전환만 schema upgrade 후 메모리에서 수행하며, 마지막에 현재 shape를 검증합니다. 전환 구현은 원본 JSON을 변경하지 않아야 하고, provider 호출·랜덤 판정·과거 turn 재판정 없이 동일 입력에 동일 결과를 만들어야 합니다.
 
-**현재 production ruleset은 1이고 등록된 1→2 전환은 없습니다.** 따라서 과거 schema v0~v9라도 ruleset 1인 것만 읽을 수 있으며 ruleset 0/음수, 누락, 미래/미지원 버전은 명시적으로 거부합니다. 테스트에서는 production 규칙 버전을 올리지 않고 별도 target/가상 step으로 transition chain, 누락 단계, 결정성, 원본 불변성을 검증합니다. 임의의 version 숫자 치환이나 migration에 의한 판정 변경은 지원하지 않습니다.
+**현재 production ruleset은 2이며 1→2 상태 보존 identity transition만 등록됩니다.** 이 전환은 신규 Skill Check의 미래 consequence만 변경하며 과거 snapshot과 결과는 그대로 유지합니다. 따라서 과거 schema v0~v9의 ruleset 1 데이터도 읽을 수 있으며 ruleset 0/음수, 누락, 미래/미지원 버전은 명시적으로 거부합니다. 테스트에서는 production 규칙 버전을 올리지 않고 별도 target/가상 step으로 transition chain, 누락 단계, 결정성, 원본 불변성을 검증합니다. 임의의 version 숫자 치환이나 migration에 의한 판정 변경은 지원하지 않습니다.
 
 상태 의미 자체가 달라진 **incompatible** ruleset이라면 read-time transition을 등록하지 않고 snapshot을 거부해야 합니다. 필요 시 별도의 버전별 런타임 또는 근거 있는 오프라인 migration을 설계해야 하며, 과거 canonical 결과를 묵시적으로 현재 규칙으로 재판정해서는 안 됩니다.
 

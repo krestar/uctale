@@ -24,7 +24,8 @@ public record SkillCheckResult(
                 || situationalModifier > SkillCheck.MAX_SITUATIONAL_MODIFIER) {
             throw new IllegalArgumentException("상황 modifier가 허용 범위를 벗어났습니다.");
         }
-        if (rulesetVersion != SkillCheck.RULESET_VERSION) {
+        // Version 1 persisted decisions remain valid but carry no canonical consequence.
+        if (rulesetVersion != 1 && rulesetVersion != SkillCheck.RULESET_VERSION) {
             throw new IllegalArgumentException("지원하지 않는 Skill Check rulesetVersion입니다: " + rulesetVersion);
         }
         if (total != rawRoll + statModifier + situationalModifier) {
