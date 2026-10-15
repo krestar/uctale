@@ -1,5 +1,5 @@
 import GameImage from './GameImage'
-import { canOpenSession, SESSION_STATUS_LABELS } from '../session/sessionRecovery.js'
+import { canOpenSession, SESSION_STATUS_HELP, SESSION_STATUS_LABELS } from '../session/sessionRecovery.js'
 import '../session.css'
 
 function formatUpdatedAt(value) {
@@ -17,7 +17,7 @@ function SessionLibrary({ sessions, isLoading, error, resumingSessionId, onResum
     <section className="session-library" aria-labelledby="session-library-title" aria-busy={isLoading}>
       <div className="session-library__heading">
         <div>
-          <p className="eyebrow">Saved tales</p>
+          <p className="eyebrow">저장된 이야기</p>
           <h2 id="session-library-title">이어갈 이야기</h2>
         </div>
         <button className="button button--secondary button--compact" type="button" onClick={onReload} disabled={isLoading}>
@@ -26,7 +26,7 @@ function SessionLibrary({ sessions, isLoading, error, resumingSessionId, onResum
       </div>
 
       <p className="session-library__help">
-        UCTale은 완료된 턴마다 자동 저장합니다. 처리 중이거나 실패한 요청이 있어도 마지막 완료 턴은 그대로 보존됩니다.
+        UCTale은 장면이 끝날 때마다 자동 저장합니다. 처리 중이거나 실패한 요청이 있어도 마지막으로 저장된 장면은 그대로 보존됩니다.
       </p>
 
       {isLoading && <p className="status-message" role="status">저장된 이야기를 불러오고 있습니다.</p>}
@@ -71,18 +71,18 @@ function SessionLibrary({ sessions, isLoading, error, resumingSessionId, onResum
                     <span className={`session-status session-status--${session.status?.toLowerCase() || 'ready'}`}>
                       {SESSION_STATUS_LABELS[session.status] || session.status}
                     </span>
-                    <span>Turn {session.currentTurn}</span>
+                    <span>{session.currentTurn}번째 장면</span>
                     <span>{formatUpdatedAt(session.updatedAt)}</span>
                   </div>
                   <h3>{session.title}</h3>
-                  <p>{session.statusMessage}</p>
+                  <p>{SESSION_STATUS_HELP[session.status] ?? '저장된 이야기를 확인해 주세요.'}</p>
                   <button
                     className="button button--secondary button--compact"
                     type="button"
                     disabled={!canResume || isResuming}
                     onClick={() => onResume(session.sessionId)}
                   >
-                    {isResuming ? '마지막 완료 턴 불러오는 중...' : '이어서 하기'}
+                    {isResuming ? '마지막 장면 불러오는 중...' : '이어서 하기'}
                   </button>
                 </div>
               </article>

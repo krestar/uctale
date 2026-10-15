@@ -31,7 +31,8 @@ public final class GameResponseProjector {
                 choices,
                 imageUrl,
                 projectStats(gameState),
-                projectSkillCheck(skillCheckResult)
+                projectSkillCheck(skillCheckResult),
+                projectGameplay(gameState)
         );
     }
 
@@ -54,7 +55,31 @@ public final class GameResponseProjector {
                 choices,
                 imageUrl,
                 projectStats(exactReplayState),
-                projectSkillCheckAudit(skillCheckAudit)
+                projectSkillCheckAudit(skillCheckAudit),
+                projectGameplay(exactReplayState)
+        );
+    }
+
+    private static GameResponse.GameplayView projectGameplay(GameState state) {
+        if (state == null) return null;
+        var vitals = state.playerCharacter().vitals();
+        var equipped = state.inventory().equipment().slots().values();
+        var items = state.inventory().items().values().stream()
+                .map(item -> new GameResponse.ItemView(item.id(), item.quantity(), equipped.contains(item.id())))
+                .toList();
+        var relationships = state.relationshipState().relationships().values().stream()
+                .map(relation -> new GameResponse.RelationshipView(relation.npc().instanceId(), relation.affinity()))
+                .toList();
+        var quests = state.questState().quests().values().stream()
+                .map(quest -> new GameResponse.QuestView(quest.definitionId(), quest.status().name()))
+                .toList();
+        var statuses = vitals.statusEffects().values().stream()
+                .map(status -> new GameResponse.StatusView(status.definitionId(), status.remainingTurns()))
+                .toList();
+        String combat = state.combatEncounter() == null ? null : state.combatEncounter().status().name();
+        return new GameResponse.GameplayView(
+                vitals.hp().current(), vitals.hp().max(), vitals.mp().current(), vitals.mp().max(),
+                items, relationships, quests, statuses, combat
         );
     }
 

@@ -268,7 +268,7 @@ public final class ActionResolver {
         Objects.requireNonNull(state, "GameState는 필수입니다.");
         Objects.requireNonNull(action, "PlayerAction은 필수입니다.");
         if (action.sourceTurn() != state.turnNumber()) throw new IllegalArgumentException("PlayerAction source turn이 현재 GameState와 일치하지 않습니다.");
-        if (action.type() != ActionType.NARRATIVE_CHOICE && action.type() != ActionType.SKILL_CHECK && !isCombatAction(action.type())) {
+        if (action.type() != ActionType.NARRATIVE_CHOICE && action.type() != ActionType.SKILL_CHECK && action.type() != ActionType.GAMEPLAY && !isCombatAction(action.type())) {
             throw new IllegalArgumentException("지원하지 않는 action type입니다: " + action.type());
         }
         CombatEncounter encounter = state.combatEncounter();
@@ -278,6 +278,7 @@ public final class ActionResolver {
 
     private void validateActionArguments(GameState state, PlayerAction action) {
         if (action.type() == ActionType.NARRATIVE_CHOICE) validateNarrativeChoice(action);
+        else if (action.type() == ActionType.GAMEPLAY) GameplayActionRules.validate(action);
         else if (isCombatAction(action.type())) validateCombatAction(state, action);
     }
 

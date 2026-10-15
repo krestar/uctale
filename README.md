@@ -58,11 +58,11 @@ UCTale은 이야기의 중요한 상태와 판정을 서버에서 관리하고, 
 현재 서비스에는 선택 기반 이야기 진행을 중심으로 다음 기능이 구현되어 있습니다.
 
 - 선택 행동과 Skill Check
-- Inventory / Equipment
-- HP / MP / Status Effect
-- Combat / Ability
-- Quest / Objective / World·Event Flag
-- NPC Relationship / Affinity
+- 소지품/장비: 아이템 획득·무기 발견·장착·해제 행동과 서버가 확정하는 장비 효과
+- 체력/기력/상태: 행동 판정, 휴식, 지속 효과의 서버 규칙
+- 전투/능력: 전투 시작 후 서버 발급 공격·능력·대기·이탈 행동, 결정적 적 반격
+- 목표/진행 상태: 제한된 동적 목표 시작과 수집 완료에 따른 상태·완료 기록
+- 인물 관계: 대화 행동에 따른 서버 확정 친밀도 변화
 - 이야기 상태 저장, snapshot, recovery
 - Story Memory와 최근 이야기 문맥 유지
 - 장면 이미지 생성

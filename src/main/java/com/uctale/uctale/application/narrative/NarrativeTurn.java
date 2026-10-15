@@ -8,7 +8,11 @@ public record NarrativeTurn(
         List<Choice> choices,
         VisualAssets visualAssets
 ) {
-    public record Choice(int id, String text) {}
+    public record Choice(int id, String text, String intent, String subjectKey) {
+        public Choice(int id, String text) {
+            this(id, text, null, null);
+        }
+    }
 
     public record VisualAssets(
             String background,

@@ -3,6 +3,7 @@ package com.uctale.uctale.domain.game;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 public final class QuestDefinitions {
     public static final String FIXTURE_QUEST_ID = "fixture.pathfinder";
@@ -13,6 +14,8 @@ public final class QuestDefinitions {
     public static final int DIALOGUE_CHOICE_ID = 1;
 
     private static final Map<String, QuestDefinition> DEFINITIONS = definitions();
+    private static final String DYNAMIC_PREFIX = "quest.v2.";
+    private static final Pattern SUBJECT = Pattern.compile("[a-z][a-z0-9-]{0,31}");
 
     private QuestDefinitions() {}
 
@@ -21,7 +24,15 @@ public final class QuestDefinitions {
     }
 
     public static Optional<QuestDefinition> find(String definitionId) {
-        return Optional.ofNullable(DEFINITIONS.get(definitionId));
+        QuestDefinition registered = DEFINITIONS.get(definitionId);
+        if (registered != null) return Optional.of(registered);
+        if (definitionId == null || !definitionId.startsWith(DYNAMIC_PREFIX)) return Optional.empty();
+        String subject = definitionId.substring(DYNAMIC_PREFIX.length());
+        if (!SUBJECT.matcher(subject).matches()) return Optional.empty();
+        return Optional.of(new QuestDefinition(definitionId, Map.of(
+                "gather", new ObjectiveDefinition("gather", ObjectiveProgressType.COUNT,
+                        ObjectiveTrigger.COLLECTION, subject, null, 1)
+        )));
     }
 
     private static Map<String, QuestDefinition> definitions() {

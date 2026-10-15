@@ -19,11 +19,11 @@ function AccessScreen({
       <BrandHeader />
       <main className="screen screen--narrow">
         <section className="folio-panel access-panel" aria-busy={isChecking || isLoading}>
-          <p className="eyebrow">Shared beta</p>
-          <h1 className="screen-title">{isChecking ? '접근 세션 확인 중' : '공유 베타 접근'}</h1>
+          <p className="eyebrow">미리 체험하기</p>
+          <h1 className="screen-title">{isChecking ? '접속 상태 확인 중' : '서비스 입장'}</h1>
 
           {isChecking ? (
-            <p className="supporting-copy" role="status">기존 접근 세션을 확인하고 있습니다.</p>
+            <p className="supporting-copy" role="status">이전에 로그인했는지 확인하고 있습니다.</p>
           ) : (
             <form
               className="access-form"
@@ -33,7 +33,7 @@ function AccessScreen({
               }}
             >
               <div className="field-group">
-                <label htmlFor="access-password">접근 비밀번호</label>
+                <label htmlFor="access-password">입장 비밀번호</label>
                 <input
                   id="access-password"
                   type="password"
@@ -43,7 +43,7 @@ function AccessScreen({
                   value={password}
                   onChange={(event) => onPasswordChange(event.target.value)}
                 />
-                <p id="access-password-help" className="field-help">공유받은 베타 접근 비밀번호를 입력하세요.</p>
+                <p id="access-password-help" className="field-help">공유받은 베타 입장 비밀번호를 입력하세요.</p>
                 {authMessageKind === 'validation' && authMessage && (
                   <p id="access-password-error" className="field-error">{authMessage}</p>
                 )}

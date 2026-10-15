@@ -25,6 +25,7 @@ import com.uctale.uctale.application.narrative.NarrativeTurn;
 import com.uctale.uctale.application.narrative.StoryMemorySummaryService;
 import com.uctale.uctale.domain.action.PlayerAction;
 import com.uctale.uctale.domain.game.GameState;
+import com.uctale.uctale.domain.game.GameplayActionRules;
 import com.uctale.uctale.domain.game.StateTransition;
 import com.uctale.uctale.domain.game.TurnResolution;
 import com.uctale.uctale.dto.GameChoice;
@@ -228,7 +229,7 @@ public class GameService {
             if (storyMemorySummaryService != null) {
                 committedTransition = storyMemorySummaryService.compactBestEffort(committedTransition, providerContext);
             }
-            List<GameChoice> choices = choiceCodec.issue(nextTurn.choices(), request.expectedTurn() + 1);
+            List<GameChoice> choices = choiceCodec.issue(nextTurn.choices(), committedTransition.nextState());
 
             ImageAssetService.AssetReference imageAsset = null;
             String imageUrl = loadedTurn.imageUrl();
@@ -381,6 +382,11 @@ public class GameService {
             }
             if (choice.text() == null || choice.text().isBlank() || choice.text().length() > MAX_CHOICE_TEXT_LENGTH) {
                 throw new InvalidNarrativeResponseException("Narrative 선택지 문구가 올바르지 않습니다.");
+            }
+            try {
+                GameplayActionRules.validateProposal(choice.intent(), choice.subjectKey());
+            } catch (IllegalArgumentException exception) {
+                throw new InvalidNarrativeResponseException("Narrative 행동 제안이 올바르지 않습니다.", exception);
             }
         }
     }

@@ -43,6 +43,7 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
             3. **개연성:** 사건은 전달받은 결과, 과거 문맥, resolved action에 맞는 인과관계를 가져야 합니다.
             4. **메모리 우선순위:** 확정 게임 결과/상태 > 캐논 사실 > 누적 요약 > 최근 턴 순으로 충돌을 해결하십시오.
             5. **출력 책임:** story_text와 다음 choices를 제안하고, 선택적으로 visual_assets를 묘사하십시오. canonical state 변경값을 출력 계약으로 만들지 마십시오.
+            6. **행동 의도:** 필요한 경우 choices[]에 intent(COLLECT, REST, TALK, START_QUEST, START_COMBAT, FIND_WEAPON, EQUIP_WEAPON, UNEQUIP_WEAPON, APPLY_STATUS)와 subject_key(소문자 영문 slug)를 함께 제안할 수 있습니다. 일반 선택에는 두 필드를 생략하세요. HP·수량·친밀도 수치는 제안하지 마십시오.
 
             [내러티브 출력 언어 계약 - 매우 중요]
             1. 사용자에게 노출되는 `title`, `story_text`, `choices[].text`는 세계관/캐릭터 설정과 현재 narrative context에서 확립된 **주 언어**를 따르세요.
@@ -80,7 +81,9 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
                                     "required", List.of("id", "text"),
                                     "properties", Map.of(
                                             "id", Map.of("type", "INTEGER", "minimum", 1),
-                                            "text", Map.of("type", "STRING")
+                                            "text", Map.of("type", "STRING"),
+                                            "intent", Map.of("type", "STRING", "enum", List.of("COLLECT", "REST", "TALK", "START_QUEST", "START_COMBAT", "FIND_WEAPON", "EQUIP_WEAPON", "UNEQUIP_WEAPON", "APPLY_STATUS")),
+                                            "subject_key", Map.of("type", "STRING")
                                     )
                             )
                     ),
@@ -434,7 +437,16 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
                 throw recoverable("INVALID_CHOICE_ID", "Narrative choice id가 중복되었거나 범위를 벗어났습니다.", null);
             }
             String text = requiredText(choiceNode, "text", MAX_CHOICE_TEXT_LENGTH, false, "INVALID_CHOICE_TEXT");
-            choices.add(new NarrativeTurn.Choice(id, text));
+            JsonNode intentNode = choiceNode.get("intent");
+            JsonNode subjectNode = choiceNode.get("subject_key");
+            String intent = intentNode == null || intentNode.isNull() ? null : gameplayField(intentNode);
+            String subjectKey = subjectNode == null || subjectNode.isNull() ? null : gameplayField(subjectNode);
+            try {
+                com.uctale.uctale.domain.game.GameplayActionRules.validateProposal(intent, subjectKey);
+            } catch (IllegalArgumentException exception) {
+                throw recoverable("INVALID_GAMEPLAY_PROPOSAL", "허용되지 않는 gameplay action 제안입니다.", exception);
+            }
+            choices.add(new NarrativeTurn.Choice(id, text, intent, subjectKey));
         }
 
         JsonNode visualNode = rootNode.get("visual_assets");
@@ -443,6 +455,13 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
                 : parseVisualAssets(visualNode);
 
         return new NarrativeTurn(title, storyText, List.copyOf(choices), visualAssets);
+    }
+
+    private String gameplayField(JsonNode node) {
+        if (!node.isTextual()) {
+            throw recoverable("INVALID_GAMEPLAY_PROPOSAL", "gameplay proposal은 문자열이어야 합니다.", null);
+        }
+        return node.asString();
     }
 
     private NarrativeTurn.VisualAssets parseVisualAssets(JsonNode visualNode) {

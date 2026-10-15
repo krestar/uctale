@@ -4,7 +4,7 @@
 
 UCTale의 결정적 게임 규칙은 Narrative provider가 아니라 서버가 소유한다. `/progress`는 서버가 발급한 `PlayerAction`을 먼저 규칙으로 해석하고 canonical state transition을 확정한 뒤 Narrative provider를 호출한다.
 
-현재 action type은 `NARRATIVE_CHOICE`, `SKILL_CHECK`, `COMBAT_ATTACK`, `COMBAT_ABILITY`, `COMBAT_PASS`, `COMBAT_ESCAPE`다. 범용 Rule Engine을 만들지 않고 inventory/equipment, HP/MP/status, combat/ability, quest/objective/flag, NPC relationship/affinity를 작은 타입 안전 규칙으로 유지한다.
+현재 action type은 `NARRATIVE_CHOICE`, `SKILL_CHECK`, `GAMEPLAY`, `COMBAT_ATTACK`, `COMBAT_ABILITY`, `COMBAT_PASS`, `COMBAT_ESCAPE`다. 범용 Rule Engine을 만들지 않고 inventory/equipment, HP/MP/status, combat/ability, quest/objective/flag, NPC relationship/affinity를 작은 타입 안전 규칙으로 유지한다.
 
 ## 책임
 
@@ -31,6 +31,16 @@ Quest 규칙과 relationship 규칙은 provider prose를 읽지 않고 이미 �
 - relationship delta: stable NPC identity + `TALK`/`QUEST`/`GAME_RESULT` reason + source turn/key
 
 따라서 quest progress/flag와 NPC affinity/stage는 Narrative provider 호출 전에 `GameResult`와 next `GameState`에 포함된다. Quest 규칙은 [quest-objective-flags.md](./quest-objective-flags.md), 관계 규칙은 [npc-relationship-affinity.md](./npc-relationship-affinity.md)를 기준으로 한다.
+
+### 제한된 서사 행동 의도 연결
+
+Narrative provider는 선택지에 선택적으로 `intent`와 `subject_key`를 제안한다. `GameplayActionRules`는 COLLECT, REST, TALK, START_QUEST, START_COMBAT, FIND_WEAPON, EQUIP_WEAPON, UNEQUIP_WEAPON, APPLY_STATUS 유형과 32자 이하의 영문 slug, ruleset version과 token을 검사한다. 서버는 아이템 수량 1, 휴식 HP/MP 최대 2 회복, NPC 친밀도 +1, 무기 고정 공격/피해 +1, 상태 효과의 기간/강도, 적 수치 등을 확정한다. Provider는 수치나 성공/실패를 결정하지 않는다.
+
+동적 quest ID는 `quest.v2.<subject>` 형식으로 자체 설명 가능한 제한된 서버 정의만 허용한다. `QuestDefinitions.find`는 이를 동일 규칙으로 재구성해 snapshotless audit replay에서도 의미가 변경되지 않도록 한다. START_QUEST로 활성화하고 COLLECT로 collection objective가 완료되면 objective/world flag 및 quest/event flag가 기록된다.
+
+START_COMBAT는 서버 기본 적 인스턴스를 생성하고 STARTED→ACTIVATED를 한 turn의 감사 로그에 남긴다. 이후 서사 provider의 다음 선택지는 전투 규칙에 사용하지 않고, `CombatActionIssuer`가 실제 플레이어 차례의 공격·능력·대기·이탈 action을 발급한다. 플레이어 행동으로 적의 차례가 오면 `CombatTurnSettlement`가 추가 provider 호출 없이 고정 피해 1과 actor advance를 같은 commit에 정착시킨다. 동적 적 ID에서 파생한 `ability.v2.<subject>`는 서버 고정 MP 비용·cooldown·피해량의 제한된 전투 기술로 materialize되며, 기존 `AbilityRules`와 audit을 사용한다. 전투 및 상태 변경은 기존 typed audit/replay를 거친다. 광범위한 적 AI, 스크립팅이나 자유 form의 수치 생성은 구현하지 않는다.
+
+`GameResponse.gameplay`는 현재 HP/MP, inventory, quest, status effect, NPC affinity 및 combat 상태만 읽기 전용으로 노출한다. 완료된 과거 turn에 정확한 snapshot이 없으면 최신 상태를 과거 상태인 것처럼 혼합하지 않고 projection을 비운다. 프론트엔드는 서버 결과를 재계산하지 않고 이해하기 쉬운 한국어로 표시한다.
 
 ### `CombatActionIssuer`
 

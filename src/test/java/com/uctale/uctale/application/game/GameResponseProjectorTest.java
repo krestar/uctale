@@ -36,6 +36,9 @@ class GameResponseProjectorTest {
         assertThat(response.latestSkillCheck().statType()).isEqualTo("WILL");
         assertThat(response.latestSkillCheck().rawRoll()).isEqualTo(10);
         assertThat(response.latestSkillCheck().outcome()).isEqualTo("SUCCESS");
+        assertThat(response.gameplay().hp()).isEqualTo(10);
+        assertThat(response.gameplay().maxHp()).isEqualTo(10);
+        assertThat(response.gameplay().items()).isEmpty();
     }
 
     @Test
@@ -65,6 +68,7 @@ class GameResponseProjectorTest {
         );
 
         assertThat(response.characterStats()).isEmpty();
+        assertThat(response.gameplay()).isNull();
     }
 
     @Test

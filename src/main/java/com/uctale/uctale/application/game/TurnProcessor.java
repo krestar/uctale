@@ -1,6 +1,9 @@
 package com.uctale.uctale.application.game;
 
 import com.uctale.uctale.domain.action.PlayerAction;
+import com.uctale.uctale.domain.action.ActionType;
+import com.uctale.uctale.domain.game.GameplayActionRules;
+import com.uctale.uctale.domain.game.CombatTurnSettlement;
 import com.uctale.uctale.domain.game.ActionResolver;
 import com.uctale.uctale.domain.game.AttackResult;
 import com.uctale.uctale.domain.game.GameState;
@@ -61,6 +64,7 @@ public final class TurnProcessor {
     }
 
     public TurnResolution resolve(GameState state, PlayerAction action) {
+        if (action.type() == ActionType.GAMEPLAY) return resolveGameplay(state, action);
         return questRules.apply(actionResolver.resolve(state, action));
     }
 
@@ -92,6 +96,7 @@ public final class TurnProcessor {
             Long requestId,
             String reservationOwner
     ) {
+        if (action.type() == ActionType.GAMEPLAY) return resolveGameplay(state, action);
         if (actionResolver.requiresAttackRoll(action)) {
             if (attackDecisionService == null || randomSource == null) {
                 throw new IllegalStateException("Attack turn processor가 persistence/random source와 연결되지 않았습니다.");
@@ -101,10 +106,10 @@ public final class TurnProcessor {
                     reservationOwner,
                     () -> actionResolver.rollAttack(state, action, randomSource)
             );
-            return questRules.apply(actionResolver.resolveAttack(state, action, result));
+            return questRules.apply(CombatTurnSettlement.apply(actionResolver.resolveAttack(state, action, result)));
         }
         if (!actionResolver.requiresSkillCheck(action)) {
-            return questRules.apply(actionResolver.resolve(state, action));
+            return questRules.apply(CombatTurnSettlement.apply(actionResolver.resolve(state, action)));
         }
         if (skillCheckDecisionService == null || randomSource == null) {
             throw new IllegalStateException("Skill Check turn processor가 persistence/random source와 연결되지 않았습니다.");
@@ -115,6 +120,10 @@ public final class TurnProcessor {
                 () -> actionResolver.rollSkillCheck(state, action, randomSource)
         );
         return questRules.apply(actionResolver.resolve(state, action, result));
+    }
+
+    private TurnResolution resolveGameplay(GameState state, PlayerAction action) {
+        return GameplayActionRules.resolve(state, action, actionResolver, questRules, relationshipRules);
     }
 
     public StateTransition attachNarrative(TurnResolution resolution, String storyText) {
