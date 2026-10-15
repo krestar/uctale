@@ -49,6 +49,18 @@ public final class CombatActionIssuer {
                 }
             }
         }
+        // Dynamic abilities are only derived from validated server-materialized enemy IDs.
+        if (encounter.enemies().size() == 1) {
+            EnemyState enemy = encounter.enemies().values().iterator().next();
+            if (!enemy.defeated()) {
+                var dynamicAbility = AbilityDefinitions.dynamicForEnemy(enemy.enemyId());
+                if (dynamicAbility.isPresent() && usable(state, dynamicAbility.get())) {
+                    actions.add(abilityAction(choiceId++, state, encounter, dynamicAbility.get(), enemy.enemyId(),
+                            enemy.displayName() + "에게 정밀 공격을 사용한다"));
+                }
+            }
+        }
+
         Map<String, String> args = Map.of("encounterId", encounter.encounterId());
         actions.add(new AvailableAction(choiceId++, UUID.randomUUID().toString(), ActionType.COMBAT_PASS,
                 state.turnNumber(), args, "전투 태세를 유지한다"));

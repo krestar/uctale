@@ -5,6 +5,8 @@ import com.uctale.uctale.domain.action.ActionType;
 import com.uctale.uctale.domain.action.AvailableAction;
 import com.uctale.uctale.domain.action.PlayerAction;
 import com.uctale.uctale.domain.game.StatType;
+import com.uctale.uctale.domain.game.GameplayActionRules;
+import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.dto.GameChoice;
 import com.uctale.uctale.dto.GameProgressRequest;
 import org.springframework.stereotype.Component;
@@ -31,21 +33,36 @@ public class ChoiceCodec {
 
     public List<GameChoice> issue(List<NarrativeTurn.Choice> choices, int sourceTurn) {
         return choices.stream()
-                .map(choice -> new AvailableAction(
+                .map(choice -> {
+                    GameplayActionRules.validateProposal(choice.intent(), choice.subjectKey());
+                    return new AvailableAction(
                         choice.id(),
                         UUID.randomUUID().toString(),
-                        ActionType.SKILL_CHECK,
+                        choice.intent() == null ? ActionType.SKILL_CHECK : ActionType.GAMEPLAY,
                         sourceTurn,
-                        Map.of(
+                        choice.intent() != null ? GameplayActionRules.issueArguments(choice.id(), choice.intent(), choice.subjectKey()) : Map.of(
                                 "choiceId", Integer.toString(choice.id()),
                                 "statType", DEFAULT_SKILL_STAT.name(),
                                 "dc", Integer.toString(DEFAULT_SKILL_DC),
                                 "situationalModifier", Integer.toString(DEFAULT_SITUATIONAL_MODIFIER)
                         ),
                         choice.text()
-                ))
+                    );
+                })
                 .map(this::toDto)
                 .toList();
+    }
+
+    public List<GameChoice> issue(List<NarrativeTurn.Choice> choices, GameState state) {
+        if (state == null) throw new IllegalArgumentException("GameState는 필수입니다.");
+        if (state.combatEncounter() != null && state.combatEncounter().active()) {
+            List<AvailableAction> combat = new CombatActionIssuer().issue(state);
+            if (combat.isEmpty() || combat.size() > 8) {
+                throw new IllegalStateException("현재 전투에서 발급 가능한 행동이 없습니다.");
+            }
+            return combat.stream().map(this::toDto).toList();
+        }
+        return issue(choices, state.turnNumber());
     }
 
     public String serialize(List<GameChoice> choices) {

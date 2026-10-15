@@ -53,6 +53,19 @@ class ChoiceCodecTest {
     }
 
     @Test
+    void gameplayActionMustUseCompleteServerIssuedIntent() {
+        GameChoice issued = codec.issue(List.of(
+                new NarrativeTurn.Choice(3, "약초를 얻는다", "COLLECT", "herb")), 2).getFirst();
+        assertThat(issued.actionType()).isEqualTo("GAMEPLAY");
+        PlayerAction resolved = codec.resolve(codec.serialize(List.of(issued)), new GameProgressRequest(
+                42L, 3, 2, issued.actionToken(), issued.actionType(), issued.sourceTurn(), issued.arguments()));
+        assertThat(resolved.arguments()).containsEntry("rulesetVersion", "2");
+        assertThatThrownBy(() -> codec.issue(
+                List.of(new NarrativeTurn.Choice(4, "잘못된 제안", null, "herb")), 2))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     @DisplayName("action token type arguments 변조는 현재 턴 행동으로 인정하지 않는다")
     void tamperedActionIsRejected() {
         GameChoice issued = codec.issue(List.of(new NarrativeTurn.Choice(7, "문을 잠근다")), 3).getFirst();

@@ -306,6 +306,56 @@ class GameServiceTest {
         verify(mutationRequestService).markFailed(100L, "lease-owner");
     }
 
+    @Test
+    @DisplayName("실제 progress 경로의 서버 발급 수집 선택지가 canonical inventory audit으로 이어진다")
+    void progressGame_CollectProposalCommitsInventory() {
+        GameChoice issued = choiceCodec.issue(
+                List.of(new NarrativeTurn.Choice(7, "약초를 모은다", "COLLECT", "herb")), 1
+        ).getFirst();
+        given(gamePersistenceService.loadLatestTurn(OWNER_KEY, 42L, 1))
+                .willReturn(loadedTurn(choiceCodec.serialize(List.of(issued))));
+        given(narrativeGenerator.createNextTurn(any(NarrativeContext.class)))
+                .willReturn(new NarrativeTurn("이후", "약초를 얻었다.", List.of(new NarrativeTurn.Choice(1, "계속한다")),
+                        new NarrativeTurn.VisualAssets("", List.of(), List.of())));
+        given(gamePersistenceService.saveNextTurn(eq(OWNER_KEY), eq(42L), any(GameTurnCommit.class),
+                eq(100L), eq("이후"), eq("lease-owner"))).willReturn(2);
+
+        GameResponse response = gameService.progressGame(OWNER_KEY,
+                new GameProgressRequest(42L, issued.id(), 1, issued.actionToken(),
+                        issued.actionType(), issued.sourceTurn(), issued.arguments()));
+
+        ArgumentCaptor<GameTurnCommit> commit = ArgumentCaptor.forClass(GameTurnCommit.class);
+        verify(gamePersistenceService).saveNextTurn(eq(OWNER_KEY), eq(42L), commit.capture(),
+                eq(100L), eq("이후"), eq("lease-owner"));
+        assertThat(commit.getValue().nextState().inventory().requireItem("item:herb").quantity()).isEqualTo(1);
+        assertThat(commit.getValue().stateChanges())
+                .anyMatch(com.uctale.uctale.domain.game.GameResult.ItemAcquired.class::isInstance);
+        assertThat(response.turnNumber()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("전투 시작 후 일반 서사 선택지 대신 서버가 공격·능력 행동을 발급한다")
+    void progressGame_CombatStartIssuesServerActions() {
+        GameChoice issued = choiceCodec.issue(
+                List.of(new NarrativeTurn.Choice(7, "늑대와 맞선다", "START_COMBAT", "wolf")), 1
+        ).getFirst();
+        given(gamePersistenceService.loadLatestTurn(OWNER_KEY, 42L, 1))
+                .willReturn(loadedTurn(choiceCodec.serialize(List.of(issued))));
+        given(narrativeGenerator.createNextTurn(any(NarrativeContext.class)))
+                .willReturn(new NarrativeTurn("전투", "늑대가 다가온다.", List.of(new NarrativeTurn.Choice(1, "선택한다")),
+                        new NarrativeTurn.VisualAssets("", List.of(), List.of())));
+        given(gamePersistenceService.saveNextTurn(eq(OWNER_KEY), eq(42L), any(GameTurnCommit.class),
+                eq(100L), eq("전투"), eq("lease-owner"))).willReturn(2);
+
+        GameResponse response = gameService.progressGame(OWNER_KEY,
+                new GameProgressRequest(42L, issued.id(), 1, issued.actionToken(),
+                        issued.actionType(), issued.sourceTurn(), issued.arguments()));
+
+        assertThat(response.choices()).anyMatch(choice -> "COMBAT_ATTACK".equals(choice.actionType()));
+        assertThat(response.choices()).allMatch(choice -> choice.actionToken() != null);
+        assertThat(response.gameplay().combatStatus()).isEqualTo("ACTIVE");
+    }
+
     private GamePersistenceService.LoadedTurn loadedTurn(String choicesJson) {
         return new GamePersistenceService.LoadedTurn(
                 42L, 1, "좀비 아포칼립스", "김대리", "직전 스토리", choicesJson,

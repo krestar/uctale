@@ -90,7 +90,7 @@ function mapSkillCheck(latestSkillCheck, turnNumber) {
   if (latestSkillCheck == null) {
     return {
       state: 'empty',
-      message: '아직 Skill Check 판정 기록이 없습니다.',
+      message: '아직 행동 판정 기록이 없습니다.',
     }
   }
 
@@ -112,7 +112,7 @@ function mapSkillCheck(latestSkillCheck, turnNumber) {
   ) {
     return {
       state: 'error',
-      message: '최근 Skill Check 결과를 표시할 수 없습니다.',
+      message: '최근 행동 판정 결과를 표시할 수 없습니다.',
     }
   }
 
@@ -127,7 +127,7 @@ function mapSkillCheck(latestSkillCheck, turnNumber) {
 
   return {
     state: 'ready',
-    turnLabel: Number.isInteger(turnNumber) ? `턴 ${turnNumber}` : '최근 턴',
+    turnLabel: Number.isInteger(turnNumber) ? `${turnNumber}번째 장면` : '최근 장면',
     statType: latestSkillCheck.statType,
     statLabel,
     rawRoll: latestSkillCheck.rawRoll,
@@ -153,6 +153,7 @@ export function mapGameResponse(response) {
     rules: {
       stats: mapCharacterStats(response?.characterStats),
       skillCheck: mapSkillCheck(response?.latestSkillCheck, response?.turnNumber),
+      gameplay: response?.gameplay ?? null,
     },
   }
 }

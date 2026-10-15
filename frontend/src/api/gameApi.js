@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { mapGameResponse } from './gameResponseMapper.js';
+import { buildProgressPayload } from './gameActionRequest.js';
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/game';
 const API_ORIGIN = new URL(BASE_URL).origin;
@@ -21,15 +22,7 @@ export const initGame = async (worldSetting, characterSetting, idempotencyKey) =
 };
 
 export const progressGame = async (sessionId, choice, expectedTurn, idempotencyKey) => {
-    const response = await apiClient.post(`${BASE_URL}/progress`, {
-        sessionId,
-        choiceId: choice.id,
-        expectedTurn,
-        actionToken: choice.actionToken ?? null,
-        actionType: choice.actionType ?? null,
-        sourceTurn: choice.sourceTurn ?? null,
-        arguments: choice.arguments ?? null
-    }, {
+    const response = await apiClient.post(`${BASE_URL}/progress`, buildProgressPayload(sessionId, choice, expectedTurn), {
         headers: { 'Idempotency-Key': idempotencyKey }
     });
     return mapGameResponse(response.data);

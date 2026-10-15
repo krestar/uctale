@@ -41,7 +41,7 @@ function GameSetupScreen({
         />
 
         <section className="setup-intro setup-intro--new-game">
-          <p className="eyebrow">Create a story</p>
+          <p className="eyebrow">새로운 이야기</p>
           <h1 className="screen-title">당신이 살아갈 장면을 정해주세요.</h1>
           <p className="supporting-copy">
             세계와 주인공의 출발점만 적어주세요. 이후 이야기는 선택에 따라 이어집니다.
@@ -108,12 +108,12 @@ function GameSetupScreen({
 
           {isLoading && (
             <p className="status-message" role="status">
-              스토리와 첫 장면을 생성하고 있습니다. 입력한 설정은 그대로 유지됩니다.
+              이야기의 첫 장면을 만들고 있습니다. 입력한 설정은 그대로 유지됩니다.
             </p>
           )}
 
           <button className="button button--primary button--wide" type="submit" disabled={isLoading}>
-            {isLoading ? '스토리와 장면 생성 중...' : '모험 시작하기'}
+            {isLoading ? '첫 장면 만드는 중...' : '모험 시작하기'}
           </button>
         </form>
       </main>
