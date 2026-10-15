@@ -133,7 +133,7 @@ class GameStateUpgraderTest {
     void unsupportedVersions_FailExplicitly() throws Exception {
         assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree("{\"schemaVersion\":11,\"rulesetVersion\":1,\"state\":{}}")))
                 .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("미래 snapshot schemaVersion");
-        assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree("{\"schemaVersion\":10,\"rulesetVersion\":2,\"state\":{}}")))
+        assertThatThrownBy(() -> upgrader.upgrade(objectMapper.readTree("{\"schemaVersion\":10,\"rulesetVersion\":3,\"state\":{}}")))
                 .isInstanceOf(GameStateSnapshotException.class).hasMessageContaining("rulesetVersion");
     }
 
