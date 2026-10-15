@@ -338,10 +338,17 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
     }
 
     private GameResponse createOpening(String key) {
-        return gameService.initGame(
+        GameResponse opening = gameService.initGame(
                 initContext(key),
                 new GameInitRequest("matrix-world", "matrix-character")
         );
+        // M2 reservation tests intentionally exercise the pre-token legacy stored-choice path.
+        // A tokenized choice must never be downgraded by omitting request metadata.
+        var choice = opening.choices().getFirst();
+        jdbcTemplate.update("update game_log set choices_json = ? where session_id = ? and turn_number = 1",
+                choiceCodec.serialize(List.of(new com.uctale.uctale.dto.GameChoice(choice.id(), choice.text()))),
+                opening.sessionId());
+        return opening;
     }
 
     private GameService newGameService(GamePersistenceService persistence) {
@@ -363,9 +370,7 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
     }
 
     private GameProgressRequest issuedProgress(GameResponse opening) {
-        var choice = opening.choices().getFirst();
-        return new GameProgressRequest(opening.sessionId(), choice.id(), opening.turnNumber(),
-                choice.actionToken(), choice.actionType(), choice.sourceTurn(), choice.arguments());
+        return new GameProgressRequest(opening.sessionId(), opening.choices().getFirst().id(), opening.turnNumber());
     }
 
     private CostRequestContext progressContext(String key, Long sessionId) {
