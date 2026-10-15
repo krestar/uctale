@@ -13,13 +13,27 @@ import tools.jackson.databind.node.ObjectNode;
 @Component
 public class GameStateUpgrader {
 
+    private final GameStateRulesetTransitions rulesetTransitions;
+
+    public GameStateUpgrader() {
+        this(new GameStateRulesetTransitions());
+    }
+
+    // 테스트에서는 실제 production ruleset을 올리지 않고 전환 경계만 검증한다.
+    GameStateUpgrader(GameStateRulesetTransitions rulesetTransitions) {
+        this.rulesetTransitions = java.util.Objects.requireNonNull(rulesetTransitions, "rulesetTransitions");
+    }
+
     public UpgradedSnapshot upgrade(JsonNode snapshotJson) {
         VersionedState versionedState = readSourceVersion(snapshotJson);
+        // schema 변환 전에 호환 경로를 검증한다. 미지원 규칙의 상태를 현재 규칙으로 해석하지 않는다.
+        rulesetTransitions.requireSupported(versionedState.rulesetVersion());
         while (versionedState.schemaVersion() < GameStateSnapshotFormat.CURRENT_SCHEMA_VERSION) {
             versionedState = upgradeOneVersion(versionedState);
         }
-        validateCurrentShape(versionedState.state());
-        return new UpgradedSnapshot(versionedState.schemaVersion(), versionedState.rulesetVersion(), versionedState.state());
+        JsonNode transitionedState = rulesetTransitions.upgrade(versionedState.rulesetVersion(), versionedState.state());
+        validateCurrentShape(transitionedState);
+        return new UpgradedSnapshot(versionedState.schemaVersion(), rulesetTransitions.currentVersion(), transitionedState);
     }
 
     private VersionedState readSourceVersion(JsonNode snapshotJson) {
@@ -32,7 +46,6 @@ public class GameStateUpgrader {
         if (schemaVersion > GameStateSnapshotFormat.CURRENT_SCHEMA_VERSION) throw new GameStateSnapshotException("지원하지 않는 미래 snapshot schemaVersion입니다: " + schemaVersion);
         if (schemaVersion < 1) throw new GameStateSnapshotException("유효하지 않은 snapshot schemaVersion입니다: " + schemaVersion);
         int rulesetVersion = requiredInteger(snapshotJson, "rulesetVersion");
-        if (rulesetVersion != GameStateSnapshotFormat.CURRENT_RULESET_VERSION) throw new GameStateSnapshotException("지원하지 않는 snapshot rulesetVersion입니다: " + rulesetVersion);
         JsonNode state = snapshotJson.get("state");
         if (state == null || !state.isObject()) throw new GameStateSnapshotException("snapshot state가 누락되었거나 손상되었습니다.");
         return new VersionedState(schemaVersion, rulesetVersion, state);

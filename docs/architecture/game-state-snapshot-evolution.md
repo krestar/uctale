@@ -11,10 +11,26 @@ snapshot 구조는 `state_json` 내부에서 진화하고, 별도의 audit이 �
 새 write는 schema `10`, ruleset `1`을 사용합니다. 현재 `GameState`에는 typed stats/vitals, inventory/equipment, combat encounter, ability cooldown, quest/objective와 typed World/Event Flag, NPC relationship/affinity 상태, 구조화 StoryMemory summary metadata가 포함됩니다.
 
 - `schemaVersion`: snapshot JSON 구조/필드 의미의 evolution version
-- `rulesetVersion`: 저장 상태를 해석하는 결정적 게임 규칙 계약 version
+- `rulesetVersion`: 저장 상태를 해석하는 결정적 게임 규칙 계약 version (`GameRuleset.CURRENT_VERSION`)
+- `SkillCheck.RULESET_VERSION`: 현재 canonical 규칙 버전을 참조하며 Skill Check audit/result의 판정 당시 규칙을 식별
 - `state`: canonical `GameState`
 
 schema와 ruleset version은 서로 다른 축입니다. 저장 구조는 v10까지 확장되었지만 과거 결과를 현재 규칙으로 재판정하지 않으므로 ruleset은 1을 유지합니다.
+
+## schemaVersion과 rulesetVersion 변경 기준
+
+- **schemaVersion만 올리는 경우:** JSON envelope/필드/타입 표현이 달라졌지만 기존 canonical 상태의 결정적 의미와 판정 규칙은 동일한 경우. 기존 schema 변환은 `GameStateUpgrader`에 명시적 단계로 구현합니다.
+- **rulesetVersion을 올리는 경우:** DC·modifier·success/failure·HP/보상·상태 전이 등 결정적 규칙 계약이 달라져 같은 입력을 새 규칙으로 판정했을 때 결과가 달라질 수 있는 경우. 공통 버전은 `GameRuleset.CURRENT_VERSION`이며 Skill Check의 현재 판정 버전과 snapshot 버전이 같은 계약을 따릅니다.
+- schema와 ruleset을 동시에 바꿀 수 있으나 각각의 호환성 근거와 테스트를 따로 제시해야 합니다. `GameLog.state_version`(턴 순서)이나 typed audit 자체의 `schemaVersion`과 혼동하지 않습니다.
+- **판정 시점의 결과는 불변입니다.** 과거 Skill Check roll/DC/modifier/outcome 및 committed HP/상태 변화를 현재 규칙으로 재계산하지 않습니다. 저장된 과거 Skill Check 결과 검증은 해당 결과의 ruleset 의미를 보존해야 하며, 새 규칙으로 재채점해서는 안 됩니다.
+
+## ruleset transition 정책
+
+`GameStateRulesetTransitions`는 schema upgrader와 분리된 명시적 규칙 호환성 경계입니다. 읽을 때 먼저 원본 ruleset에서 현재 버전까지 등록된 **연속된 한 단계 전환**이 있는지 확인하고, 없다면 schema 변환 이전에 거부합니다. 등록된 전환만 schema upgrade 후 메모리에서 수행하며, 마지막에 현재 shape를 검증합니다. 전환 구현은 원본 JSON을 변경하지 않아야 하고, provider 호출·랜덤 판정·과거 turn 재판정 없이 동일 입력에 동일 결과를 만들어야 합니다.
+
+**현재 production ruleset은 1이고 등록된 1→2 전환은 없습니다.** 따라서 과거 schema v0~v9라도 ruleset 1인 것만 읽을 수 있으며 ruleset 0/음수, 누락, 미래/미지원 버전은 명시적으로 거부합니다. 테스트에서는 production 규칙 버전을 올리지 않고 별도 target/가상 step으로 transition chain, 누락 단계, 결정성, 원본 불변성을 검증합니다. 임의의 version 숫자 치환이나 migration에 의한 판정 변경은 지원하지 않습니다.
+
+상태 의미 자체가 달라진 **incompatible** ruleset이라면 read-time transition을 등록하지 않고 snapshot을 거부해야 합니다. 필요 시 별도의 버전별 런타임 또는 근거 있는 오프라인 migration을 설계해야 하며, 과거 canonical 결과를 묵시적으로 현재 규칙으로 재판정해서는 안 됩니다.
 
 ## 지원 경로
 
@@ -79,7 +95,7 @@ v9 `StoryMemory.canonicalFacts`는 `sourceTurn/status`가 없는 과거 형식�
 - **write:** 항상 현재 schema/ruleset version으로 저장
 - **read:** 지원되는 과거 schema를 `GameStateUpgrader`에서 한 단계씩 순수 변환한 뒤 현재 `GameState`로 역직렬화
 - **미래 schema:** 명시적 실패
-- **미지원 ruleset:** 자동 재판정하지 않고 명시적 실패
+- **미지원 ruleset:** 먼저 전환 경로 존재 여부를 확인하고, 전환 미등록/누락 단계는 자동 재판정하지 않고 명시적 실패
 - **손상 snapshot:** legacy raw state로 명확히 식별되지 않으면 명시적 실패
 
 읽기만으로 DB를 즉시 다시 쓰지 않습니다. read-time upgrade는 메모리에서만 수행하고 다음 정상 canonical turn commit에서 최신 v10 envelope로 자연스럽게 재작성합니다.
@@ -98,6 +114,16 @@ v9 `StoryMemory.canonicalFacts`는 `sourceTurn/status`가 없는 과거 형식�
 
 snapshot이 없으면 append-only `GameLog`를 통해 `GameStateRecovery`가 현재 상태를 복구합니다. legacy log에는 신규 audit이 없으므로 각 aggregate의 안전한 baseline에서 시작하고 audit이 있는 turn부터 typed state change를 순서대로 replay합니다. `story_memory_json`이 있는 turn은 그 값의 필수 shape와 source/range/stateVersion 불변식을 검증한 뒤 실제 commit된 StoryMemory projection을 적용합니다. `NULL`인 legacy turn은 action/story transcript만 replay하며 rolling summary나 canonical fact를 현재 규칙으로 재생성하지 않습니다. 값이 존재하지만 손상된 StoryMemory audit은 legacy로 취급하지 않고 명시적으로 실패합니다. 복구 뒤 다음 정상 write에서 schema v10 snapshot이 생성됩니다.
 
-## 향후 규칙
+## 향후 ruleset 변경 PR checklist
+
+- [ ] 변경이 저장 구조 변경인지 결정적 규칙 변경인지 구분하고, `GameRuleset.CURRENT_VERSION`/schema 버전 상승 여부를 결정한다.
+- [ ] 변경 이전 snapshot, 기존 GameLog/Skill Check decision/audit의 의미를 조사하고, old/new 상태 해석과 판정이 같은지 증거를 작성한다.
+- [ ] **state-preserving**이라고 입증한 이전 ruleset에만 구체적인 `StatePreservingTransition` hook과 모든 연속 단계 경로를 등록한다. 그렇지 않으면 미지원으로 유지한다.
+- [ ] schema upgrade와 ruleset transition을 따로 검증하고, 누락/미래/손상 입력은 조용한 기본값 없이 명시적으로 실패하도록 테스트한다.
+- [ ] migration에 provider·랜덤·과거 Skill Check 재판정을 포함하지 않고, 재실행 결정성/원본 불변성/기존 turn 및 audit 보존을 검증한다.
+- [ ] historical Skill Check 결과 deserialization/검증이 판정 당시 ruleset에 맞는지 확인한다. 새 판정 공식을 과거 outcome에 대입하지 않는다.
+- [ ] snapshot 없는 `GameLog` replay도 과거 canonical mutation을 그대로 적용할 수 있는지 점검한다. 현재 복구는 별도 historical ruleset metadata를 보유하지 않으므로 incompatible 변경을 지원한다고 주장할 수 없다.
+- [ ] read-time 변환은 side effect 없이 수행하고, 이후 정상 commit 때만 새로운 envelope을 write하는지 확인한다.
+- [ ] version별 production/legacy fixture, corrupt/current/future snapshot, PostgreSQL recovery/audit 및 retry 회귀 테스트를 추가하고 README·architecture 계약을 갱신한다.
 
 새 schema version은 한 단계씩 순수 변환하는 upgrader와 version별 fixture/test를 추가합니다. 의미를 안전하게 복구할 수 없는 값은 추정하지 말고 명시적 실패 또는 별도 migration 정책으로 처리합니다.
