@@ -7,7 +7,7 @@ public record SkillCheck(
         Difficulty difficulty,
         int situationalModifier
 ) {
-    public static final int RULESET_VERSION = 1;
+    public static final int RULESET_VERSION = GameRuleset.CURRENT_VERSION;
     public static final int MIN_SITUATIONAL_MODIFIER = -20;
     public static final int MAX_SITUATIONAL_MODIFIER = 20;
 
