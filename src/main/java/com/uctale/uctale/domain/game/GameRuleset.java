@@ -5,7 +5,7 @@ package com.uctale.uctale.domain.game;
  * Increment only when a changed deterministic rule needs a new compatibility decision.
  */
 public final class GameRuleset {
-    public static final int CURRENT_VERSION = 1;
+    public static final int CURRENT_VERSION = 2;
 
     private GameRuleset() {}
 }

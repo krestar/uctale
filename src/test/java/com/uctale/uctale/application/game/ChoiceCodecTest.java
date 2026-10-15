@@ -84,16 +84,24 @@ class ChoiceCodecTest {
     }
 
     @Test
-    @DisplayName("metadata 없는 legacy wire 요청은 신규 저장 action에도 기존 narrative 의미를 유지한다")
+    @DisplayName("metadata 없는 요청으로 신규 SKILL_CHECK를 legacy narrative로 우회할 수 없다")
     void legacyWireRequestKeepsNarrativeCompatibility() {
         GameChoice issued = codec.issue(List.of(new NarrativeTurn.Choice(7, "문을 잠근다")), 3).getFirst();
         String stored = codec.serialize(List.of(issued));
 
-        PlayerAction action = codec.resolve(stored, new GameProgressRequest(42L, 7, 3));
+        assertThatThrownBy(() -> codec.resolve(stored, new GameProgressRequest(42L, 7, 3)))
+                .isInstanceOf(InvalidChoiceException.class);
+    }
 
-        assertThat(action.type()).isEqualTo(ActionType.NARRATIVE_CHOICE);
-        assertThat(action.sourceTurn()).isEqualTo(3);
-        assertThat(action.arguments()).containsExactly(Map.entry("choiceId", "7"));
+    @Test
+    void rejectsPartialStoredMetadataAndPartialWireMetadata() {
+        GameChoice issued = codec.issue(List.of(new NarrativeTurn.Choice(7, "시도한다")), 3).getFirst();
+        GameChoice corrupted = new GameChoice(7, issued.text(), null, issued.actionType(), issued.sourceTurn(), issued.arguments());
+        assertThatThrownBy(() -> codec.resolve(codec.serialize(List.of(corrupted)), new GameProgressRequest(42L, 7, 3)))
+                .isInstanceOf(InvalidChoiceException.class);
+        assertThatThrownBy(() -> codec.resolve(codec.serialize(List.of(issued)),
+                new GameProgressRequest(42L, 7, 3, issued.actionToken(), issued.actionType(), 3, null)))
+                .isInstanceOf(InvalidChoiceException.class);
     }
 
     @Test

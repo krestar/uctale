@@ -103,6 +103,37 @@ class ActionResolverTest {
     }
 
     @Test
+    void deterministicCanonicalConsequencesAndLegacyDecisionCompatibility() {
+        GameState state = GameState.initial("세계", "캐릭터", "오프닝");
+        PlayerAction action = skillCheck(1, 7, 10, 0);
+        GameState injured = state.withPlayerVitals(state.playerCharacter().vitals().withHp(
+                state.playerCharacter().vitals().hp().withCurrent(7)));
+        SkillCheckResult success = resolver.rollSkillCheck(injured, action, (min, max) -> 10);
+        TurnResolution first = resolver.resolve(injured, action, success);
+        assertThat(first).isEqualTo(resolver.resolve(injured, action, success));
+        assertThat(first.stateTransition().nextState().playerCharacter().vitals().hp().current()).isEqualTo(8);
+        assertThat(first.gameResult().stateChanges()).contains(new GameResult.VitalsChanged(
+                GameResult.VitalResource.HP, 7, 8, 1, GameResult.VitalsChangeReason.HEAL));
+        SkillCheckResult failure = resolver.rollSkillCheck(injured, action, (min, max) -> 9);
+        TurnResolution failed = resolver.resolve(injured, action, failure);
+        assertThat(failed.stateTransition().nextState().playerCharacter().vitals().hp().current()).isEqualTo(6);
+        assertThat(failed.gameResult().stateChanges()).contains(new GameResult.VitalsChanged(
+                GameResult.VitalResource.HP, 7, 6, -1, GameResult.VitalsChangeReason.DAMAGE));
+        assertThat(VitalsRules.replay(injured.playerCharacter().vitals(), failed.gameResult().stateChanges()))
+                .isEqualTo(failed.stateTransition().nextState().playerCharacter().vitals());
+        SkillCheckResult legacy = new SkillCheckResult(StatType.WILL, 9, 0, 0, 10, 9,
+                SkillCheckOutcome.FAILURE, 1);
+        assertThat(resolver.resolve(injured, action, legacy).stateTransition().nextState()
+                .playerCharacter().vitals()).isEqualTo(injured.playerCharacter().vitals());
+        TurnResolution fullHp = resolver.resolve(state, action, success);
+        assertThat(fullHp.gameResult().stateChanges()).noneMatch(GameResult.VitalsChanged.class::isInstance);
+        GameState zeroHp = injured.withPlayerVitals(injured.playerCharacter().vitals().withHp(
+                injured.playerCharacter().vitals().hp().withCurrent(0)));
+        assertThat(resolver.resolve(zeroHp, action, failure).gameResult().stateChanges())
+                .noneMatch(GameResult.VitalsChanged.class::isInstance);
+    }
+
+    @Test
     @DisplayName("저장된 Skill Check의 stat modifier가 canonical 능력치와 다르면 거절한다")
     void resolveSkillCheck_RejectsStoredResultFromDifferentStats() {
         GameState state = GameState.initial("세계관", "캐릭터", "오프닝");

@@ -75,17 +75,21 @@ public class ChoiceCodec {
                 && request.sourceTurn() == null
                 && request.arguments() == null;
 
-        if (storedChoice.actionToken() == null || storedChoice.actionToken().isBlank()) {
+        // The *stored* format, not the client's omissions, determines legacy compatibility.
+        // Any partially migrated/corrupted stored choice fails closed.
+        boolean legacyStoredChoice = storedChoice.actionToken() == null
+                && storedChoice.actionType() == null
+                && storedChoice.sourceTurn() == null
+                && storedChoice.arguments() == null;
+        if (legacyStoredChoice) {
             if (!legacyWireRequest) throw invalidAction();
             return legacyPlayerAction(storedChoice, request.expectedTurn());
         }
+        if (legacyWireRequest) throw invalidAction();
 
         AvailableAction available = toDomain(storedChoice);
         if (available.sourceTurn() != request.expectedTurn()) {
             throw invalidAction();
-        }
-        if (legacyWireRequest) {
-            return legacyPlayerAction(storedChoice, request.expectedTurn());
         }
 
         ActionType requestedType;
@@ -95,9 +99,13 @@ public class ChoiceCodec {
             throw invalidAction();
         }
 
+        if (request.actionToken() == null || request.actionToken().isBlank()
+                || request.arguments() == null || request.sourceTurn() == null) {
+            throw invalidAction();
+        }
         Map<String, String> requestedArguments;
         try {
-            requestedArguments = request.arguments() == null ? Map.of() : Map.copyOf(request.arguments());
+            requestedArguments = Map.copyOf(request.arguments());
         } catch (RuntimeException exception) {
             throw invalidAction();
         }
@@ -144,6 +152,9 @@ public class ChoiceCodec {
 
     private AvailableAction toDomain(GameChoice choice) {
         try {
+            if (choice.actionToken() == null || choice.actionToken().isBlank()
+                    || choice.actionType() == null || choice.sourceTurn() == null
+                    || choice.arguments() == null) throw invalidAction();
             return new AvailableAction(
                     choice.id(),
                     choice.actionToken(),
