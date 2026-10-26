@@ -25,6 +25,17 @@ public class GameStateRecovery {
     private final StoryMemoryAuditCodec storyMemoryAuditCodec;
 
     @Autowired
+    public GameStateRecovery(InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec,
+            CombatAuditCodec combatAuditCodec, QuestAuditCodec questAuditCodec, RelationshipAuditCodec relationshipAuditCodec,
+            StoryMemoryAuditCodec storyMemoryAuditCodec) {
+        this.inventoryAuditCodec = java.util.Objects.requireNonNull(inventoryAuditCodec, "inventoryAuditCodec");
+        this.vitalsAuditCodec = java.util.Objects.requireNonNull(vitalsAuditCodec, "vitalsAuditCodec");
+        this.combatAuditCodec = java.util.Objects.requireNonNull(combatAuditCodec, "combatAuditCodec");
+        this.questAuditCodec = java.util.Objects.requireNonNull(questAuditCodec, "questAuditCodec");
+        this.relationshipAuditCodec = java.util.Objects.requireNonNull(relationshipAuditCodec, "relationshipAuditCodec");
+        this.storyMemoryAuditCodec = java.util.Objects.requireNonNull(storyMemoryAuditCodec, "storyMemoryAuditCodec");
+    }
+
     public GameState recover(GameSession session, List<GameLog> logs) {
         if (logs.isEmpty()) throw new IllegalStateException("GameState를 복구할 게임 로그가 없습니다.");
         GameLog opening = logs.getFirst();
