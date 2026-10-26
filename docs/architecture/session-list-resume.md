@@ -7,13 +7,17 @@ UCTale은 별도 save slot을 만들지 않는다. 각 게임의 저장 단위�
 모든 endpoint는 기존 access session/owner 정책을 사용한다.
 
 - `GET /api/game/sessions`
-  - 현재 owner의 session만 `updatedAt` 내림차순으로 반환한다.
+  - `?size=20&cursor=...` 커서 기반 페이지를 반환한다. `size`는 1~50, 기본 20이다. 반환 형식은 `{items: SessionSummaryResponse[], nextCursor: string|null, hasMore: boolean}`이다.
+  - owner 범위에서 `updatedAt DESC NULLS LAST, id DESC` 순으로 정렬한다. 클라이언트는 `hasMore`일 때 `nextCursor`를 원문 그대로 재전송한다. 손상된 cursor/범위 밖 size는 400이다.
+  - 페이지 사이에 저장된 세션이 갱신되면 위치가 바뀔 수 있다. UI는 ID 중복 제거 및 새로고침으로 처리한다. snapshot isolation을 페이지 간 보장하지 않는다.
   - 최소 metadata: `sessionId`, `title`, `currentTurn`, `updatedAt`, `status`, `statusMessage`, `retryable`, `canResume`, `retryAfterSeconds`, `thumbnailUrl`.
   - `thumbnailUrl`은 생성 endpoint가 아니라 이미 생성된 bytes만 읽는 `/thumbnail` endpoint를 가리킨다. 미생성 asset은 204이며 provider 호출을 만들지 않는다.
 - `GET /api/game/sessions/{sessionId}`
   - 다른 owner의 session은 기존 ownership 정책과 동일하게 찾을 수 없는 session으로 처리한다.
   - 마지막 완료 turn의 story, choices, image와 canonical state projection을 함께 반환한다.
   - `turnNumber`, `canonicalStateTurn`, `game.turnNumber`는 같은 완료 turn을 가리켜야 한다.
+
+목록 전용 SQL은 log의 현재 turn/version 및 reservation/mutation metadata만 읽는다. 전체 snapshot deserialize/recovery와 선택지 파싱은 하지 않는다. 따라서 손상 snapshot의 `UNRECOVERABLE` 판정은 상세 resume에서만 확정되며 목록의 `canResume`은 마지막 로그 일관성에 기반한 잠정 값이다. 목록 조회는 하나의 SQL로 bounded 조회하여 세션 수에 따른 N+1을 제거한다. `V22`는 owner+정렬 키 및 mutation 조회 키의 복합 인덱스를 추가한다.
 
 Session list/resume 조회 endpoint와 thumbnail 조회 endpoint는 Narrative/Image provider를 호출하지 않는다. 완료된 mutation 재전송 응답(`replayed: true`)을 받은 웹 UI는 `GET /api/game/sessions/{sessionId}`로 최신 완료 턴을 재조회하고, 읽기 결과가 같은 canonical 턴을 가리킬 때만 플레이 가능한 상태로 반영한다. `game.replayed`는 `false`이며 `canProgress=false`이면 다음 선택을 잠근다. 재조회 실패 시 과거 replay의 선택지를 현재 턴에 사용하는 대신 같은 key로 다시 시도할 수 있다. Frontend는 thumbnail을 viewport 진입 이후에만 요청하고, 미생성 thumbnail은 placeholder로 표시한다.
 

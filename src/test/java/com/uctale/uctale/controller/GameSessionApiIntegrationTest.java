@@ -61,11 +61,11 @@ class GameSessionApiIntegrationTest {
                         .header(AccessSessionInterceptor.CLIENT_HEADER, AccessSessionInterceptor.CLIENT_HEADER_VALUE)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].sessionId").value(sessionA.getId()))
-                .andExpect(jsonPath("$[0].currentTurn").value(1))
-                .andExpect(jsonPath("$[0].status").value("READY"))
-                .andExpect(jsonPath("$[0].canResume").value(true));
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].sessionId").value(sessionA.getId()))
+                .andExpect(jsonPath("$.items[0].currentTurn").value(1))
+                .andExpect(jsonPath("$.items[0].status").value("READY"))
+                .andExpect(jsonPath("$.items[0].canResume").value(true));
 
         mockMvc.perform(get("/api/game/sessions/{sessionId}", sessionA.getId())
                         .cookie(accessCookie(ownerA), ownerCookie(ownerA))
@@ -117,7 +117,7 @@ class GameSessionApiIntegrationTest {
                         .header(AccessSessionInterceptor.CLIENT_HEADER, AccessSessionInterceptor.CLIENT_HEADER_VALUE)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].thumbnailUrl")
+                .andExpect(jsonPath("$.items[0].thumbnailUrl")
                         .value("/api/game/image-assets/" + assetId + "/thumbnail"));
     }
 

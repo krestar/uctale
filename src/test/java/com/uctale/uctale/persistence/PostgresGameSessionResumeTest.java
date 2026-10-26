@@ -134,8 +134,7 @@ class PostgresGameSessionResumeTest extends PostgresIntegrationTestSupport {
         var summary = queryService.listSessions(OWNER_KEY).getFirst();
         var resumed = queryService.resumeSession(OWNER_KEY, session.getId());
 
-        assertThat(summary.status()).isEqualTo("UNRECOVERABLE");
-        assertThat(summary.canResume()).isFalse();
+        assertThat(summary.canResume()).isTrue(); // 목록은 snapshot을 복구하지 않는다. 상세에서 검증한다.
         assertThat(resumed.status()).isEqualTo("UNRECOVERABLE");
         assertThat(resumed.canProgress()).isFalse();
         assertThat(resumed.game()).isNull();
