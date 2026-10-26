@@ -8,6 +8,7 @@ import com.uctale.uctale.application.game.ChoiceCodec;
 import com.uctale.uctale.application.game.GameMutationFingerprint;
 import com.uctale.uctale.application.game.GameMutationRequestService;
 import com.uctale.uctale.application.game.GamePersistenceService;
+import com.uctale.uctale.application.game.GameSessionQueryService;
 import com.uctale.uctale.application.game.GameTurnCommit;
 import com.uctale.uctale.application.game.IdempotencyConflictException;
 import com.uctale.uctale.application.game.ImagePromptComposer;
@@ -61,6 +62,7 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
     private static final long ASYNC_TIMEOUT_SECONDS = 5;
 
     @Autowired private GamePersistenceService persistenceService;
+    @Autowired private GameSessionQueryService sessionQueryService;
     @Autowired private GameMutationRequestRepository mutationRequestRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private PlatformTransactionManager transactionManager;
@@ -145,6 +147,53 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
         assertThat(narrativeGenerator.progressCalls()).as("provider calls after progress fingerprint conflict").isEqualTo(1);
 
         assertCanonicalTurn(opening.sessionId(), key, 2, 2);
+    }
+
+    @Test
+    @DisplayName("완료된 init/progress replay는 provider 재호출 없이 각각 과거와 현재 완료 턴을 유지한다")
+    void historicalCompletedReplay_RequiresCurrentSessionResync() {
+        String initKey = "matrix-historical-init-001";
+        String progressKey = "matrix-historical-progress-001";
+        GameResponse opening = createOpening(initKey);
+        GameProgressRequest firstRequest = issuedProgress(opening);
+        GameResponse second = gameService.progressGame(
+                progressContext(progressKey, opening.sessionId()), firstRequest
+        );
+        assertThat(second.turnNumber()).isEqualTo(2);
+        assertThat(second.replayed()).isFalse();
+
+        GameResponse replayOpening = gameService.initGame(
+                initContext(initKey), new GameInitRequest("matrix-world", "matrix-character")
+        );
+        GameResponse replaySecond = gameService.progressGame(
+                progressContext(progressKey, opening.sessionId()), firstRequest
+        );
+        assertThat(replayOpening.replayed()).isTrue();
+        assertThat(replaySecond.replayed()).isTrue();
+        assertThat(replayOpening.turnNumber()).isEqualTo(1);
+        assertThat(replaySecond.turnNumber()).isEqualTo(2);
+        assertThat(replayOpening.storyText()).isEqualTo(opening.storyText());
+        assertThat(replaySecond.storyText()).isEqualTo(second.storyText());
+        assertThat(replayOpening.characterStats()).isEmpty();
+        assertThat(replaySecond.characterStats()).isNotEmpty();
+        assertThat(replayOpening.gameplay()).isNull();
+        assertThat(replaySecond.gameplay()).isNotNull();
+
+        var resumed = sessionQueryService.resumeSession(OWNER_KEY, opening.sessionId());
+        assertThat(resumed.canProgress()).isTrue();
+        assertThat(resumed.turnNumber()).isEqualTo(2);
+        assertThat(resumed.canonicalStateTurn()).isEqualTo(2);
+        assertThat(resumed.game().turnNumber()).isEqualTo(2);
+        assertThat(resumed.game().replayed()).isFalse();
+        assertThat(resumed.game().storyText()).isEqualTo(second.storyText());
+        assertThat(resumed.game().characterStats()).isNotEmpty();
+
+        assertThat(narrativeGenerator.openingCalls()).isEqualTo(1);
+        assertThat(narrativeGenerator.progressCalls()).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from game_log where session_id = ?", Integer.class, opening.sessionId()
+        )).isEqualTo(2);
+        assertCanonicalTurn(opening.sessionId(), progressKey, 2, 2);
     }
 
     @RepeatedTest(3)

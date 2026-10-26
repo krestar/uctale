@@ -11,6 +11,7 @@ import {
 } from './api/gameApi'
 import { getApiErrorCode, getApiErrorMessage, isAccessAuthError } from './api/apiError'
 import { createResumeMeta } from './session/sessionRecovery.js'
+import { resolveMutationGame } from './session/mutationReplay.js'
 import AccessScreen from './screens/AccessScreen'
 import GamePlayScreen from './screens/GamePlayScreen'
 import GameSetupScreen from './screens/GameSetupScreen'
@@ -166,9 +167,10 @@ function App() {
 
     try {
       const data = await initGame(world, character, idempotencyKey)
+      const resolved = await resolveMutationGame(data, resumeGameSession)
       initIdempotencyKeyRef.current = null
-      setGameData(data)
-      setResumeMeta({ status: 'READY', statusMessage: '현재 완료 턴에서 계속할 수 있습니다.', canProgress: true })
+      setGameData(resolved.game)
+      setResumeMeta(resolved.meta)
       setIsTypingComplete(false)
       setProgressError(null)
       setPendingChoiceId(null)
@@ -223,8 +225,9 @@ function App() {
 
     try {
       const nextData = await progressGame(sessionId, choice, turnNumber, idempotencyKey)
-      setGameData(nextData)
-      setResumeMeta({ status: 'READY', statusMessage: '현재 완료 턴에서 계속할 수 있습니다.', canProgress: true })
+      const resolved = await resolveMutationGame(nextData, resumeGameSession)
+      setGameData(resolved.game)
+      setResumeMeta(resolved.meta)
       setIsTypingComplete(false)
       setProgressError(null)
     } catch (error) {
@@ -238,6 +241,17 @@ function App() {
             if (resumed?.game) {
               resumedMeta = createResumeMeta(resumed)
               setResumeMeta(resumedMeta)
+              // 전송 실패 직후 서버 commit이 성공했다면 완료 턴을 다시 반영한다.
+              // 같은 선택을 새 key로 재실행하거나 오래된 expectedTurn을 사용하지 않는다.
+              if (resumed.sessionId === sessionId &&
+                  resumed.canonicalStateTurn === resumed.turnNumber &&
+                  resumed.game.turnNumber === resumed.turnNumber &&
+                  resumed.game.turnNumber > turnNumber) {
+                setGameData(resumed.game)
+                setIsTypingComplete(false)
+                setProgressError(null)
+                return
+              }
             }
           } catch (resumeError) {
             if (!requireReauthentication(resumeError)) {

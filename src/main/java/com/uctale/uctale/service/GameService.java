@@ -354,7 +354,7 @@ public class GameService {
         return GameResponseProjector.projectReplay(
                 mutation.resultSessionId(), mutation.resultTurn(), mutation.resultTitle(), turn.storyText(),
                 choiceCodec.deserialize(turn.choicesJson()), turn.imageUrl(), turn.gameState(), turn.skillCheckAudit()
-        );
+        ).asReplay();
     }
 
     private String canonicalResultId(Long mutationRequestId, Long sessionId, int nextTurn) {
