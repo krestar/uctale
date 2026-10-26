@@ -9,22 +9,28 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.*;
 
 @SpringBootTest
 class PostgresSessionLibraryPaginationTest extends PostgresIntegrationTestSupport {
+    private static final Logger log = LoggerFactory.getLogger(PostgresSessionLibraryPaginationTest.class);
     private static final String OWNER = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     @Autowired JdbcTemplate jdbc;
     @Autowired GameSessionQueryService service;
     @Autowired DataSource dataSource;
     @Autowired Clock clock;
+    @Autowired PlatformTransactionManager transactionManager;
 
     @BeforeEach
     void clean() {
@@ -82,23 +88,49 @@ class PostgresSessionLibraryPaginationTest extends PostgresIntegrationTestSuppor
     }
 
     @Test
-    void listOnlyReadsMetadataAndHasIndexSupportedPlan() {
-        seed(80, OWNER);
-        // EXPLAIN is measured against the real PostgreSQL query rather than an estimated ORM traversal.
-        String plan = String.join("\n", jdbc.queryForList("""
-                EXPLAIN (ANALYZE, BUFFERS)
-                SELECT id FROM game_session WHERE owner_key = ?
-                ORDER BY updated_at DESC NULLS LAST, id DESC LIMIT 11
-                """, String.class, OWNER));
-        assertThat(plan).contains("Limit");
+    void fullProjectionExplainHasActualIndexPlanAndBeforeAfterEvidence() {
+        // Large enough to make a realistic top-N index scan attractive without forcing planner switches.
+        jdbc.update("""
+                INSERT INTO game_session(owner_key, world_setting, character_setting, is_game_over,
+                  current_turn, version, updated_at, created_at)
+                SELECT CASE WHEN n <= 3000 THEN ? ELSE 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB' END,
+                  '세계', '인물', false, 1, 0, TIMESTAMP '2026-01-01' + n * INTERVAL '1 second', TIMESTAMP '2026-01-01'
+                FROM generate_series(1, 6000) n
+                """, OWNER);
+        jdbc.update("""
+                INSERT INTO game_log(session_id, turn_number, previous_state_version, state_version)
+                SELECT id, 1, 0, 1 FROM game_session
+                """);
+        jdbc.execute("ANALYZE game_session");
+        jdbc.execute("ANALYZE game_log");
         String indexDefinition = jdbc.queryForObject("""
-                SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND tablename='game_session'
-                AND indexname='idx_game_session_owner_updated_id'
+                SELECT indexdef FROM pg_indexes WHERE schemaname=current_schema() AND tablename='game_session'
+                  AND indexname='idx_game_session_owner_updated_id'
                 """, String.class);
         assertThat(indexDefinition).contains("owner_key").contains("updated_at DESC NULLS LAST").contains("id DESC");
-        var page = service.listSessionsPage(OWNER, null, 10);
-        assertThat(page.items()).hasSize(10);
-        assertThat(page.hasMore()).isTrue();
+
+        // Introspect the actual production SQL: an unrelated SELECT id query would not measure
+        // projection joins/subqueries or the real ordering/limit.
+        String productionSql = (String) ReflectionTestUtils.getField(SessionLibraryQuery.class, "PAGE_SQL");
+        assertThat(productionSql).isNotBlank();
+        String explainSql = "EXPLAIN (ANALYZE, BUFFERS) " + productionSql.formatted("");
+
+        List<String> before = new TransactionTemplate(transactionManager).execute(status -> {
+            jdbc.execute("DROP INDEX idx_game_session_owner_updated_id");
+            List<String> result = jdbc.queryForList(explainSql, String.class, OWNER, 21);
+            status.setRollbackOnly();
+            return result;
+        });
+        // The transaction rolls back the DDL; the real application index must still exist.
+        List<String> after = jdbc.queryForList(explainSql, String.class, OWNER, 21);
+        String beforePlan = String.join("\\n", before);
+        String afterPlan = String.join("\\n", after);
+        log.info("Session Library SQL plan WITHOUT new ordering index (baseline; ANALYZE):\\n{}", beforePlan);
+        log.info("Session Library SQL plan WITH new ordering index (ANALYZE):\\n{}", afterPlan);
+        assertThat(beforePlan).contains("Execution Time:").contains("Limit");
+        assertThat(afterPlan).contains("Execution Time:").contains("Limit")
+                .contains("idx_game_session_owner_updated_id");
+        assertThat(service.listSessionsPage(OWNER, null, 20).items()).hasSize(20);
     }
 
     private void seed(int n, String owner) {
