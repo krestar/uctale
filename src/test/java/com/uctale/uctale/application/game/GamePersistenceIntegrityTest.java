@@ -82,8 +82,9 @@ class GamePersistenceIntegrityTest {
     @Test
     @DisplayName("game log 턴 unique constraint 위반은 턴 충돌로 분류한다")
     void saveNextTurn_MapsGameLogTurnUniqueConstraintToConflict() {
+        var exception = postgresConstraint("uk_game_log_session_turn", "23505");
         given(gameSessionRepository.findByIdAndOwnerKey(42L, OWNER_KEY))
-                .willThrow(postgresConstraint("uk_game_log_session_turn", "23505"));
+                .willThrow(exception);
 
         assertThatThrownBy(() -> persistenceService.saveNextTurn(OWNER_KEY, 42L, commit))
                 .isInstanceOf(TurnConflictException.class);
@@ -92,8 +93,9 @@ class GamePersistenceIntegrityTest {
     @Test
     @DisplayName("image asset 턴 unique constraint 위반도 턴 충돌로 분류한다")
     void saveNextTurn_MapsImageAssetTurnUniqueConstraintToConflict() {
+        var exception = postgresConstraint("uk_image_asset_session_turn", "23505");
         given(gameSessionRepository.findByIdAndOwnerKey(42L, OWNER_KEY))
-                .willThrow(postgresConstraint("uk_image_asset_session_turn", "23505"));
+                .willThrow(exception);
 
         assertThatThrownBy(() -> persistenceService.saveNextTurn(OWNER_KEY, 42L, commit))
                 .isInstanceOf(TurnConflictException.class);
@@ -108,8 +110,9 @@ class GamePersistenceIntegrityTest {
 
     @Test
     void requiresUniqueSqlState() {
+        var exception = postgresConstraint("uk_game_log_session_turn", "23503");
         given(gameSessionRepository.findByIdAndOwnerKey(42L, OWNER_KEY))
-                .willThrow(postgresConstraint("uk_game_log_session_turn", "23503"));
+                .willThrow(exception);
         assertThatThrownBy(() -> persistenceService.saveNextTurn(OWNER_KEY, 42L, commit))
                 .isInstanceOf(PersistenceOperationException.class);
     }
