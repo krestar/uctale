@@ -7,6 +7,7 @@ import com.uctale.uctale.domain.game.GameState;
 import com.uctale.uctale.dto.GameChoice;
 import com.uctale.uctale.dto.GameResponse;
 import com.uctale.uctale.dto.SessionResumeResponse;
+import com.uctale.uctale.dto.SessionPageResponse;
 import com.uctale.uctale.dto.SessionSummaryResponse;
 import com.uctale.uctale.repository.GameLogRepository;
 import com.uctale.uctale.repository.GameMutationRequestRepository;
@@ -39,6 +40,7 @@ public class GameSessionQueryService {
     private final ChoiceCodec choiceCodec;
     private final JdbcTemplate jdbcTemplate;
     private final Clock clock;
+    private final SessionLibraryQuery sessionLibraryQuery;
 
     public GameSessionQueryService(
             GameSessionRepository gameSessionRepository,
@@ -49,7 +51,8 @@ public class GameSessionQueryService {
             GameStateRecovery gameStateRecovery,
             ChoiceCodec choiceCodec,
             JdbcTemplate jdbcTemplate,
-            Clock clock
+            Clock clock,
+            SessionLibraryQuery sessionLibraryQuery
     ) {
         this.gameSessionRepository = gameSessionRepository;
         this.gameLogRepository = gameLogRepository;
@@ -60,14 +63,17 @@ public class GameSessionQueryService {
         this.choiceCodec = choiceCodec;
         this.jdbcTemplate = jdbcTemplate;
         this.clock = clock;
+        this.sessionLibraryQuery = sessionLibraryQuery;
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public List<SessionSummaryResponse> listSessions(String ownerKey) {
-        return gameSessionRepository.findByOwnerKeyOrderByUpdatedAtDesc(ownerKey).stream()
-                .map(session -> inspect(ownerKey, session))
-                .map(SessionView::summary)
-                .toList();
+        return listSessionsPage(ownerKey, null, SessionLibraryQuery.DEFAULT_SIZE).items();
+    }
+
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public SessionPageResponse listSessionsPage(String ownerKey, String cursor, int size) {
+        return sessionLibraryQuery.list(ownerKey, cursor, size);
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
