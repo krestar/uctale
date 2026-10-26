@@ -5,10 +5,10 @@ import com.uctale.uctale.domain.action.ActionType;
 import com.uctale.uctale.domain.action.PlayerAction;
 import com.uctale.uctale.dto.GameChoice;
 import com.uctale.uctale.dto.GameProgressRequest;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import tools.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
 
 import java.util.List;
 import java.util.Map;
@@ -16,14 +16,10 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@SpringBootTest
 class ChoiceCodecTest {
 
-    private ChoiceCodec codec;
-
-    @BeforeEach
-    void setUp() {
-        codec = new ChoiceCodec(new ObjectMapper());
-    }
+    @Autowired private ChoiceCodec codec;
 
     @Test
     @DisplayName("서버가 발급한 Skill Check action은 token type sourceTurn arguments가 모두 일치할 때만 PlayerAction으로 변환된다")

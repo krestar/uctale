@@ -5,15 +5,17 @@ import com.uctale.uctale.domain.game.StatusEffect;
 import com.uctale.uctale.domain.game.StatusExpiryTrigger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import tools.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@SpringBootTest
 class VitalsAuditCodecTest {
-    private final VitalsAuditCodec codec = new VitalsAuditCodec(new ObjectMapper());
+    @Autowired private VitalsAuditCodec codec;
 
     @Test
     @DisplayName("vitals/status state change는 GameLog audit JSON으로 손실 없이 round trip한다")
