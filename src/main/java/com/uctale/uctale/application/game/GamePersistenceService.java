@@ -17,7 +17,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tools.jackson.databind.ObjectMapper;
+import org.postgresql.util.PSQLException;
 
 @Service
 public class GamePersistenceService {
@@ -45,70 +45,19 @@ public class GamePersistenceService {
             GameStateRecovery gameStateRecovery, InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec,
             CombatAuditCodec combatAuditCodec, QuestAuditCodec questAuditCodec, RelationshipAuditCodec relationshipAuditCodec,
             StoryMemoryAuditCodec storyMemoryAuditCodec) {
-        this.gameSessionRepository = gameSessionRepository;
-        this.gameLogRepository = gameLogRepository;
-        this.gameStateSnapshotRepository = gameStateSnapshotRepository;
-        this.imageAssetRepository = imageAssetRepository;
-        this.gameMutationRequestRepository = gameMutationRequestRepository;
-        this.gameStateCodec = gameStateCodec;
-        this.gameStateRecovery = gameStateRecovery;
-        this.inventoryAuditCodec = inventoryAuditCodec;
-        this.vitalsAuditCodec = vitalsAuditCodec;
-        this.combatAuditCodec = combatAuditCodec;
-        this.questAuditCodec = questAuditCodec;
-        this.relationshipAuditCodec = relationshipAuditCodec;
-        this.storyMemoryAuditCodec = storyMemoryAuditCodec;
-    }
-
-    public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
-            GameStateSnapshotRepository gameStateSnapshotRepository, ImageAssetRepository imageAssetRepository,
-            GameMutationRequestRepository gameMutationRequestRepository, GameStateCodec gameStateCodec,
-            GameStateRecovery gameStateRecovery, InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec,
-            CombatAuditCodec combatAuditCodec, QuestAuditCodec questAuditCodec) {
-        this(gameSessionRepository, gameLogRepository, gameStateSnapshotRepository, imageAssetRepository,
-                gameMutationRequestRepository, gameStateCodec, gameStateRecovery, inventoryAuditCodec, vitalsAuditCodec,
-                combatAuditCodec, questAuditCodec, new RelationshipAuditCodec(new ObjectMapper()), new StoryMemoryAuditCodec(new ObjectMapper()));
-    }
-
-    public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
-            GameStateSnapshotRepository gameStateSnapshotRepository, ImageAssetRepository imageAssetRepository,
-            GameMutationRequestRepository gameMutationRequestRepository, GameStateCodec gameStateCodec,
-            GameStateRecovery gameStateRecovery, InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec,
-            CombatAuditCodec combatAuditCodec) {
-        this(gameSessionRepository, gameLogRepository, gameStateSnapshotRepository, imageAssetRepository,
-                gameMutationRequestRepository, gameStateCodec, gameStateRecovery, inventoryAuditCodec, vitalsAuditCodec,
-                combatAuditCodec, new QuestAuditCodec(new ObjectMapper()), new RelationshipAuditCodec(new ObjectMapper()), new StoryMemoryAuditCodec(new ObjectMapper()));
-    }
-
-    public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
-            GameStateSnapshotRepository gameStateSnapshotRepository, ImageAssetRepository imageAssetRepository,
-            GameMutationRequestRepository gameMutationRequestRepository, GameStateCodec gameStateCodec,
-            GameStateRecovery gameStateRecovery, InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec) {
-        this(gameSessionRepository, gameLogRepository, gameStateSnapshotRepository, imageAssetRepository,
-                gameMutationRequestRepository, gameStateCodec, gameStateRecovery, inventoryAuditCodec, vitalsAuditCodec,
-                new CombatAuditCodec(new ObjectMapper()), new QuestAuditCodec(new ObjectMapper()),
-                new RelationshipAuditCodec(new ObjectMapper()), new StoryMemoryAuditCodec(new ObjectMapper()));
-    }
-
-    public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
-            GameStateSnapshotRepository gameStateSnapshotRepository, ImageAssetRepository imageAssetRepository,
-            GameMutationRequestRepository gameMutationRequestRepository, GameStateCodec gameStateCodec,
-            GameStateRecovery gameStateRecovery, InventoryAuditCodec inventoryAuditCodec) {
-        this(gameSessionRepository, gameLogRepository, gameStateSnapshotRepository, imageAssetRepository,
-                gameMutationRequestRepository, gameStateCodec, gameStateRecovery, inventoryAuditCodec,
-                new VitalsAuditCodec(new ObjectMapper()), new CombatAuditCodec(new ObjectMapper()),
-                new QuestAuditCodec(new ObjectMapper()), new RelationshipAuditCodec(new ObjectMapper()), new StoryMemoryAuditCodec(new ObjectMapper()));
-    }
-
-    public GamePersistenceService(GameSessionRepository gameSessionRepository, GameLogRepository gameLogRepository,
-            GameStateSnapshotRepository gameStateSnapshotRepository, ImageAssetRepository imageAssetRepository,
-            GameMutationRequestRepository gameMutationRequestRepository, GameStateCodec gameStateCodec,
-            GameStateRecovery gameStateRecovery) {
-        this(gameSessionRepository, gameLogRepository, gameStateSnapshotRepository, imageAssetRepository,
-                gameMutationRequestRepository, gameStateCodec, gameStateRecovery,
-                new InventoryAuditCodec(new ObjectMapper()), new VitalsAuditCodec(new ObjectMapper()),
-                new CombatAuditCodec(new ObjectMapper()), new QuestAuditCodec(new ObjectMapper()),
-                new RelationshipAuditCodec(new ObjectMapper()), new StoryMemoryAuditCodec(new ObjectMapper()));
+        this.gameSessionRepository = java.util.Objects.requireNonNull(gameSessionRepository, "gameSessionRepository");
+        this.gameLogRepository = java.util.Objects.requireNonNull(gameLogRepository, "gameLogRepository");
+        this.gameStateSnapshotRepository = java.util.Objects.requireNonNull(gameStateSnapshotRepository, "gameStateSnapshotRepository");
+        this.imageAssetRepository = java.util.Objects.requireNonNull(imageAssetRepository, "imageAssetRepository");
+        this.gameMutationRequestRepository = java.util.Objects.requireNonNull(gameMutationRequestRepository, "gameMutationRequestRepository");
+        this.gameStateCodec = java.util.Objects.requireNonNull(gameStateCodec, "gameStateCodec");
+        this.gameStateRecovery = java.util.Objects.requireNonNull(gameStateRecovery, "gameStateRecovery");
+        this.inventoryAuditCodec = java.util.Objects.requireNonNull(inventoryAuditCodec, "inventoryAuditCodec");
+        this.vitalsAuditCodec = java.util.Objects.requireNonNull(vitalsAuditCodec, "vitalsAuditCodec");
+        this.combatAuditCodec = java.util.Objects.requireNonNull(combatAuditCodec, "combatAuditCodec");
+        this.questAuditCodec = java.util.Objects.requireNonNull(questAuditCodec, "questAuditCodec");
+        this.relationshipAuditCodec = java.util.Objects.requireNonNull(relationshipAuditCodec, "relationshipAuditCodec");
+        this.storyMemoryAuditCodec = java.util.Objects.requireNonNull(storyMemoryAuditCodec, "storyMemoryAuditCodec");
     }
 
     @Transactional
@@ -245,11 +194,26 @@ public class GamePersistenceService {
     }
 
     private boolean isTurnUniqueConstraintViolation(DataIntegrityViolationException exception) {
-        Throwable cause = exception.getMostSpecificCause();
-        String message = cause == null ? exception.getMessage() : cause.getMessage();
-        if (message == null) return false;
-        String normalized = message.toLowerCase();
-        return normalized.contains(GAME_LOG_TURN_UNIQUE_CONSTRAINT) || normalized.contains(IMAGE_ASSET_TURN_UNIQUE_CONSTRAINT);
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (cause instanceof PSQLException postgres
+                    && "23505".equals(postgres.getSQLState())
+                    && postgres.getServerErrorMessage() != null
+                    && isTurnConstraint(postgres.getServerErrorMessage().getConstraint())) {
+                return true;
+            }
+            if (cause instanceof org.hibernate.exception.ConstraintViolationException hibernate
+                    && hibernate.getSQLException() != null
+                    && "23505".equals(hibernate.getSQLException().getSQLState())
+                    && isTurnConstraint(hibernate.getConstraintName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isTurnConstraint(String constraintName) {
+        return GAME_LOG_TURN_UNIQUE_CONSTRAINT.equals(constraintName)
+                || IMAGE_ASSET_TURN_UNIQUE_CONSTRAINT.equals(constraintName);
     }
 
     private GameState loadOrRecoverState(GameSession session) {
