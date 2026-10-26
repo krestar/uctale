@@ -1,17 +1,17 @@
 package com.uctale.uctale.persistence;
 
 import com.uctale.uctale.application.game.GameSessionQueryService;
+import com.uctale.uctale.application.game.SessionLibraryQuery;
 import com.uctale.uctale.support.PostgresIntegrationTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DelegatingDataSource;
+import org.springframework.jdbc.core.RowMapper;
 
 import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.SQLException;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -24,6 +24,7 @@ class PostgresSessionLibraryPaginationTest extends PostgresIntegrationTestSuppor
     @Autowired JdbcTemplate jdbc;
     @Autowired GameSessionQueryService service;
     @Autowired DataSource dataSource;
+    @Autowired Clock clock;
 
     @BeforeEach
     void clean() {
@@ -58,6 +59,26 @@ class PostgresSessionLibraryPaginationTest extends PostgresIntegrationTestSuppor
         assertThatThrownBy(() -> service.listSessionsPage(OWNER, null, 0)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.listSessionsPage(OWNER, null, 51)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.listSessionsPage(OWNER, "wrong", 10)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void singleDatabaseStatementPerPageIndependentOfSessionCount() {
+        seed(65, OWNER);
+        class CountingJdbc extends JdbcTemplate {
+            int queries;
+            CountingJdbc(DataSource source) { super(source); }
+            @Override
+            public <T> List<T> query(String sql, RowMapper<T> mapper, Object... args) {
+                queries++;
+                return super.query(sql, mapper, args);
+            }
+        }
+        CountingJdbc counting = new CountingJdbc(dataSource);
+        var query = new SessionLibraryQuery(counting, clock);
+        assertThat(query.list(OWNER, null, 1).items()).hasSize(1);
+        assertThat(counting.queries).isEqualTo(1);
+        assertThat(query.list(OWNER, null, 50).items()).hasSize(50);
+        assertThat(counting.queries).isEqualTo(2);
     }
 
     @Test
