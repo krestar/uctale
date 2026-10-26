@@ -46,6 +46,7 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
             4. **메모리 우선순위:** 확정 게임 결과/상태 > 캐논 사실 > 누적 요약 > 최근 턴 순으로 충돌을 해결하십시오.
             5. **출력 책임:** story_text와 다음 choices를 제안하고, 선택적으로 visual_assets를 묘사하십시오. canonical state 변경값을 출력 계약으로 만들지 마십시오.
             6. **행동 의도:** 필요한 경우 choices[]에 intent(COLLECT, REST, TALK, START_QUEST, START_COMBAT, FIND_WEAPON, EQUIP_WEAPON, UNEQUIP_WEAPON, APPLY_STATUS)와 subject_key(소문자 영문 slug)를 함께 제안할 수 있습니다. 일반 선택에는 두 필드를 생략하세요. HP·수량·친밀도 수치는 제안하지 마십시오.
+            7. **행동 제안 형식:** gameplay 의도가 명확할 때만 intent와 subject_key를 반드시 함께 출력하세요. subject_key는 소문자 영문자로 시작하고 이후 소문자 영문·숫자·하이픈만 포함하는 1~32자 slug여야 합니다. 공백, 한글, 빈 문자열, null을 사용하지 마세요. 둘 중 하나라도 확신할 수 없으면 두 필드를 모두 생략하세요.
 
             [내러티브 출력 언어 계약 - 매우 중요]
             1. 사용자에게 노출되는 `title`, `story_text`, `choices[].text`는 세계관/캐릭터 설정과 현재 narrative context에서 확립된 **주 언어**를 따르세요.
@@ -444,6 +445,7 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
 
         List<NarrativeTurn.Choice> choices = new ArrayList<>();
         Set<Integer> ids = new HashSet<>();
+        int discardedGameplayProposals = 0;
         for (JsonNode choiceNode : choicesNode) {
             if (choiceNode == null || !choiceNode.isObject()) {
                 throw recoverable("INVALID_CHOICE", "Narrative choice는 object여야 합니다.", null);
@@ -459,14 +461,23 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
             String text = requiredText(choiceNode, "text", MAX_CHOICE_TEXT_LENGTH, false, "INVALID_CHOICE_TEXT");
             JsonNode intentNode = choiceNode.get("intent");
             JsonNode subjectNode = choiceNode.get("subject_key");
-            String intent = intentNode == null || intentNode.isNull() ? null : gameplayField(intentNode);
-            String subjectKey = subjectNode == null || subjectNode.isNull() ? null : gameplayField(subjectNode);
+            String intent;
+            String subjectKey;
             try {
+                intent = intentNode == null || intentNode.isNull() ? null : gameplayField(intentNode);
+                subjectKey = subjectNode == null || subjectNode.isNull() ? null : gameplayField(subjectNode);
                 com.uctale.uctale.domain.game.GameplayActionRules.validateProposal(intent, subjectKey);
-            } catch (IllegalArgumentException exception) {
-                throw recoverable("INVALID_GAMEPLAY_PROPOSAL", "허용되지 않는 gameplay action 제안입니다.", exception);
+            } catch (RecoverableNarrativeResponseException | IllegalArgumentException exception) {
+                // Optional provider proposals must not block a valid story. Do not issue gameplay
+                // actions from incomplete/invalid hints; the server issues a normal skill check.
+                intent = null;
+                subjectKey = null;
+                discardedGameplayProposals++;
             }
             choices.add(new NarrativeTurn.Choice(id, text, intent, subjectKey));
+        }
+        if (discardedGameplayProposals > 0) {
+            log.warn("gemini_gameplay_proposal_discarded count={}", discardedGameplayProposals);
         }
 
         JsonNode visualNode = rootNode.get("visual_assets");
