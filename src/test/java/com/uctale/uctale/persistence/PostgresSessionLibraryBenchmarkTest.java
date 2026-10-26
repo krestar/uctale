@@ -192,7 +192,7 @@ class PostgresSessionLibraryBenchmarkTest extends PostgresIntegrationTestSupport
             jdbc.query("""
                     SELECT lease_expires_at, provider_attempt_count, recovery_available_at
                     FROM game_turn_reservation WHERE session_id=? AND expected_turn=?
-                    """, rs -> rs.next(), session.getId(), session.getCurrentTurn());
+                    """, (org.springframework.jdbc.core.ResultSetExtractor<Boolean>) rs -> rs.next(), session.getId(), session.getCurrentTurn());
             reservationStatements++;
             mutations.findTopByOwnerKeyAndSessionIdAndExpectedTurnAndOperationOrderByUpdatedAtDesc(
                     OWNER, session.getId(), session.getCurrentTurn(), "PROGRESS");
