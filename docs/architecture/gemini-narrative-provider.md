@@ -4,7 +4,7 @@
 
 UCTale의 Narrative provider 모델 버전을 game domain이나 `NarrativeGenerator` port에 노출하지 않고 provider adapter 설정으로 관리합니다.
 
-현재 production primary 기본 모델은 `gemini-3.7-flash`입니다. Google 공식 문서에서 stable Flash로 제공되며 structured outputs와 `low` / `medium` / `high` thinking level을 지원합니다. 일시적인 provider 408/429/5xx 또는 network failure가 발생하면 bounded recovery의 다음 실제 provider attempt에서 stable `gemini-3.6-flash` fallback을 사용할 수 있습니다.
+현재 production primary 기본 모델은 `gemini-3.8-flash`입니다. Google 공식 문서에서 stable Flash로 제공되며 structured outputs와 `low` / `medium` / `high` thinking level을 지원합니다. 일시적인 provider 408/429/5xx 또는 network failure가 발생하면 bounded recovery의 다음 실제 provider attempt에서 stable `gemini-3.5-flash-lite` fallback을 사용할 수 있습니다.
 
 모델 선택 근거와 당시 가격은 구현 PR에 기록합니다. 이 문서는 현재 runtime 계약을 설명하며 별도 자체 benchmark 결과를 주장하지 않습니다.
 
@@ -12,8 +12,8 @@ UCTale의 Narrative provider 모델 버전을 game domain이나 `NarrativeGenera
 
 `application.properties`의 기본값은 다음 환경변수로 override할 수 있습니다.
 
-- `GOOGLE_AI_MODEL`: primary stable Flash model ID. 기본 `gemini-3.7-flash`
-- `GOOGLE_AI_FALLBACK_MODEL`: transient provider failure용 stable Flash model ID. 기본 `gemini-3.6-flash`
+- `GOOGLE_AI_MODEL`: primary stable Flash model ID. 기본 `gemini-3.8-flash`
+- `GOOGLE_AI_FALLBACK_MODEL`: transient provider failure용 stable Flash model ID. 기본 `gemini-3.5-flash-lite`
 - `GOOGLE_AI_THINKING_OPENING`: opening thinking level. 기본 `medium`
 - `GOOGLE_AI_THINKING_PROGRESS`: progress thinking level. 기본 `low`
 - `GOOGLE_AI_API_KEY`: Gemini API key
@@ -22,7 +22,7 @@ UCTale의 Narrative provider 모델 버전을 game domain이나 `NarrativeGenera
 - `GAME_TURN_RESERVATION_LEASE_SECONDS`: progress reservation lease. 기본 180초
 - `GAME_TURN_RECOVERY_COOLDOWN_SECONDS`: provider recovery cooldown. 기본 30초
 
-`latest`, preview, experimental alias는 production 설정으로 허용하지 않습니다. primary와 fallback 모두 `gemini-{major}.{minor}-flash` 형태의 명시적인 stable Flash ID만 허용합니다.
+`latest`, preview, experimental alias는 production 설정으로 허용하지 않습니다. primary와 fallback 모두 `gemini-{major}.{minor}-flash` 또는 `gemini-{major}.{minor}-flash-lite` 형식의 명시적인 안정 모델 ID만 허용합니다.
 
 ## compatibility boundary
 
@@ -61,7 +61,7 @@ Gemini request는 다음을 유지합니다.
 - HTTP 408
 - HTTP 429
 - HTTP 5xx
-- connect/read I/O 등 `ResourceAccessException`
+- connect/read I/O 등 `ResourceAccessException`과 `RestClientException`에 감싸진 `SocketTimeoutException`
 
 이 retry는 adapter 내부에서 숨겨진 추가 호출을 만들지 않습니다. 첫 호출과 각 retry는 각각 하나의 실제 provider attempt이며 `NarrativeRecoveryExecutor`의 retry count와 일치합니다. progress에서는 기존 `markProviderAttemptStarted` callback이 각 실제 provider attempt 전에 한 번씩 실행됩니다. 따라서 provider 호출이 재시도되어도 canonical game state는 narrative 성공 후 기존 commit 경계에서 한 번만 저장됩니다.
 
@@ -103,6 +103,10 @@ progress의 transient retry가 모두 소진되면 API는 영구 차단 대신 `
 
 bounded recovery와 canonical commit 경계는 기존 정책을 그대로 유지합니다. 모델 설정이나 Narrative 출력 언어 계약은 canonical game state 저장 의미를 변경하지 않습니다.
 
+## 장애 및 배포 확인
+
+2026-10-27 운영 로그에서 primary/fallback Gemini HTTP 503과 40초 read timeout을 확인했습니다. 새 버전의 지원 여부를 확인한 뒤 배포해야 하며, 환경변수 override를 적용할 경우 애플리케이션 모델 검증을 통과하는지 점검합니다. 이 문서의 모델 기본값은 코드 배포에 따라 적용되며 운영 환경변수로 별도 override될 수 있습니다. provider가 반복적으로 503을 반환할 경우 모델 교체만으로 성공을 보장하지 않습니다.
+
 ## rollback
 
 production에서 문제가 발생하면 코드 변경 없이 `GOOGLE_AI_MODEL`, `GOOGLE_AI_FALLBACK_MODEL`과 필요한 thinking 설정을 검증된 stable Flash로 변경해 rollback할 수 있습니다.
@@ -120,7 +124,7 @@ rollback 후에는 최소한 다음을 확인합니다.
 ## 공식 참고
 
 - Google Gemini models: https://ai.google.dev/gemini-api/docs/models
-- Gemini 3.7 Flash: https://ai.google.dev/gemini-api/docs/models/gemini-3.7-flash
-- Gemini 3.6 Flash: https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash
+- Gemini 3.8 Flash: https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash
+- Gemini 3.5 Flash-Lite: https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite
 - Thinking: https://ai.google.dev/gemini-api/docs/generate-content/thinking
 - Pricing: https://ai.google.dev/gemini-api/docs/pricing
