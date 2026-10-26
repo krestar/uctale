@@ -12,7 +12,7 @@ function formatUpdatedAt(value) {
   }).format(date)
 }
 
-function SessionLibrary({ sessions, isLoading, error, resumingSessionId, onResume, onReload, onAuthError }) {
+function SessionLibrary({ sessions, isLoading, error, hasMore, onLoadMore, resumingSessionId, onResume, onReload, onAuthError }) {
   return (
     <section className="session-library" aria-labelledby="session-library-title" aria-busy={isLoading}>
       <div className="session-library__heading">
@@ -47,7 +47,7 @@ function SessionLibrary({ sessions, isLoading, error, resumingSessionId, onResum
         </div>
       )}
 
-      {!isLoading && !error && sessions.length > 0 && (
+      {sessions.length > 0 && (
         <div className="session-list">
           {sessions.map((session) => {
             const isResuming = resumingSessionId === session.sessionId
@@ -90,6 +90,9 @@ function SessionLibrary({ sessions, isLoading, error, resumingSessionId, onResum
           })}
         </div>
       )}
+      {hasMore && <button className="button button--secondary button--compact" type="button" disabled={isLoading} onClick={onLoadMore}>
+        {isLoading ? '더 불러오는 중...' : '저장된 이야기 더 보기'}
+      </button>}
     </section>
   )
 }
