@@ -12,6 +12,7 @@ import {
 import { getApiErrorCode, getApiErrorMessage, isAccessAuthError } from './api/apiError'
 import { createResumeMeta } from './session/sessionRecovery.js'
 import { resolveMutationGame } from './session/mutationReplay.js'
+import { createAsyncRequestGate } from './session/asyncRequestGate.js'
 import AccessScreen from './screens/AccessScreen'
 import GamePlayScreen from './screens/GamePlayScreen'
 import GameSetupScreen from './screens/GameSetupScreen'
@@ -52,6 +53,7 @@ function App() {
   const [sessionsNextCursor, setSessionsNextCursor] = useState(null)
   const [sessionsHasMore, setSessionsHasMore] = useState(false)
   const sessionRequestRef = useRef(0)
+  const requestGateRef = useRef(createAsyncRequestGate())
   const [resumingSessionId, setResumingSessionId] = useState(null)
 
   const [setupFieldErrors, setSetupFieldErrors] = useState({})
@@ -70,6 +72,12 @@ function App() {
     if (!isAccessAuthError(error)) return false
     setAuthMessage(getApiErrorMessage(error))
     setAuthMessageKind('api')
+    requestGateRef.current.invalidate()
+    sessionRequestRef.current += 1
+    setSessionsLoading(false)
+    setResumingSessionId(null)
+    setIsProgressing(false)
+    setIsStarting(false)
     setAuthState('login')
     setGameData(null)
     setResumeMeta(null)
@@ -79,12 +87,13 @@ function App() {
   const loadSessions = async (append = false) => {
     if (append && (!sessionsHasMore || sessionsLoading)) return
     const request = ++sessionRequestRef.current
+    const epoch = requestGateRef.current.epoch()
     const cursor = append ? sessionsNextCursor : null
     setSessionsLoading(true)
     setSessionsError('')
     try {
       const data = await listGameSessions(cursor)
-      if (request !== sessionRequestRef.current) return
+      if (request !== sessionRequestRef.current || !requestGateRef.current.isCurrent(epoch)) return
       setSessions((current) => append
         ? [...current, ...data.items.filter((item) => !current.some((existing) => existing.sessionId === item.sessionId))]
         : data.items)
@@ -96,7 +105,7 @@ function App() {
         setSessionsError(getApiErrorMessage(error, '저장된 이야기를 불러오지 못했습니다.'))
       }
     } finally {
-      if (request === sessionRequestRef.current) setSessionsLoading(false)
+      if (request === sessionRequestRef.current && requestGateRef.current.isCurrent(epoch)) setSessionsLoading(false)
     }
   }
 
@@ -174,12 +183,14 @@ function App() {
 
     const idempotencyKey = initIdempotencyKeyRef.current || createIdempotencyKey()
     initIdempotencyKeyRef.current = idempotencyKey
+    const epoch = requestGateRef.current.epoch()
     setIsStarting(true)
     setSetupError('')
 
     try {
       const data = await initGame(world, character, idempotencyKey)
       const resolved = await resolveMutationGame(data, resumeGameSession)
+      if (!requestGateRef.current.isCurrent(epoch)) return
       initIdempotencyKeyRef.current = null
       setGameData(resolved.game)
       setResumeMeta(resolved.meta)
@@ -187,6 +198,7 @@ function App() {
       setProgressError(null)
       setPendingChoiceId(null)
     } catch (error) {
+      if (!requestGateRef.current.isCurrent(epoch)) return
       if (!requireReauthentication(error)) {
         console.error(error)
         setSetupError(getApiErrorMessage(
@@ -195,16 +207,18 @@ function App() {
         ))
       }
     } finally {
-      setIsStarting(false)
+      if (requestGateRef.current.isCurrent(epoch)) setIsStarting(false)
     }
   }
 
   const handleResume = async (targetSessionId) => {
-    if (resumingSessionId != null) return
+    const epoch = requestGateRef.current.begin('resume')
+    if (epoch == null) return
     setResumingSessionId(targetSessionId)
     setSessionsError('')
     try {
       const resumed = await resumeGameSession(targetSessionId)
+      if (!requestGateRef.current.isCurrent(epoch)) return
       if (!resumed.game) {
         setSessionsError(resumed.statusMessage || '이 세션은 안전하게 재개할 수 없습니다.')
         await loadSessions()
@@ -216,11 +230,13 @@ function App() {
       setProgressError(null)
       setPendingChoiceId(null)
     } catch (error) {
+      if (!requestGateRef.current.isCurrent(epoch)) return
       if (!requireReauthentication(error)) {
         setSessionsError(getApiErrorMessage(error, '세션을 재개하지 못했습니다.'))
       }
     } finally {
-      setResumingSessionId(null)
+      requestGateRef.current.end('resume', epoch)
+      if (requestGateRef.current.isCurrent(epoch)) setResumingSessionId(null)
     }
   }
 
@@ -230,6 +246,8 @@ function App() {
     const choice = gameData?.choices?.find((candidate) => candidate.id === choiceId)
     if (!choice) return
 
+    const epoch = requestGateRef.current.begin('progress')
+    if (epoch == null) return
     const idempotencyKey = retryIdempotencyKey || createIdempotencyKey()
     setIsProgressing(true)
     setPendingChoiceId(choiceId)
@@ -238,11 +256,13 @@ function App() {
     try {
       const nextData = await progressGame(sessionId, choice, turnNumber, idempotencyKey)
       const resolved = await resolveMutationGame(nextData, resumeGameSession)
+      if (!requestGateRef.current.isCurrent(epoch)) return
       setGameData(resolved.game)
       setResumeMeta(resolved.meta)
       setIsTypingComplete(false)
       setProgressError(null)
     } catch (error) {
+      if (!requestGateRef.current.isCurrent(epoch)) return
       if (!requireReauthentication(error)) {
         console.error(error)
         const errorCode = getApiErrorCode(error)
@@ -250,6 +270,7 @@ function App() {
         if (isRetryableProgressError(error) || errorCode === 'NARRATIVE_PROVIDER_RECOVERY_WAIT') {
           try {
             const resumed = await resumeGameSession(sessionId)
+            if (!requestGateRef.current.isCurrent(epoch)) return
             if (resumed?.game) {
               resumedMeta = createResumeMeta(resumed)
               setResumeMeta(resumedMeta)
@@ -266,6 +287,7 @@ function App() {
               }
             }
           } catch (resumeError) {
+            if (!requestGateRef.current.isCurrent(epoch)) return
             if (!requireReauthentication(resumeError)) {
               console.error(resumeError)
             }
@@ -283,8 +305,11 @@ function App() {
         })
       }
     } finally {
-      setPendingChoiceId(null)
-      setIsProgressing(false)
+      requestGateRef.current.end('progress', epoch)
+      if (requestGateRef.current.isCurrent(epoch)) {
+        setPendingChoiceId(null)
+        setIsProgressing(false)
+      }
     }
   }
 
