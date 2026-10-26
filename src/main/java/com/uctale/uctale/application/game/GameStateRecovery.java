@@ -11,7 +11,6 @@ import com.uctale.uctale.domain.game.RelationshipRules;
 import com.uctale.uctale.domain.game.VitalsRules;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
-import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
 
@@ -26,29 +25,6 @@ public class GameStateRecovery {
     private final StoryMemoryAuditCodec storyMemoryAuditCodec;
 
     @Autowired
-    public GameStateRecovery(InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec,
-            CombatAuditCodec combatAuditCodec, QuestAuditCodec questAuditCodec, RelationshipAuditCodec relationshipAuditCodec,
-            StoryMemoryAuditCodec storyMemoryAuditCodec) {
-        this.inventoryAuditCodec = inventoryAuditCodec;
-        this.vitalsAuditCodec = vitalsAuditCodec;
-        this.combatAuditCodec = combatAuditCodec;
-        this.questAuditCodec = questAuditCodec;
-        this.relationshipAuditCodec = relationshipAuditCodec;
-        this.storyMemoryAuditCodec = storyMemoryAuditCodec;
-    }
-
-    public GameStateRecovery(InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec,
-            CombatAuditCodec combatAuditCodec, QuestAuditCodec questAuditCodec) {
-        this(inventoryAuditCodec, vitalsAuditCodec, combatAuditCodec, questAuditCodec,
-                new RelationshipAuditCodec(new ObjectMapper()), new StoryMemoryAuditCodec(new ObjectMapper()));
-    }
-
-    public GameStateRecovery(InventoryAuditCodec inventoryAuditCodec, VitalsAuditCodec vitalsAuditCodec,
-            CombatAuditCodec combatAuditCodec) {
-        this(inventoryAuditCodec, vitalsAuditCodec, combatAuditCodec, new QuestAuditCodec(new ObjectMapper()),
-                new RelationshipAuditCodec(new ObjectMapper()), new StoryMemoryAuditCodec(new ObjectMapper()));
-    }
-
     public GameState recover(GameSession session, List<GameLog> logs) {
         if (logs.isEmpty()) throw new IllegalStateException("GameState를 복구할 게임 로그가 없습니다.");
         GameLog opening = logs.getFirst();
