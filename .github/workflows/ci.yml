@@ -42,6 +42,14 @@ jobs:
       - name: Run PostgreSQL integration tests
         run: ./gradlew postgresIntegrationTest
 
+      - name: Upload Session Library benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: session-library-benchmark
+          path: build/reports/session-library-benchmark.md
+          if-no-files-found: ignore
+
       - name: Build backend
         run: ./gradlew build -x test
 
