@@ -137,6 +137,7 @@ class GameServiceTest {
         assertThat(response.sessionId()).isEqualTo(42L);
         assertThat(response.turnNumber()).isEqualTo(1);
         assertThat(response.title()).isEqualTo("기존 오프닝");
+        assertThat(response.replayed()).isTrue();
         verify(narrativeGenerator, never()).createOpening(anyString(), anyString());
         verify(gamePersistenceService, never()).saveOpening(any(), any(), any(), any(), any(), any(), any(), any());
     }
@@ -161,6 +162,7 @@ class GameServiceTest {
         GameResponse response = gameService.progressGame(OWNER_KEY, new GameProgressRequest(42L, 7, 1));
 
         assertThat(response.turnNumber()).isEqualTo(2);
+        assertThat(response.replayed()).isFalse();
         assertThat(response.mainImageUrl()).isEqualTo("/api/game/image-assets/old-asset");
 
         ArgumentCaptor<NarrativeContext> contextCaptor = ArgumentCaptor.forClass(NarrativeContext.class);
@@ -285,6 +287,7 @@ class GameServiceTest {
 
         assertThat(response.turnNumber()).isEqualTo(2);
         assertThat(response.title()).isEqualTo("기존 장면");
+        assertThat(response.replayed()).isTrue();
         assertThat(response.storyText()).isEqualTo("기존 스토리");
         verify(narrativeGenerator, never()).createNextTurn(any());
         verify(gamePersistenceService, never()).loadLatestTurn(anyString(), any(), anyInt());

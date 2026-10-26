@@ -32,6 +32,16 @@ retry identity는 world/character/action payload 자체가 아니라 HTTP mutati
 
 완료된 같은 key + 같은 operation/fingerprint는 provider를 다시 호출하지 않고 result session/turn의 canonical `GameLog`를 읽어 `GameResponse`를 재구성합니다. 다른 operation 또는 다른 fingerprint에 사용하면 provider 호출 전에 `409 IDEMPOTENCY_CONFLICT`로 거절합니다. 실패한 동일 payload request는 같은 key로 재시도할 수 있습니다.
 
+### Completed replay와 최신 세션 동기화
+
+- 성공적인 **신규** init/progress 응답은 `replayed: false`; 완료된 key의 **재전송** 응답은 `replayed: true`입니다. `GET /api/game/sessions/{sessionId}` 안의 `game.replayed`는 항상 `false`입니다.
+- 완료된 replay의 `sessionId`, `turnNumber`, `title`, `storyText`, `choices`, `mainImageUrl`, `latestSkillCheck`는 **원래 저장된 턴**에 속합니다. 최신 턴으로 바꿔서 돌려주지 않습니다.
+- replay 시 현재 snapshot의 턴이 replay 턴과 일치할 때만 stats/gameplay를 투영합니다. 더 최신이면 `characterStats: []`, `gameplay: null`이며, 최신 데이터를 과거 데이터로 혼합하지 않습니다. `replayed`는 턴이 같은 경우에도 `true`입니다.
+- 프론트엔드는 `replayed: true`를 받으면 **항상** 동일 owner의 읽기 전용 `GET /api/game/sessions/{sessionId}`를 요청하여 현재 완료 턴과 `canProgress` 상태를 반영합니다. 원본 replay 응답만으로 다음 `expectedTurn`을 만들지 않습니다. `turnNumber = canonicalStateTurn = game.turnNumber` 및 세션 ID 일치를 확인하고, 불일치·조회 실패 시 이전 replay를 현재 턴으로 표시하지 않습니다.
+- init 및 progress 모두 이 계약을 사용합니다. GET은 provider 호출도 canonical commit도 하지 않습니다. 새 API field는 additive이며 backend를 먼저 배포하고 frontend를 이어서 배포합니다.
+
+과거 응답 예시: `{ "sessionId": 42, "turnNumber": 2, "storyText": "과거 장면", "replayed": true, "characterStats": [], "gameplay": null }`. GET resume가 현재 4턴을 반환하면 UI의 다음 `expectedTurn`은 4이며, 2턴의 선택지는 재사용하지 않습니다.
+
 `GameLog`에는 request processing state를 저장하지 않습니다.
 
 ## `/progress`와 turn reservation

@@ -8,6 +8,7 @@ import com.uctale.uctale.application.game.ChoiceCodec;
 import com.uctale.uctale.application.game.GameMutationFingerprint;
 import com.uctale.uctale.application.game.GameMutationRequestService;
 import com.uctale.uctale.application.game.GamePersistenceService;
+import com.uctale.uctale.application.game.GameSessionQueryService;
 import com.uctale.uctale.application.game.GameTurnCommit;
 import com.uctale.uctale.application.game.IdempotencyConflictException;
 import com.uctale.uctale.application.game.ImagePromptComposer;
@@ -61,6 +62,7 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
     private static final long ASYNC_TIMEOUT_SECONDS = 5;
 
     @Autowired private GamePersistenceService persistenceService;
+    @Autowired private GameSessionQueryService sessionQueryService;
     @Autowired private GameMutationRequestRepository mutationRequestRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private PlatformTransactionManager transactionManager;
@@ -145,6 +147,62 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
         assertThat(narrativeGenerator.progressCalls()).as("provider calls after progress fingerprint conflict").isEqualTo(1);
 
         assertCanonicalTurn(opening.sessionId(), key, 2, 2);
+    }
+
+    @Test
+    @DisplayName("진행 후 오래된 init/progress replay는 과거 본문을 유지하고 최신 완료 턴은 GET resume에서만 읽는다")
+    void historicalCompletedReplay_RequiresCurrentSessionResync() {
+        String initKey = "matrix-historical-init-001";
+        String progressKey = "matrix-historical-progress-001";
+        GameResponse opening = createOpening(initKey);
+        GameProgressRequest firstRequest = issuedProgress(opening);
+        GameResponse second = gameService.progressGame(
+                progressContext(progressKey, opening.sessionId()), firstRequest
+        );
+        var nextChoice = second.choices().getFirst();
+        GameProgressRequest secondRequest = new GameProgressRequest(
+                opening.sessionId(), nextChoice.id(), second.turnNumber(),
+                nextChoice.actionToken(), nextChoice.actionType(),
+                nextChoice.sourceTurn(), nextChoice.arguments()
+        );
+        GameResponse third = gameService.progressGame(
+                progressContext("matrix-historical-progress-002", opening.sessionId()), secondRequest
+        );
+        assertThat(third.turnNumber()).isEqualTo(3);
+        assertThat(third.replayed()).isFalse();
+
+        GameResponse replayOpening = gameService.initGame(
+                initContext(initKey), new GameInitRequest("matrix-world", "matrix-character")
+        );
+        GameResponse replaySecond = gameService.progressGame(
+                progressContext(progressKey, opening.sessionId()), firstRequest
+        );
+        assertThat(replayOpening.replayed()).isTrue();
+        assertThat(replaySecond.replayed()).isTrue();
+        assertThat(replayOpening.turnNumber()).isEqualTo(1);
+        assertThat(replaySecond.turnNumber()).isEqualTo(2);
+        assertThat(replayOpening.storyText()).isEqualTo(opening.storyText());
+        assertThat(replaySecond.storyText()).isEqualTo(second.storyText());
+        assertThat(replayOpening.characterStats()).isEmpty();
+        assertThat(replaySecond.characterStats()).isEmpty();
+        assertThat(replayOpening.gameplay()).isNull();
+        assertThat(replaySecond.gameplay()).isNull();
+
+        var resumed = sessionQueryService.resumeSession(OWNER_KEY, opening.sessionId());
+        assertThat(resumed.canProgress()).isTrue();
+        assertThat(resumed.turnNumber()).isEqualTo(3);
+        assertThat(resumed.canonicalStateTurn()).isEqualTo(3);
+        assertThat(resumed.game().turnNumber()).isEqualTo(3);
+        assertThat(resumed.game().replayed()).isFalse();
+        assertThat(resumed.game().storyText()).isEqualTo(third.storyText());
+        assertThat(resumed.game().characterStats()).isNotEmpty();
+
+        assertThat(narrativeGenerator.openingCalls()).isEqualTo(1);
+        assertThat(narrativeGenerator.progressCalls()).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from game_log where session_id = ?", Integer.class, opening.sessionId()
+        )).isEqualTo(3);
+        assertCanonicalTurn(opening.sessionId(), "matrix-historical-progress-002", 3, 3);
     }
 
     @RepeatedTest(3)

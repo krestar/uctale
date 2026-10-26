@@ -76,6 +76,7 @@ class GameSessionApiIntegrationTest {
                 .andExpect(jsonPath("$.status").value("READY"))
                 .andExpect(jsonPath("$.canProgress").value(true))
                 .andExpect(jsonPath("$.game.turnNumber").value(1))
+                .andExpect(jsonPath("$.game.replayed").value(false))
                 .andExpect(jsonPath("$.game.storyText").value("A의 첫 이야기"))
                 .andExpect(jsonPath("$.game.choices[0].text").value("A 선택"));
 

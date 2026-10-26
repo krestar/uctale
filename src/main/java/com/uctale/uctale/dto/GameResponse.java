@@ -11,8 +11,23 @@ public record GameResponse(
         String mainImageUrl,
         List<CharacterStat> characterStats,
         SkillCheckView latestSkillCheck,
-        GameplayView gameplay
+        GameplayView gameplay,
+        boolean replayed
 ) {
+    // 새 mutation과 session resume은 replay가 아니다. 기존 생성자 호출과 wire 계약을 유지한다.
+    public GameResponse(
+            Long sessionId, int turnNumber, String title, String storyText, List<GameChoice> choices,
+            String mainImageUrl, List<CharacterStat> characterStats, SkillCheckView latestSkillCheck,
+            GameplayView gameplay
+    ) {
+        this(sessionId, turnNumber, title, storyText, choices, mainImageUrl,
+                characterStats, latestSkillCheck, gameplay, false);
+    }
+
+    public GameResponse asReplay() {
+        return new GameResponse(sessionId, turnNumber, title, storyText, choices, mainImageUrl,
+                characterStats, latestSkillCheck, gameplay, true);
+    }
     public GameResponse(
             Long sessionId,
             int turnNumber,
