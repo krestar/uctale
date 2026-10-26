@@ -28,8 +28,8 @@ export const progressGame = async (sessionId, choice, expectedTurn, idempotencyK
     return mapGameResponse(response.data);
 };
 
-export const listGameSessions = async () => {
-    const response = await apiClient.get(`${BASE_URL}/sessions`);
+export const listGameSessions = async (cursor = null, size = 20) => {
+    const response = await apiClient.get(`${BASE_URL}/sessions`, { params: { size, ...(cursor ? { cursor } : {}) } });
     return response.data;
 };
 
