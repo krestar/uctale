@@ -92,7 +92,7 @@ class PostgresSessionLibraryPaginationTest extends PostgresIntegrationTestSuppor
                 """, String.class, OWNER));
         assertThat(plan).contains("Limit");
         String indexDefinition = jdbc.queryForObject("""
-                SELECT indexdef FROM pg_indexes WHERE tablename='game_session'
+                SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND tablename='game_session'
                 AND indexname='idx_game_session_owner_updated_id'
                 """, String.class);
         assertThat(indexDefinition).contains("owner_key").contains("updated_at DESC NULLS LAST").contains("id DESC");
