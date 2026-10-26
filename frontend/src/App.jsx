@@ -49,6 +49,9 @@ function App() {
   const [sessions, setSessions] = useState([])
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const [sessionsError, setSessionsError] = useState('')
+  const [sessionsNextCursor, setSessionsNextCursor] = useState(null)
+  const [sessionsHasMore, setSessionsHasMore] = useState(false)
+  const sessionRequestRef = useRef(0)
   const [resumingSessionId, setResumingSessionId] = useState(null)
 
   const [setupFieldErrors, setSetupFieldErrors] = useState({})
@@ -73,18 +76,27 @@ function App() {
     return true
   }
 
-  const loadSessions = async () => {
+  const loadSessions = async (append = false) => {
+    if (append && (!sessionsHasMore || sessionsLoading)) return
+    const request = ++sessionRequestRef.current
+    const cursor = append ? sessionsNextCursor : null
     setSessionsLoading(true)
     setSessionsError('')
     try {
-      const data = await listGameSessions()
-      setSessions(Array.isArray(data) ? data : [])
+      const data = await listGameSessions(cursor)
+      if (request !== sessionRequestRef.current) return
+      setSessions((current) => append
+        ? [...current, ...data.items.filter((item) => !current.some((existing) => existing.sessionId === item.sessionId))]
+        : data.items)
+      setSessionsNextCursor(data.nextCursor)
+      setSessionsHasMore(data.hasMore)
     } catch (error) {
+      if (request !== sessionRequestRef.current) return
       if (!requireReauthentication(error)) {
         setSessionsError(getApiErrorMessage(error, '저장된 이야기를 불러오지 못했습니다.'))
       }
     } finally {
-      setSessionsLoading(false)
+      if (request === sessionRequestRef.current) setSessionsLoading(false)
     }
   }
 
@@ -338,8 +350,10 @@ function App() {
       sessions={sessions}
       sessionsLoading={sessionsLoading}
       sessionsError={sessionsError}
+      sessionsHasMore={sessionsHasMore}
+      onLoadMoreSessions={() => loadSessions(true)}
       resumingSessionId={resumingSessionId}
-      onReloadSessions={loadSessions}
+      onReloadSessions={() => loadSessions(false)}
       onResumeSession={handleResume}
       onAuthError={requireReauthentication}
       onWorldChange={handleWorldChange}
