@@ -10,6 +10,8 @@ function GameSetupScreen({
   sessions,
   sessionsLoading,
   sessionsError,
+  sessionsHasMore,
+  onLoadMoreSessions,
   resumingSessionId,
   onReloadSessions,
   onResumeSession,
@@ -34,6 +36,8 @@ function GameSetupScreen({
           sessions={sessions}
           isLoading={sessionsLoading}
           error={sessionsError}
+          hasMore={sessionsHasMore}
+          onLoadMore={onLoadMoreSessions}
           resumingSessionId={resumingSessionId}
           onResume={onResumeSession}
           onReload={onReloadSessions}
