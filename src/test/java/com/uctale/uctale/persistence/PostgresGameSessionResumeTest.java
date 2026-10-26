@@ -119,6 +119,24 @@ class PostgresGameSessionResumeTest extends PostgresIntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("유효한 PostgreSQL lease는 PROCESSING이며 마지막 완료 턴만 노출한다")
+    void activeLease_BlocksProgress() {
+        var session = persistenceService.saveOpening(
+                OWNER_KEY, "세계", "인물", "마지막 완료 이야기",
+                choiceCodec.serialize(List.of(new GameChoice(1, "진행한다"))), null
+        );
+        mutationRequestService.begin(OWNER_KEY, GameMutationRequestService.PROGRESS,
+                "resume-active-lease-001", session.getId(), 1, "a".repeat(64));
+
+        var resumed = queryService.resumeSession(OWNER_KEY, session.getId());
+        assertThat(resumed.status()).isEqualTo("PROCESSING");
+        assertThat(resumed.retryable()).isFalse();
+        assertThat(resumed.canProgress()).isFalse();
+        assertThat(resumed.game().storyText()).isEqualTo("마지막 완료 이야기");
+        assertThat(queryService.listSessions(OWNER_KEY).getFirst().status()).isEqualTo("PROCESSING");
+    }
+
+    @Test
     @DisplayName("지원하지 않는 snapshot은 기본값으로 덮지 않고 UNRECOVERABLE로 격리한다")
     void unsupportedSnapshot_IsNotSilentlyRecovered() {
         var session = persistenceService.saveOpening(

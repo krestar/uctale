@@ -2,13 +2,15 @@ package com.uctale.uctale.application.game;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import tools.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@SpringBootTest
 class GameStateCodecCompatibilityTest {
 
-    private final GameStateCodec codec = new GameStateCodec(new ObjectMapper(), new GameStateUpgrader());
+    @Autowired private GameStateCodec codec;
 
     @Test
     @DisplayName("현재 schema v10에서 stats가 누락된 손상 snapshot은 기본값으로 숨기지 않는다")

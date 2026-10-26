@@ -7,15 +7,17 @@ import com.uctale.uctale.domain.game.ItemOwnershipType;
 import com.uctale.uctale.domain.game.OwnedItem;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import tools.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@SpringBootTest
 class InventoryAuditCodecTest {
-    private final InventoryAuditCodec codec = new InventoryAuditCodec(new ObjectMapper());
+    @Autowired private InventoryAuditCodec codec;
 
     @Test
     @DisplayName("inventory state change만 GameLog audit JSON으로 round-trip한다")

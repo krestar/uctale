@@ -53,6 +53,10 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.AdditionalAnswers.delegatesTo;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 
 @SpringBootTest
 class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
@@ -294,7 +298,7 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
         GameProgressRequest request = issuedProgress(opening);
         String crashedKey = "matrix-crash-key-a";
 
-        GameService crashingService = newGameService(new CrashBeforeCommitPersistence(persistenceService));
+        GameService crashingService = newGameService(crashingPersistence());
 
         assertThatThrownBy(() -> crashingService.progressGame(
                 progressContext(crashedKey, opening.sessionId()), request
@@ -678,30 +682,14 @@ class PostgresM2TurnIntegrityMatrixTest extends PostgresIntegrationTestSupport {
         }
     }
 
-    private static final class CrashBeforeCommitPersistence extends GamePersistenceService {
-        private final GamePersistenceService delegate;
-
-        CrashBeforeCommitPersistence(GamePersistenceService delegate) {
-            super(null, null, null, null, null, null, null);
-            this.delegate = delegate;
-        }
-
-        @Override
-        public LoadedTurn loadLatestTurn(String ownerKey, Long sessionId, int expectedTurn) {
-            return delegate.loadLatestTurn(ownerKey, sessionId, expectedTurn);
-        }
-
-        @Override
-        public int saveNextTurn(
-                String ownerKey,
-                Long sessionId,
-                GameTurnCommit commit,
-                Long mutationRequestId,
-                String resultTitle,
-                String reservationOwner
-        ) {
-            throw new SimulatedCrash();
-        }
+    private GamePersistenceService crashingPersistence() {
+        // Production 빈으로 나머지 메서드를 위임하고 commit 직전 실패만 대체한다.
+        // null 의존성을 넘겨 production service를 상속하던 invalid construction을 제거한다.
+        GamePersistenceService proxy = mock(GamePersistenceService.class, delegatesTo(persistenceService));
+        doThrow(new SimulatedCrash()).when(proxy).saveNextTurn(
+                any(), any(), any(), any(), any(), any()
+        );
+        return proxy;
     }
 
     private static final class MutableClock extends Clock {
