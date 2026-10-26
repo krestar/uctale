@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createAsyncRequestGate } from './asyncRequestGate.js'
+import { createAsyncRequestGate, progressRequestKey } from './asyncRequestGate.js'
 
 test('duplicate progress uses one active operation even before React state commits', () => {
   const gate = createAsyncRequestGate()
@@ -30,4 +30,14 @@ test('reauthentication invalidates stale async responses and releases locks', ()
   assert.equal(gate.begin('progress'), null)
   gate.end('progress', current)
   assert.equal(gate.begin('progress'), current)
+})
+
+test('retry sends the identical idempotency key while a new choice gets a new key', () => {
+  let generated = 0
+  const create = () => 'key-' + ++generated
+  const first = progressRequestKey(null, create)
+  const retry = progressRequestKey(first, create)
+  assert.equal(retry, first)
+  assert.equal(generated, 1)
+  assert.equal(progressRequestKey(null, create), 'key-2')
 })

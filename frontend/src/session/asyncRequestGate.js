@@ -20,3 +20,7 @@ export function createAsyncRequestGate() {
     },
   }
 }
+
+export function progressRequestKey(retryKey, createKey) {
+  return retryKey || createKey()
+}

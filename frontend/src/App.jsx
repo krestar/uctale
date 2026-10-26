@@ -12,7 +12,7 @@ import {
 import { getApiErrorCode, getApiErrorMessage, isAccessAuthError } from './api/apiError'
 import { createResumeMeta } from './session/sessionRecovery.js'
 import { resolveMutationGame } from './session/mutationReplay.js'
-import { createAsyncRequestGate } from './session/asyncRequestGate.js'
+import { createAsyncRequestGate, progressRequestKey } from './session/asyncRequestGate.js'
 import AccessScreen from './screens/AccessScreen'
 import GamePlayScreen from './screens/GamePlayScreen'
 import GameSetupScreen from './screens/GameSetupScreen'
@@ -248,7 +248,7 @@ function App() {
 
     const epoch = requestGateRef.current.begin('progress')
     if (epoch == null) return
-    const idempotencyKey = retryIdempotencyKey || createIdempotencyKey()
+    const idempotencyKey = progressRequestKey(retryIdempotencyKey, createIdempotencyKey)
     setIsProgressing(true)
     setPendingChoiceId(choiceId)
     setProgressError(null)
