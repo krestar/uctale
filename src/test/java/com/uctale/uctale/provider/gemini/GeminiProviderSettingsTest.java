@@ -12,11 +12,11 @@ class GeminiProviderSettingsTest {
     @DisplayName("Gemini 3 stable Flash는 model URL과 thinkingLevel 계약을 설정에서 만든다")
     void gemini3Stable_UsesThinkingLevel() {
         GeminiProviderSettings settings = new GeminiProviderSettings(
-                "key", "gemini-3.7-flash", "medium", "low"
+                "key", "gemini-3.8-flash", "medium", "low"
         );
 
-        assertThat(settings.modelId()).isEqualTo("gemini-3.7-flash");
-        assertThat(settings.generateContentUrl()).endsWith("/models/gemini-3.7-flash:generateContent");
+        assertThat(settings.modelId()).isEqualTo("gemini-3.8-flash");
+        assertThat(settings.generateContentUrl()).endsWith("/models/gemini-3.8-flash:generateContent");
         assertThat(settings.thinkingConfig(settings.openingThinkingLevel()))
                 .containsEntry("thinkingLevel", "medium")
                 .doesNotContainKey("thinkingBudget");
@@ -28,14 +28,14 @@ class GeminiProviderSettingsTest {
     @DisplayName("provider transient retry는 설정된 stable fallback 모델을 선택한다")
     void providerTransientRetry_UsesStableFallbackModel() {
         GeminiProviderSettings settings = new GeminiProviderSettings(
-                "key", "gemini-3.7-flash", "gemini-3.6-flash", "medium", "low"
+                "key", "gemini-3.8-flash", "gemini-3.5-flash-lite", "medium", "low"
         );
 
-        assertThat(settings.retryModelId("PROVIDER_HTTP_503")).isEqualTo("gemini-3.6-flash");
-        assertThat(settings.retryModelId("PROVIDER_RATE_LIMIT")).isEqualTo("gemini-3.6-flash");
-        assertThat(settings.retryModelId("MALFORMED_JSON")).isEqualTo("gemini-3.7-flash");
+        assertThat(settings.retryModelId("PROVIDER_HTTP_503")).isEqualTo("gemini-3.5-flash-lite");
+        assertThat(settings.retryModelId("PROVIDER_RATE_LIMIT")).isEqualTo("gemini-3.5-flash-lite");
+        assertThat(settings.retryModelId("MALFORMED_JSON")).isEqualTo("gemini-3.8-flash");
         assertThat(settings.generateContentUrl(settings.fallbackModelId()))
-                .endsWith("/models/gemini-3.6-flash:generateContent");
+                .endsWith("/models/gemini-3.5-flash-lite:generateContent");
     }
 
     @Test
@@ -66,7 +66,7 @@ class GeminiProviderSettingsTest {
         assertThatThrownBy(() -> new GeminiProviderSettings("key", "gemini-flash-latest", "medium", "low"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("stable Flash model ID");
-        assertThatThrownBy(() -> new GeminiProviderSettings("key", "gemini-3.7-flash-preview", "medium", "low"))
+        assertThatThrownBy(() -> new GeminiProviderSettings("key", "gemini-3.8-flash-preview", "medium", "low"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("stable Flash model ID");
     }
@@ -74,7 +74,7 @@ class GeminiProviderSettingsTest {
     @Test
     @DisplayName("지원하지 않는 thinking level은 시작 시 fail-fast 한다")
     void unsupportedThinkingLevel_IsRejected() {
-        assertThatThrownBy(() -> new GeminiProviderSettings("key", "gemini-3.7-flash", "minimal", "low"))
+        assertThatThrownBy(() -> new GeminiProviderSettings("key", "gemini-3.8-flash", "minimal", "low"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("allowed: low, medium, high");
     }

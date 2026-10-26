@@ -79,7 +79,7 @@ UCTale은 이야기의 중요한 상태와 판정을 서버에서 관리하고, 
 | Backend | Java 21, Spring Boot 4.1, Spring Web MVC, Spring Data JPA |
 | Database | PostgreSQL, Flyway |
 | Test Database | H2 + Testcontainers PostgreSQL 17.6 |
-| Narrative AI | Google Gemini 3.7 Flash |
+| Narrative AI | Google Gemini 3.8 Flash |
 | Image AI | Pollinations |
 | Deployment | Vercel, Render |
 
@@ -93,7 +93,8 @@ UCTale은 이야기의 중요한 상태와 판정을 서버에서 관리하고, 
 
 ```env
 GOOGLE_AI_API_KEY=...
-GOOGLE_AI_MODEL=gemini-3.7-flash
+GOOGLE_AI_MODEL=gemini-3.8-flash
+GOOGLE_AI_FALLBACK_MODEL=gemini-3.5-flash-lite
 POLLINATIONS_TOKEN=...
 GAME_ACCESS_PASSWORD=...
 GAME_ACCESS_SESSION_SECRET=32자 이상의 충분히 긴 임의 문자열

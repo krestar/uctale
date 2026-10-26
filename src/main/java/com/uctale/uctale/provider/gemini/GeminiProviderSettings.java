@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
 @Component
 public final class GeminiProviderSettings {
 
-    private static final Pattern STABLE_FLASH_MODEL = Pattern.compile("^gemini-(\\d+)\\.(\\d+)-flash$");
+    private static final Pattern STABLE_FLASH_MODEL = Pattern.compile("^gemini-(\\d+)\\.(\\d+)-flash(?:-lite)?$");
     private static final String GENERATE_CONTENT_URL =
             "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent";
 
@@ -28,7 +28,7 @@ public final class GeminiProviderSettings {
     public GeminiProviderSettings(
             @Value("${google.ai.api-key}") String apiKey,
             @Value("${google.ai.model}") String modelId,
-            @Value("${google.ai.fallback-model:gemini-3.6-flash}") String fallbackModelId,
+            @Value("${google.ai.fallback-model:gemini-3.5-flash-lite}") String fallbackModelId,
             @Value("${google.ai.thinking.opening}") String openingThinkingLevel,
             @Value("${google.ai.thinking.progress}") String progressThinkingLevel
     ) {
@@ -47,7 +47,7 @@ public final class GeminiProviderSettings {
             String openingThinkingLevel,
             String progressThinkingLevel
     ) {
-        this(apiKey, modelId, "gemini-3.6-flash", openingThinkingLevel, progressThinkingLevel);
+        this(apiKey, modelId, "gemini-3.5-flash-lite", openingThinkingLevel, progressThinkingLevel);
     }
 
     String apiKey() {

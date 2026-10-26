@@ -12,6 +12,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
+import java.net.SocketTimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -25,7 +27,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class GeminiNarrativeAdapterTest {
 
-    private static final String TEST_MODEL = "gemini-3.7-flash";
+    private static final String TEST_MODEL = "gemini-3.8-flash";
 
     private GeminiNarrativeAdapter adapter;
     private GeminiProviderSettings settings;
@@ -162,6 +164,29 @@ class GeminiNarrativeAdapterTest {
                 .andRespond(withSuccess(apiResponse(validNarrativeJson()), MediaType.APPLICATION_JSON));
 
         assertThat(adapter.repairOpening("세계", "캐릭터", "INVALID_CHOICE_ID").title()).isEqualTo("첫날 밤");
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("RestClientException 안의 읽기 타임아웃을 recoverable 네트워크 실패로 분류한다")
+    void openingWrappedReadTimeoutIsRecoverable() {
+        mockServer.expect(requestTo(settings.generateContentUrl()))
+                .andRespond(request -> { throw new RestClientException("response failure", new SocketTimeoutException("Read timed out")); });
+
+        assertThatThrownBy(() -> adapter.createOpening("세계", "캐릭터"))
+                .isInstanceOfSatisfying(RecoverableNarrativeResponseException.class, exception ->
+                        assertThat(exception.reasonCode()).isEqualTo("PROVIDER_NETWORK"));
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("일반 RestClientException은 retryable로 처리하지 않는다")
+    void openingUnrelatedRestClientExceptionIsNotRetryable() {
+        mockServer.expect(requestTo(settings.generateContentUrl()))
+                .andRespond(request -> { throw new RestClientException("conversion failure"); });
+
+        assertThatThrownBy(() -> adapter.createOpening("세계", "캐릭터"))
+                .isInstanceOf(NarrativeProviderException.class);
         mockServer.verify();
     }
 
