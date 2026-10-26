@@ -21,6 +21,8 @@ UCTale은 별도 save slot을 만들지 않는다. 각 게임의 저장 단위�
 
 Session list/resume 조회 endpoint와 thumbnail 조회 endpoint는 Narrative/Image provider를 호출하지 않는다. 완료된 mutation 재전송 응답(`replayed: true`)을 받은 웹 UI는 `GET /api/game/sessions/{sessionId}`로 최신 완료 턴을 재조회하고, 읽기 결과가 같은 canonical 턴을 가리킬 때만 플레이 가능한 상태로 반영한다. `game.replayed`는 `false`이며 `canProgress=false`이면 다음 선택을 잠근다. 재조회 실패 시 과거 replay의 선택지를 현재 턴에 사용하는 대신 같은 key로 다시 시도할 수 있다. Frontend는 thumbnail을 viewport 진입 이후에만 요청하고, 미생성 thumbnail은 placeholder로 표시한다.
 
+세션 목록의 N+1 제거, SQL count·경과 시간·실제 PostgreSQL 실행 계획의 재현 가능한 비교 결과는 [Issue #130 성능 측정 보고서](../benchmarks/session-library-issue-130.md)를 참고한다. 기록된 수치는 과거 운영 telemetry가 아닌 CI Testcontainers에서 이전 조회 경로를 재구성해 측정한 값이다.
+
 ## Consistency boundary
 
 Session resume은 다음 값이 모두 같은 완료 turn을 가리킬 때만 playable payload를 반환한다.
