@@ -2,6 +2,8 @@ package com.uctale.uctale.application.game;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.io.ClassPathResource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -11,9 +13,10 @@ import java.nio.charset.StandardCharsets;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@SpringBootTest
 class GameStateLegacyUpgradeTest {
-    private final ObjectMapper objectMapper = new ObjectMapper();
-    private final GameStateUpgrader upgrader = new GameStateUpgrader();
+    @Autowired private ObjectMapper objectMapper;
+    @Autowired private GameStateUpgrader upgrader;
 
     @Test
     @DisplayName("production raw legacy snapshot은 현재 v10까지 deterministic upgrade된다")

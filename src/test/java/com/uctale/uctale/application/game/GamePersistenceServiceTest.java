@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 
@@ -32,6 +33,25 @@ class GamePersistenceServiceTest {
     @Autowired private GameLogRepository gameLogRepository;
     @Autowired private GameStateSnapshotRepository gameStateSnapshotRepository;
     @Autowired private ImageAssetRepository imageAssetRepository;
+    @Autowired private GameStateRecovery gameStateRecovery;
+    @Autowired private InventoryAuditCodec inventoryAuditCodec;
+    @Autowired private VitalsAuditCodec vitalsAuditCodec;
+    @Autowired private CombatAuditCodec combatAuditCodec;
+    @Autowired private QuestAuditCodec questAuditCodec;
+    @Autowired private RelationshipAuditCodec relationshipAuditCodec;
+    @Autowired private StoryMemoryAuditCodec storyMemoryAuditCodec;
+
+    @Test
+    void persistenceAndRecoveryShareProductionAuditBeans() {
+        assertThat(ReflectionTestUtils.getField(gamePersistenceService, "gameStateRecovery")).isSameAs(gameStateRecovery);
+        assertThat(ReflectionTestUtils.getField(gamePersistenceService, "inventoryAuditCodec")).isSameAs(inventoryAuditCodec);
+        assertThat(ReflectionTestUtils.getField(gamePersistenceService, "vitalsAuditCodec")).isSameAs(vitalsAuditCodec);
+        assertThat(ReflectionTestUtils.getField(gamePersistenceService, "combatAuditCodec")).isSameAs(combatAuditCodec);
+        assertThat(ReflectionTestUtils.getField(gamePersistenceService, "questAuditCodec")).isSameAs(questAuditCodec);
+        assertThat(ReflectionTestUtils.getField(gamePersistenceService, "relationshipAuditCodec")).isSameAs(relationshipAuditCodec);
+        assertThat(ReflectionTestUtils.getField(gamePersistenceService, "storyMemoryAuditCodec")).isSameAs(storyMemoryAuditCodec);
+        assertThat(ReflectionTestUtils.getField(gameStateRecovery, "storyMemoryAuditCodec")).isSameAs(storyMemoryAuditCodec);
+    }
 
     @Test
     @DisplayName("새 게임 세션은 생성 owner에게 귀속되고 동일 owner만 조회·진행할 수 있다")
