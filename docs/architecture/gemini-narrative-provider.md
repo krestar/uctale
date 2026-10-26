@@ -85,6 +85,12 @@ progress의 transient retry가 모두 소진되면 API는 영구 차단 대신 `
 
 이 계약은 prompt 지침이며 별도 외부 언어 감지/번역 서비스를 도입하지 않습니다. 또한 언어 선택은 canonical game state나 Skill Check/GameResult 판정 권한을 LLM에 부여하지 않습니다.
 
+## 선택적 gameplay 제안 복구 경계
+
+Gemini 응답의 `title`, `story_text`, `choices[].id/text`는 계속 엄격하게 검증하며 누락·중복·범위 초과를 거부합니다. `choices[].intent`/`subject_key`는 서버 소유 행동 규칙에 대한 **선택적 제안**일 뿐입니다. 두 필드가 불완전하거나 타입, enum, slug 규칙에 맞지 않으면 둘 다 버리고 해당 선택지를 기본 SKILL_CHECK로 발급합니다. 유효한 제안만 `GameplayActionRules.validateProposal`을 거쳐 GAMEPLAY 행동으로 발급하며 수량/HP/결과는 LLM이 결정하지 않습니다.
+
+이 강등은 provider 결과를 관용적으로 수용하는 경계에만 적용하며, 이미 서버가 발급한 행동 토큰·turn·arguments 무결성이나 저장된 canonical 상태 검증을 완화하지 않습니다. 로그에는 제거된 부가 제안의 **개수만** 기록하고 raw provider 내용은 출력하지 않습니다. `INVALID_GAMEPLAY_PROPOSAL` 복구 재시도 비용이 반복되던 운영 장애를 줄이기 위한 변경입니다.
+
 ## 관측성
 
 기존 operation-level `provider_call` event는 configured primary Narrative model ID와 전체 bounded recovery의 retry/attempt count를 기록합니다. Gemini adapter는 실제 provider attempt별 `gemini_provider_result` 구조화 로그에 다음을 기록합니다.

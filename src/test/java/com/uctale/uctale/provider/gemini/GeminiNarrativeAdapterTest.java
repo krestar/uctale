@@ -190,6 +190,45 @@ class GeminiNarrativeAdapterTest {
         mockServer.verify();
     }
 
+    @Test
+    @DisplayName("잘못된 선택적 gameplay metadata는 일반 선택지로 안전하게 강등한다")
+    void parseResponse_DiscardsInvalidOptionalGameplayMetadata() {
+        String narrative = """
+                {"title":"첫 장면","story_text":"이야기가 시작된다","choices":[
+                  {"id":1,"text":"구출한다","intent":"COLLECT","subject_key":"한글 대상"},
+                  {"id":2,"text":"경계한다","intent":"TALK"},
+                  {"id":3,"text":"대화한다","intent":"TALK","subject_key":123},
+                  {"id":4,"text":"살펴본다","intent":"REST","subject_key":"camp-1"}
+                ]}
+                """;
+        NarrativeTurn turn = adapter.parseResponse(apiResponse(narrative));
+
+        assertThat(turn.choices()).hasSize(4);
+        assertThat(turn.choices().get(0).intent()).isNull();
+        assertThat(turn.choices().get(0).subjectKey()).isNull();
+        assertThat(turn.choices().get(1).intent()).isNull();
+        assertThat(turn.choices().get(1).subjectKey()).isNull();
+        assertThat(turn.choices().get(2).intent()).isNull();
+        assertThat(turn.choices().get(2).subjectKey()).isNull();
+        assertThat(turn.choices().get(3).intent()).isEqualTo("REST");
+        assertThat(turn.choices().get(3).subjectKey()).isEqualTo("camp-1");
+    }
+
+    @Test
+    @DisplayName("잘못된 부가 제안만 포함된 응답도 title/story/choice text는 그대로 유지한다")
+    void parseResponse_DoesNotAlterValidNarrative() {
+        String narrative = """
+                {"title":"그날 밤","story_text":"정문이 열린다","choices":[
+                  {"id":1,"text":"문을 통과한다","intent":"INVALID","subject_key":"main-door"}
+                ]}
+                """;
+        NarrativeTurn turn = adapter.parseResponse(apiResponse(narrative));
+        assertThat(turn.title()).isEqualTo("그날 밤");
+        assertThat(turn.storyText()).isEqualTo("정문이 열린다");
+        assertThat(turn.choices().getFirst().text()).isEqualTo("문을 통과한다");
+        assertThat(turn.choices().getFirst().intent()).isNull();
+    }
+
     private String validNarrativeJson() {
         return "{\"title\":\"첫날 밤\",\"story_text\":\"좀비가 나타났다!\",\"choices\":[{\"id\":1,\"text\":\"도망간다\"}],\"visual_assets\":{\"background\":\"dark subway\",\"characters\":[],\"assets\":[]}}";
     }
