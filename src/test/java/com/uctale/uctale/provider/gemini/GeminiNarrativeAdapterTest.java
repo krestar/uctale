@@ -27,7 +27,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class GeminiNarrativeAdapterTest {
 
-    private static final String TEST_MODEL = "gemini-3.7-flash";
+    private static final String TEST_MODEL = "gemini-3.8-flash";
 
     private GeminiNarrativeAdapter adapter;
     private GeminiProviderSettings settings;
