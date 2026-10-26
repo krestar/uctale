@@ -13,9 +13,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.postgresql.util.PSQLException;
+import org.postgresql.util.ServerErrorMessage;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 
 @ExtendWith(MockitoExtension.class)
 class GamePersistenceIntegrityTest {
@@ -30,6 +33,11 @@ class GamePersistenceIntegrityTest {
     @Mock private GameStateCodec gameStateCodec;
     @Mock private GameStateRecovery gameStateRecovery;
     @Mock private InventoryAuditCodec inventoryAuditCodec;
+    @Mock private VitalsAuditCodec vitalsAuditCodec;
+    @Mock private CombatAuditCodec combatAuditCodec;
+    @Mock private QuestAuditCodec questAuditCodec;
+    @Mock private RelationshipAuditCodec relationshipAuditCodec;
+    @Mock private StoryMemoryAuditCodec storyMemoryAuditCodec;
 
     private GamePersistenceService persistenceService;
     private GameTurnCommit commit;
@@ -44,7 +52,8 @@ class GamePersistenceIntegrityTest {
                 gameMutationRequestRepository,
                 gameStateCodec,
                 gameStateRecovery,
-                inventoryAuditCodec
+                inventoryAuditCodec, vitalsAuditCodec, combatAuditCodec, questAuditCodec,
+                relationshipAuditCodec, storyMemoryAuditCodec
         );
         GameState previousState = GameState.initial("세계관", "캐릭터", "첫 이야기");
         commit = new GameTurnCommit(
@@ -74,7 +83,7 @@ class GamePersistenceIntegrityTest {
     @DisplayName("game log 턴 unique constraint 위반은 턴 충돌로 분류한다")
     void saveNextTurn_MapsGameLogTurnUniqueConstraintToConflict() {
         given(gameSessionRepository.findByIdAndOwnerKey(42L, OWNER_KEY))
-                .willThrow(new DataIntegrityViolationException("constraint uk_game_log_session_turn violated"));
+                .willThrow(postgresConstraint("uk_game_log_session_turn", "23505"));
 
         assertThatThrownBy(() -> persistenceService.saveNextTurn(OWNER_KEY, 42L, commit))
                 .isInstanceOf(TurnConflictException.class);
@@ -84,9 +93,46 @@ class GamePersistenceIntegrityTest {
     @DisplayName("image asset 턴 unique constraint 위반도 턴 충돌로 분류한다")
     void saveNextTurn_MapsImageAssetTurnUniqueConstraintToConflict() {
         given(gameSessionRepository.findByIdAndOwnerKey(42L, OWNER_KEY))
-                .willThrow(new DataIntegrityViolationException("constraint uk_image_asset_session_turn violated"));
+                .willThrow(postgresConstraint("uk_image_asset_session_turn", "23505"));
 
         assertThatThrownBy(() -> persistenceService.saveNextTurn(OWNER_KEY, 42L, commit))
                 .isInstanceOf(TurnConflictException.class);
     }
+    @Test
+    void messageAloneCannotClassifyTurnConflict() {
+        given(gameSessionRepository.findByIdAndOwnerKey(42L, OWNER_KEY))
+                .willThrow(new DataIntegrityViolationException("uk_game_log_session_turn"));
+        assertThatThrownBy(() -> persistenceService.saveNextTurn(OWNER_KEY, 42L, commit))
+                .isInstanceOf(PersistenceOperationException.class);
+    }
+
+    @Test
+    void requiresUniqueSqlState() {
+        given(gameSessionRepository.findByIdAndOwnerKey(42L, OWNER_KEY))
+                .willThrow(postgresConstraint("uk_game_log_session_turn", "23503"));
+        assertThatThrownBy(() -> persistenceService.saveNextTurn(OWNER_KEY, 42L, commit))
+                .isInstanceOf(PersistenceOperationException.class);
+    }
+
+    @Test
+    void rejectsMissingRequiredDependencies() {
+        assertThatThrownBy(() -> new GamePersistenceService(
+                gameSessionRepository, gameLogRepository, gameStateSnapshotRepository,
+                imageAssetRepository, gameMutationRequestRepository, gameStateCodec, gameStateRecovery,
+                inventoryAuditCodec, vitalsAuditCodec, combatAuditCodec, questAuditCodec,
+                relationshipAuditCodec, null))
+                .isInstanceOf(NullPointerException.class).hasMessageContaining("storyMemoryAuditCodec");
+    }
+
+    private DataIntegrityViolationException postgresConstraint(String name, String state) {
+        PSQLException postgres = mock(PSQLException.class);
+        ServerErrorMessage detail = mock(ServerErrorMessage.class);
+        given(postgres.getSQLState()).willReturn(state);
+        if ("23505".equals(state)) {
+            given(postgres.getServerErrorMessage()).willReturn(detail);
+            given(detail.getConstraint()).willReturn(name);
+        }
+        return new DataIntegrityViolationException("database integrity error", postgres);
+    }
+
 }
