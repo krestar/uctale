@@ -13,9 +13,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -303,6 +305,15 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
             logProviderResult(modelId, errorContext, thinkingLevel, tokenUsage, startedAt, "PROVIDER_RETRYABLE_FAILURE");
             log.warn("gemini_provider_network_failure model={} context={} error={}", modelId, errorContext, exception.getClass().getSimpleName());
             throw recoverable("PROVIDER_NETWORK", "Gemini provider 네트워크 호출이 일시적으로 실패했습니다.", exception);
+        } catch (RestClientException exception) {
+            if (hasReadTimeoutCause(exception)) {
+                logProviderResult(modelId, errorContext, thinkingLevel, tokenUsage, startedAt, "PROVIDER_RETRYABLE_FAILURE");
+                log.warn("gemini_provider_read_timeout model={} context={}", modelId, errorContext);
+                throw recoverable("PROVIDER_NETWORK", "Gemini provider 응답 대기 시간이 초과되었습니다.", exception);
+            }
+            logProviderResult(modelId, errorContext, thinkingLevel, tokenUsage, startedAt, "PROVIDER_FAILURE");
+            log.error("Gemini provider 처리 실패 model={} context={} error={}", modelId, errorContext, exception.getClass().getSimpleName());
+            throw new NarrativeProviderException("Gemini provider 응답 처리에 실패했습니다.", exception);
         } catch (JacksonException exception) {
             logProviderResult(modelId, errorContext, thinkingLevel, tokenUsage, startedAt, "REQUEST_SERIALIZATION_FAILURE");
             throw new IllegalStateException("Gemini 요청 직렬화에 실패했습니다.", exception);
@@ -311,6 +322,15 @@ public class GeminiNarrativeAdapter implements NarrativeGenerator {
             log.error("Gemini provider 호출 실패 model={} context={} error={}", modelId, errorContext, exception.getClass().getSimpleName());
             throw exception;
         }
+    }
+
+    private boolean hasReadTimeoutCause(Throwable exception) {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SocketTimeoutException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     String createRequestBody(
